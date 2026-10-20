@@ -102,4 +102,4 @@ modules:
       # Aquí fijamos la revisión exacta de SYN para repetir la compilación.
       - type: git
         url: https://github.com/manupernas/SYN.git
-        commit: 10bc3d871a6795961ba5944fea244e77cb28e9e6
+        commit: 6bb62765e02ba6616d2c5974746bd3f886fa8860
