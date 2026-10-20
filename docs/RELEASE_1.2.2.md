@@ -15,12 +15,12 @@ Primera publicación multiplataforma del sistema DVR integrado de SYN. Esta vers
 
 ## Qué descargar
 
-Se generan diez paquetes: RPM, DEB, Pacman, Flatpak y AppImage, cada uno en versión `x86_64` (AMD/Intel) y `aarch64` (ARM64). **El Flatpak también es específico de la arquitectura**, aunque funciona en distintas distribuciones Linux.
+Esta Release exige **seis paquetes nativos**: RPM, DEB y Pacman, cada uno en `x86_64` (Intel/AMD) y `aarch64` (ARM64). **Flatpak y AppImage son opcionales**: cada formato se añade solo si sus dos arquitecturas compilan correctamente. Si una falla, se omiten ambos paquetes de ese formato. El Flatpak también es específico de la arquitectura.
 
-- **Fedora:** `.rpm` (preferible para instalación nativa) o `.flatpak`.
-- **Ubuntu/Debian:** `.deb` o `.flatpak`.
-- **Arch/EndeavourOS:** `.pkg.tar.zst` o `.flatpak`.
-- **Otros Linux:** `.flatpak`; `.AppImage` experimental.
+- **Fedora:** `.rpm` (o `.flatpak` si aparece entre los archivos publicados).
+- **Ubuntu/Debian:** `.deb` (o `.flatpak` si está incluido).
+- **Arch/EndeavourOS:** `.pkg.tar.zst` (o `.flatpak` si está incluido).
+- **Otros Linux:** `.flatpak` o `.AppImage` experimental, únicamente si aparecen en esta Release.
 
 Los RPM/DEB/Pacman necesitan paquetes del sistema: GTK4, PyGObject, libadwaita, libmpv y FFmpeg. Los Flatpak instalan su propio entorno GNOME 49 desde Flathub al instalarlos. Los AppImage están pensados para Ubuntu 24.04 o sistemas compatibles; **no se garantiza compatibilidad con cualquier Linux**, especialmente en entornos OpenGL/Wayland particulares.
 
@@ -53,7 +53,7 @@ Si ya hay una grabación en curso, **no cambies de paquete ni reinicies el servi
 
 ## Limitaciones y privacidad
 
-- Los paquetes se publican solo tras completar las diez compilaciones y las pruebas de cada trabajo en GitHub Actions.
+- La publicación exige las pruebas previas y las seis compilaciones nativas. Flatpak y AppImage se publican solo por parejas completas y verificadas en el CI.
 - AppImage es experimental, empaqueta bibliotecas GTK4/PyGObject y libmpv, pero no sustituye los controladores gráficos del anfitrión; exige validación en sistemas reales.
 - No incluye canales, suscripciones ni listas IPTV. Solo debes usar emisiones para las que tengas autorización.
 - Los datos de usuario (`profiles.json`, credenciales Xtream, `dvr.json`) y las grabaciones son **locales** y no forman parte de los paquetes.
