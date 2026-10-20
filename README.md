@@ -4,6 +4,12 @@
 
 SYN is currently an independently developed project and **is not yet available on Flathub**.
 
+## SYN DVR 1.2.2 (development release)
+
+SYN includes an integrated recording planner with EPG scheduling (right-click a programme), one-click recording, a recording library, custom video destination and an independent FFmpeg worker managed by a systemd user service. The Xtream/M3U API User-Agent is configured separately from the MPV video User-Agent; VLC remains the default recorder agent.
+
+Install from source with `bash construir-flatpak.sh`, then enable the independent scheduler with `bash instalar-servicio-dvr.sh`. Full details: [DVR 1.2.2 notes](docs/NOTAS_DVR_1.2.2.md).
+
 ## Features
 
 - Integrated video playback through libmpv.

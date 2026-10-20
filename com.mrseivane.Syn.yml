@@ -7,12 +7,13 @@ sdk: org.gnome.Sdk
 command: syn-flatpak
 finish-args:
   - --share=network
+  - --talk-name=org.freedesktop.Flatpak
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
-  - --filesystem=xdg-videos:ro
+  - --filesystem=xdg-videos:create
   - --filesystem=xdg-documents:ro
   - --filesystem=xdg-download:ro
   # Los perfiles nativos de SYN 2.1 se comparten con Flatpak para migrar sin copiar claves.
@@ -29,7 +30,7 @@ modules:
   - name: syn-ffmpeg
     buildsystem: simple
     build-commands:
-      - ./configure --prefix=/app --enable-shared --disable-static --disable-programs --disable-doc --enable-gnutls --enable-pic
+      - ./configure --prefix=/app --enable-shared --disable-static --enable-ffmpeg --disable-ffplay --disable-ffprobe --disable-doc --enable-gnutls --enable-pic
       - make -j${FLATPAK_BUILDER_N_JOBS}
       - make install
     sources:
@@ -81,6 +82,8 @@ modules:
     build-commands:
       - install -Dm755 syn-flatpak /app/bin/syn-flatpak
       - install -Dm755 syn.py /app/share/syn/syn.py
+      - install -Dm644 syn_dvr.py /app/share/syn/syn_dvr.py
+      - install -Dm755 syn-dvr-worker /app/bin/syn-dvr-worker
       - install -Dm644 syn_sources.py /app/share/syn/syn_sources.py
       - install -Dm644 syn_i18n.py /app/share/syn/syn_i18n.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo
