@@ -40,7 +40,7 @@ modules:
       - -Dglslang=disabled
       - -Ddemos=false
     post-install:
-      - install -Dm644 LICENSE /app/share/licenses/io.github.manupernas.SYN/libplacebo/LICENSE
+      - install -Dm644 /run/build/libplacebo/LICENSE /app/share/licenses/io.github.manupernas.SYN/libplacebo/LICENSE
     sources:
       - type: git
         url: https://github.com/haasn/libplacebo.git
@@ -53,7 +53,7 @@ modules:
       - -Dfontconfig=enabled
       - -Dlibunibreak=disabled
     post-install:
-      - install -Dm644 COPYING /app/share/licenses/io.github.manupernas.SYN/libass/COPYING
+      - install -Dm644 /run/build/libass/COPYING /app/share/licenses/io.github.manupernas.SYN/libass/COPYING
     sources:
       - type: git
         url: https://github.com/libass/libass.git
@@ -75,8 +75,8 @@ modules:
       - -Dmanpage-build=disabled
       - -Dbuild-date=false
     post-install:
-      - install -Dm644 Copyright /app/share/licenses/io.github.manupernas.SYN/mpv/Copyright
-      - install -Dm644 LICENSE.LGPL /app/share/licenses/io.github.manupernas.SYN/mpv/LICENSE.LGPL
+      - install -Dm644 /run/build/libmpv/Copyright /app/share/licenses/io.github.manupernas.SYN/mpv/Copyright
+      - install -Dm644 /run/build/libmpv/LICENSE.LGPL /app/share/licenses/io.github.manupernas.SYN/mpv/LICENSE.LGPL
     sources:
       - type: git
         url: https://github.com/mpv-player/mpv.git
