@@ -1,36 +1,76 @@
-name: SYN - build Flatpak x86_64
+name: SYN Flatpak GNOME 51 (two architectures)
 
 on:
   push:
-    branches:
-      - flathub-migracion
+    branches: [flathub-migracion]
     paths:
       - .github/workflows/syn-flatpak-x86_64.yml
       - io.github.manupernas.SYN.yml
+      - syn.py
+      - syn_sources.py
+      - syn_i18n.py
+      - syn-flatpak
+      - io.github.manupernas.SYN.desktop
+      - io.github.manupernas.SYN.metainfo.xml
+      - icons/**
+      - locale/**
+      - LICENSE
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  build-x86_64:
-    name: Flatpak x86_64 / GNOME 49
-    runs-on: ubuntu-24.04
+  build:
+    name: GNOME 51 / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
-
     steps:
-      - name: Checkout source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build x86_64 Flatpak and upload test bundle
+      - name: Comprobar archivo de escritorio y metadatos
+        shell: bash
+        run: |
+          python3 - <<'PYTEST'
+          from configparser import ConfigParser
+          from pathlib import Path
+          from xml.etree import ElementTree
+          name = 'io.github.manupernas.SYN'
+          p = ConfigParser(interpolation=None)
+          p.optionxform = str
+          assert p.read(name + '.desktop')
+          assert p['Desktop Entry']['Icon'] == name
+          assert p['Desktop Entry']['Exec'] == 'syn-flatpak'
+          assert p['Desktop Entry']['GenericName'] == 'IPTV player'
+          meta = ElementTree.parse(name + '.metainfo.xml').getroot()
+          assert meta.findtext('id') == name
+          assert meta.find('launchable').text == name + '.desktop'
+          assert (Path('icons') / '256x256' / 'apps' / (name + '.png')).is_file()
+          print('Desktop, AppStream e iconos: OK')
+          PYTEST
+
+      - name: Construir Flatpak de SYN
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: io.github.manupernas.SYN.yml
-          bundle: SYN.flatpak
-          arch: x86_64
+          bundle: SYN-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
           cache: true
           build-debug-bundle: false
-          artifact-name: SYN-x86_64-flatpak
+          artifact-name: SYN-GNOME51-${{ matrix.arch }}
+
+      - name: Verificar el archivo compilado
+        shell: bash
+        run: test -s "SYN-${{ matrix.arch }}.flatpak"
