@@ -1,0 +1,89 @@
+# SYN 3.6 · GTK4 único · Receta Flatpak para aarch64/x86_64
+# Compilar separadamente en x86_64 y aarch64; sin dependencias binarias del host.
+id: io.github.manupernas.SYN
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+command: syn-flatpak
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --filesystem=xdg-videos:ro
+  - --filesystem=xdg-documents:ro
+  - --filesystem=xdg-download:ro
+  - --filesystem=xdg-config/gtk-4.0:ro
+  - --filesystem=xdg-config/gtk-3.0:ro
+  - --filesystem=~/.themes:ro
+  - --filesystem=xdg-data/themes:ro
+  - --env=LC_NUMERIC=C
+modules:
+  - name: syn-ffmpeg
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=/app --enable-shared --disable-static --disable-programs --disable-doc --enable-gnutls --enable-pic
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+    sources:
+      - type: git
+        url: https://github.com/FFmpeg/FFmpeg.git
+        tag: n7.1.3
+  - name: syn-libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Dopengl=enabled
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Dglslang=disabled
+      - -Ddemos=false
+    sources:
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+  # Necesaria para los subtítulos/OSD de mpv; no está incluida en el SDK.
+  - name: syn-libass
+    buildsystem: meson
+    config-opts:
+      - -Dfontconfig=enabled
+      - -Dlibunibreak=disabled
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: '0.17.5'
+  - name: syn-libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=disabled
+      - -Dplain-gl=enabled
+      - -Dvulkan=disabled
+      - -Dx11=disabled
+      - -Dwayland=disabled
+      - -Ddrm=disabled
+      - -Dalsa=disabled
+      - -Dmanpage-build=disabled
+      - -Dbuild-date=false
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+  - name: syn
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 syn-flatpak /app/bin/syn-flatpak
+      - install -Dm755 syn.py /app/share/syn/syn.py
+      - install -Dm644 syn_sources.py /app/share/syn/syn_sources.py
+      - install -Dm644 syn_i18n.py /app/share/syn/syn_i18n.py
+      - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo
+      - install -Dm644 locale/en_GB/LC_MESSAGES/syn.mo /app/share/locale/en_GB/LC_MESSAGES/syn.mo
+      - install -Dm644 io.github.manupernas.SYN.desktop /app/share/applications/io.github.manupernas.SYN.desktop
+      - install -Dm644 io.github.manupernas.SYN.metainfo.xml /app/share/metainfo/io.github.manupernas.SYN.metainfo.xml
+      - mkdir -p /app/share/icons/hicolor
+      - cp -r icons/* /app/share/icons/hicolor/
+    sources:
+      - type: dir
+        path: .

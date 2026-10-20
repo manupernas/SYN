@@ -6,6 +6,7 @@ on:
       - flathub-migracion
     paths:
       - .github/workflows/syn-flatpak-x86_64.yml
+      - io.github.manupernas.SYN.yml
   workflow_dispatch:
 
 permissions:
@@ -23,44 +24,6 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
-      # The upstream repository contains the original development manifest.
-      # Generate a TEMPORARY local-build variant for this CI job only.
-      # This is NOT the Flathub submission manifest.
-      - name: Prepare temporary x86_64 test manifest
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          original = Path('com.mrseivane.Syn.yml').read_text(encoding='utf-8')
-          old = 'com.mrseivane.Syn'
-          new = 'io.github.manupernas.SYN'
-
-          if f'id: {old}' not in original:
-              raise SystemExit('Expected original Flatpak app ID was not found')
-
-          manifest = original.replace(old, new)
-          obsolete_permissions = (
-              '--filesystem=xdg-config/syn:create',
-              '--filesystem=xdg-config/gtk-4.0:ro',
-              '--filesystem=xdg-config/gtk-3.0:ro',
-              '--filesystem=xdg-config/kdeglobals:ro',
-              '--filesystem=~/.themes:ro',
-              '--filesystem=xdg-data/themes:ro',
-              '--filesystem=xdg-cache/syn:create',
-          )
-          manifest = '\n'.join(
-              line for line in manifest.splitlines()
-              if not any(permission in line for permission in obsolete_permissions)
-          ) + '\n'
-
-          if old in manifest:
-              raise SystemExit('Old app ID remains in temporary manifest')
-
-          Path(f'{new}.yml').write_text(manifest, encoding='utf-8')
-          print('Temporary local-build manifest prepared; no repository files were changed on GitHub')
-          PY
 
       - name: Build x86_64 Flatpak and upload test bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
