@@ -1,0 +1,691 @@
+# English (United Kingdom) translations for SYN.
+# Copyright (C) 2026 ORGANIZATION
+# This file is distributed under the same license as the SYN project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2026.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: SYN 3.8.13\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2026-10-20 01:57+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language: en_GB\n"
+"Language-Team: en_GB <LL@li.org>\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.18.0\n"
+
+msgid " al cargar la fuente (revisa URL o credenciales)."
+msgstr " while loading source (check URL or credentials)."
+
+msgid " canales cargados · perfil: "
+msgstr " channels loaded · profile: "
+
+msgid " canales · "
+msgstr " channels · "
+
+msgid " categorías · "
+msgstr " categories · "
+
+msgid " · CSS GTK4: "
+msgstr " · GTK4 CSS: "
+
+msgid ""
+" · No hay CSS GTK4 accesible del anfitrión. En Flatpak hay que compartir ~/.config/gtk-4.0 y "
+"sus recursos; para Colloid es necesario instalar su variante libadwaita (-l). Realce actual: "
+msgstr ""
+" · No host GTK4 CSS available. In Flatpak, share ~/.config/gtk-4.0 and its resources; for "
+"Colloid, install the libadwaita variant (-l). Current accent: "
+
+msgid " · Realce: "
+msgstr " · Accent: "
+
+msgid " · Siguientes 24 ›"
+msgstr " · Next 24 ›"
+
+msgid ""
+" · Sin hoja GTK4 personalizada detectada. Los temas GTK3/Qt no pueden copiarse "
+"automáticamente a libadwaita. Realce actual: "
+msgstr ""
+" · No custom GTK4 stylesheet found. GTK3/Qt themes cannot be automatically copied to "
+"libadwaita. Current accent: "
+
+msgid " · busca para filtrar"
+msgstr " · search to filter"
+
+msgid " · clic derecho para cambiar logo"
+msgstr " · right-click to change logo"
+
+msgid " · página "
+msgstr " · page "
+
+msgid " · rueda para seguir bajando"
+msgstr " · scroll for more"
+
+msgid "A continuación "
+msgstr "Next "
+
+msgid "A continuación   "
+msgstr "Next   "
+
+msgid "Abre una lista IPTV guardada en tu ordenador."
+msgstr "Open an IPTV playlist saved on your computer."
+
+msgid "Abrir la guía visual de programación (G)"
+msgstr "Open the programme guide (G)"
+
+msgid "Abrir una lista M3U"
+msgstr "Open an M3U playlist"
+
+msgid "Actualizar EPG"
+msgstr "Refresh EPG"
+
+msgid "Ahora"
+msgstr "Now"
+
+msgid "Ahora  "
+msgstr "Now  "
+
+msgid "Ajustes guardados. Reinicia SYN para aplicar las opciones de MPV."
+msgstr "Settings saved. Restart SYN to apply MPV options."
+
+msgid "Ajustes · perfiles, fuentes, MPV y EPG"
+msgstr "Settings · profiles, sources, MPV and EPG"
+
+msgid "Archivo M3U"
+msgstr "M3U file"
+
+msgid "Archivo M3U o URL M3U"
+msgstr "M3U file or URL"
+
+msgid "Archivo M3U para importar como primer perfil"
+msgstr "M3U file to import as the first profile"
+
+msgid "Aspecto de SYN"
+msgstr "SYN appearance"
+
+msgid "Añadir a favoritos"
+msgstr "Add to favourites"
+
+msgid "Añadir una fuente IPTV (M3U o Xtream)"
+msgstr "Add an IPTV source (M3U or Xtream)"
+
+msgid "Bienvenido a SYN"
+msgstr "Welcome to SYN"
+
+msgid ""
+"Bienvenido a SYN\n"
+"\n"
+"Configura tu primera lista para empezar"
+msgstr ""
+"Welcome to SYN\n"
+"\n"
+"Set up your first playlist to get started"
+
+msgid "Buscar archivo EPG…"
+msgstr "Browse for EPG file…"
+
+msgid "Buscar canales…"
+msgstr "Search channels…"
+
+msgid "Buscar canal…"
+msgstr "Search channels…"
+
+msgid "Buscar por canal o categoría…"
+msgstr "Search channels or categories…"
+
+msgid "Búfer demuxer, MiB (0 = predeterminado)"
+msgstr "Demuxer buffer, MiB (0 = default)"
+
+msgid "CANAL"
+msgstr "CHANNEL"
+
+msgid "Caché de MPV"
+msgstr "MPV cache"
+
+msgid "Cambiar logo… (URL)"
+msgstr "Change logo… (URL)"
+
+msgid "Cambiar logo… (archivo)"
+msgstr "Change logo… (file)"
+
+msgid "Canal anterior"
+msgstr "Previous channel"
+
+msgid "Canal seleccionado: "
+msgstr "Selected channel: "
+
+msgid "Canal siguiente"
+msgstr "Next channel"
+
+msgid "Cancelar"
+msgstr "Cancel"
+
+msgid "Cargar PNG/JPG/WebP…"
+msgstr "Load PNG/JPG/WebP…"
+
+msgid "Cerrar"
+msgstr "Close"
+
+msgid "Cerrar guía (Esc)"
+msgstr "Close guide (Esc)"
+
+msgid "Cerrar mando de canales (Esc)"
+msgstr "Close channel remote (Esc)"
+
+msgid "Claro"
+msgstr "Light"
+
+msgid ""
+"Claro = Teal pastel, Oscuro = gris/negro, Teal SYN = petróleo original. El CSS GTK4 del "
+"anfitrión solo se incorpora en Sistema."
+msgstr ""
+"Light = pastel teal, Dark = grey/black, SYN Teal = original deep teal. Host GTK4 CSS is used "
+"only in System mode."
+
+msgid "Claro · Teal pastel"
+msgstr "Light · Pastel teal"
+
+msgid "Comprueba los datos de la fuente."
+msgstr "Check the source details."
+
+msgid "Conecta tu servidor con usuario y contraseña."
+msgstr "Connect using your server, username and password."
+
+msgid "Conectando con "
+msgstr "Connecting to "
+
+msgid "Conectar y empezar"
+msgstr "Connect and start watching"
+
+msgid "Configura tu fuente"
+msgstr "Set up your source"
+
+msgid "Contraseña Xtream"
+msgstr "Xtream password"
+
+msgid "Datos de reproducción"
+msgstr "Playback information"
+
+msgid "Datos no disponibles"
+msgstr "No data available"
+
+msgid "Debe quedar al menos un perfil."
+msgstr "At least one profile must remain."
+
+msgid "Decodificación de hardware"
+msgstr "Hardware decoding"
+
+msgid "Descargando logo para "
+msgstr "Downloading logo for "
+
+msgid "Descargar logo"
+msgstr "Download logo"
+
+msgid "Detectando resolución…"
+msgstr "Detecting resolution…"
+
+msgid "Detener el canal"
+msgstr "Stop channel"
+
+msgid ""
+"Doble clic en canal para reproducir · Espacio pausa · F pantalla completa · Esc salir de "
+"pantalla completa"
+msgstr "Double-click a channel to play · Space to pause · F fullscreen · Esc to exit fullscreen"
+
+msgid "EPG XMLTV: URL, archivo .xml o .xml.gz"
+msgstr "XMLTV EPG: URL, .xml or .xml.gz file"
+
+msgid "EPG XMLTV: URL, archivo .xml o .xml.gz (opcional)"
+msgstr "XMLTV EPG: URL, .xml or .xml.gz file (optional)"
+
+msgid "EPG no disponible para este canal"
+msgstr "EPG not available for this channel"
+
+msgid "EPG: no se pudo consultar ("
+msgstr "EPG could not be retrieved ("
+
+msgid "EPG: selecciona un canal"
+msgstr "EPG: select a channel"
+
+msgid "EPG: sin datos"
+msgstr "EPG: no data"
+
+msgid "Editar perfil"
+msgstr "Edit profile"
+
+msgid "El EPG debe ser un XMLTV .xml o .xml.gz, local o por URL."
+msgstr "EPG must be a local or URL-based XMLTV .xml or .xml.gz file."
+
+msgid "El EPG descomprimido supera el tamaño máximo."
+msgstr "The uncompressed EPG exceeds the size limit."
+
+msgid "El archivo EPG supera el tamaño máximo permitido."
+msgstr "The EPG file exceeds the size limit."
+
+msgid "El archivo remoto supera el tamaño permitido."
+msgstr "The remote file exceeds the allowed size."
+
+msgid "El contenido descomprimido es demasiado grande."
+msgstr "The decompressed content is too large."
+
+msgid "El logo debe ser PNG, JPG o WebP."
+msgstr "Logo must be PNG, JPG or WebP."
+
+msgid "El logo está vacío o supera los 8 MiB."
+msgstr "Logo is empty or exceeds 8 MiB."
+
+msgid "El realce debe estar vacío o tener formato #RRGGBB (ej.: #279B91)."
+msgstr "Accent must be empty or in #RRGGBB format (e.g. #279B91)."
+
+msgid "Elige archivo M3U, URL M3U o Xtream."
+msgstr "Choose an M3U file, M3U URL or Xtream."
+
+msgid "Elige un canal"
+msgstr "Choose a channel"
+
+msgid "Eliminar perfil"
+msgstr "Delete profile"
+
+msgid "Empecemos por lo esencial: conecta tu primera fuente de canales."
+msgstr "First things first: connect your first channel source."
+
+msgid "Enlace M3U"
+msgstr "M3U link"
+
+msgid "Error al cargar el canal. Consulta el diagnóstico."
+msgstr "Error loading the channel. Check the diagnostics."
+
+msgid "Escribe un nombre para el perfil."
+msgstr "Enter a profile name."
+
+msgid "Explora la programación sin abandonar el directo"
+msgstr "Browse programmes without leaving live TV"
+
+msgid "Explorar archivo…"
+msgstr "Browse file…"
+
+msgid "Falta usuario o contraseña Xtream."
+msgstr "Xtream username or password is missing."
+
+msgid "Favorito"
+msgstr "Favourite"
+
+msgid "Formato Xtream"
+msgstr "Xtream format"
+
+msgid "Formato de logo no admitido."
+msgstr "Unsupported logo format."
+
+msgid "GTK no pudo inicializar OpenGL en esta VM."
+msgstr "GTK could not initialise OpenGL in this virtual machine."
+
+msgid "Guardar ajustes"
+msgstr "Save settings"
+
+msgid "Guía EPG"
+msgstr "TV Guide"
+
+msgid "Guía de televisión"
+msgstr "TV Guide"
+
+msgid "Identificador del perfil incorrecto."
+msgstr "Invalid profile identifier."
+
+msgid "Introduce una URL http:// o https:// válida."
+msgstr "Enter a valid http:// or https:// URL."
+
+msgid "La imagen no existe o supera los 8 MiB."
+msgstr "Image does not exist or exceeds 8 MiB."
+
+msgid "La lista M3U es demasiado grande."
+msgstr "The M3U playlist is too large."
+
+msgid "La resolución aún no está disponible."
+msgstr "Resolution not yet available."
+
+msgid ""
+"Las opciones de MPV se aplican al reiniciar SYN. No se modifica OpenGL integrado ni el "
+"sistema."
+msgstr ""
+"MPV settings take effect after restarting SYN. Integrated OpenGL and system settings are "
+"unchanged."
+
+msgid "Listar los canales del perfil seleccionado"
+msgstr "List channels in the selected profile"
+
+msgid "Listas IPTV M3U"
+msgstr "M3U IPTV playlists"
+
+msgid "Logo de proveedor restaurado para "
+msgstr "Provider logo restored for "
+
+msgid "Logo desde URL guardado para "
+msgstr "Logo from URL saved for "
+
+msgid "Logo desde URL…"
+msgstr "Logo from URL…"
+
+msgid "Logo personalizado guardado para "
+msgstr "Custom logo saved for "
+
+msgid "Logo: introduce una URL http:// o https:// válida."
+msgstr "Logo: enter a valid http:// or https:// URL."
+
+msgid "Logos y pastillas de canales"
+msgstr "Channel logos and tiles"
+
+msgid "Mando de canales · buscar y hacer zapping"
+msgstr "Channel remote · search and switch channels"
+
+msgid "Marcar o quitar favorito"
+msgstr "Toggle favourite"
+
+msgid "Mi televisión"
+msgstr "My television"
+
+msgid "Mostrando "
+msgstr "Showing "
+
+msgid "Mostrar canales y buscar emisoras"
+msgstr "Show and search channels"
+
+msgid "Mostrar otros 24 canales"
+msgstr "Show 24 more channels"
+
+msgid "Mostrar solo favoritos"
+msgstr "Show favourites only"
+
+msgid "Máximo 8 MiB. SYN guarda una copia local; no almacena la URL."
+msgstr "Maximum 8 MiB. SYN keeps a local copy and does not store the URL."
+
+msgid "No está instalada libmpv. Ejecuta: sudo dnf install mpv-libs"
+msgstr "libmpv is not installed. Run: sudo dnf install mpv-libs"
+
+msgid "No existe el archivo M3U."
+msgstr "M3U file does not exist."
+
+msgid "No existe el archivo XMLTV indicado."
+msgstr "The specified XMLTV file does not exist."
+
+msgid "No se ha recibido información de error de libmpv."
+msgstr "libmpv did not provide any error details."
+
+msgid "No se pudo abrir el canal: "
+msgstr "Could not open channel: "
+
+msgid "No se pudo cargar el perfil: "
+msgstr "Could not load profile: "
+
+msgid "No se pudo crear libmpv (LC_NUMERIC="
+msgstr "Could not create libmpv (LC_NUMERIC="
+
+msgid "No se pudo guardar el logo: "
+msgstr "Could not save logo: "
+
+msgid "No se pudo importar el logo: "
+msgstr "Could not import logo: "
+
+msgid ""
+"No se pudo iniciar el vídeo\n"
+"\n"
+msgstr ""
+"Could not start video\n"
+"\n"
+
+msgid "No se pudo integrar libmpv: "
+msgstr "Could not initialise libmpv: "
+
+msgid "No se puede leer la imagen seleccionada."
+msgstr "Cannot read selected image."
+
+msgid "Nombre del perfil"
+msgstr "Profile name"
+
+msgid "Nuevo perfil"
+msgstr "New profile"
+
+msgid "Opciones de MPV"
+msgstr "MPV options"
+
+msgid "Oscuro"
+msgstr "Dark"
+
+msgid "Oscuro · Gris/negro"
+msgstr "Dark · Grey/black"
+
+msgid "Pantalla completa · F"
+msgstr "Fullscreen · F"
+
+msgid "Pega la URL que te ha proporcionado tu servicio."
+msgstr "Paste the URL provided by your service."
+
+msgid "Pega la dirección HTTPS o HTTP de una imagen PNG, JPG o WebP."
+msgstr "Paste the HTTP or HTTPS URL of a PNG, JPG or WebP image."
+
+msgid "Personalizado"
+msgstr "Custom"
+
+msgid "Personalizar logo del canal seleccionado (PNG/JPG/WebP)"
+msgstr "Customise selected channel logo (PNG/JPG/WebP)"
+
+msgid "Predeterminado"
+msgstr "Default"
+
+msgid "Probar el primer arranque sin cambiar perfiles ni ajustes"
+msgstr "Preview first launch without changing profiles or settings"
+
+msgid "Próximo  "
+msgstr "Up next  "
+
+msgid "Página "
+msgstr "Page "
+
+msgid "Quitar de favoritos"
+msgstr "Remove from favourites"
+
+msgid "Realce personalizado (opcional, #RRGGBB)"
+msgstr "Custom accent (optional, #RRGGBB)"
+
+msgid "Recargar lista"
+msgstr "Reload playlist"
+
+msgid "Reproducción detenida"
+msgstr "Playback stopped"
+
+msgid "Reproduciendo"
+msgstr "Playing"
+
+msgid "Resolución real de la señal"
+msgstr "Actual stream resolution"
+
+msgid "Resolución real: "
+msgstr "Actual resolution: "
+
+msgid "Restaurar logo"
+msgstr "Restore logo"
+
+msgid "Restaurar logo original"
+msgstr "Restore original logo"
+
+msgid "Ruta del archivo o URL M3U"
+msgstr "M3U file path or URL"
+
+msgid "SYN  •  DIRECTO"
+msgstr "SYN  •  LIVE"
+
+msgid ""
+"SYN guarda una copia del archivo por perfil, usa el color del logo y muestra el nombre si "
+"falta imagen. Clic derecho en la pastilla para cambiarla."
+msgstr ""
+"SYN keeps a copy of the image per profile, uses its logo colours and shows the name if no "
+"image is available. Right-click a tile to change it."
+
+msgid "SYN preparado · MPV integrado · ajustes activos desde el inicio"
+msgstr "SYN ready · MPV integrated · settings applied at startup"
+
+msgid "SYN · Ajustes"
+msgstr "SYN · Settings"
+
+msgid "SYN · Elige una fuente para empezar"
+msgstr "SYN · Choose a source to begin"
+
+msgid "SYN · Fuentes y perfiles"
+msgstr "SYN · Sources and profiles"
+
+msgid "SYN — IPTV M3U, Xtream y EPG en GNOME"
+msgstr "SYN — M3U IPTV, Xtream and EPG for Linux"
+
+msgid "Salir de pantalla completa (Esc)"
+msgstr "Exit fullscreen (Esc)"
+
+msgid "Selecciona PNG, JPG, JPEG o WebP."
+msgstr "Choose PNG, JPG, JPEG or WebP."
+
+msgid "Selecciona XMLTV (.xml o .xml.gz)"
+msgstr "Choose XMLTV (.xml or .xml.gz)"
+
+msgid "Selecciona primero un canal para cambiar su logo."
+msgstr "Select a channel before changing its logo."
+
+msgid "Selecciona tu lista M3U"
+msgstr "Choose your M3U playlist"
+
+msgid "Selecciona un canal"
+msgstr "Select a channel"
+
+msgid "Selecciona un canal en la lista principal."
+msgstr "Select a channel from the main list."
+
+msgid "Selecciona un canal en la lista."
+msgstr "Select a channel from the list."
+
+msgid "Selecciona un canal para cambiar su logo."
+msgstr "Select a channel to change its logo."
+
+msgid "Selecciona un perfil existente."
+msgstr "Select an existing profile."
+
+msgid "Selecciona una lista M3U"
+msgstr "Choose an M3U playlist"
+
+msgid "Seleccionar EPG XMLTV (.xml o .xml.gz)"
+msgstr "Choose XMLTV EPG (.xml or .xml.gz)"
+
+msgid "Seleccionar EPG…"
+msgstr "Select EPG…"
+
+msgid "Seleccionar perfil"
+msgstr "Select profile"
+
+msgid "Servidor Xtream (http:// o https://)"
+msgstr "Xtream server (http:// or https://)"
+
+msgid "Servidor Xtream, con http:// o https://"
+msgstr "Xtream server, http:// or https://"
+
+msgid "Sin configurar"
+msgstr "Not configured"
+
+msgid "Sin cuentas obligatorias  ·  Sin datos de demostración  ·  Tu lista es privada"
+msgstr "No account required  ·  No demo channels  ·  Your playlist stays private"
+
+msgid "Sin información EPG"
+msgstr "No EPG information"
+
+msgid "Sin reproducción"
+msgstr "Not playing"
+
+msgid "Sincronización de vídeo"
+msgstr "Video synchronisation"
+
+msgid "Sistema"
+msgstr "System"
+
+msgid "Sistema (GTK3/GTK4 disponible)"
+msgstr "System (available GTK3/GTK4 theme)"
+
+msgid "Solo favoritos"
+msgstr "Favourites only"
+
+msgid "Televisión · GTK4 · libmpv"
+msgstr "Television · GTK4 · libmpv"
+
+msgid "Tema detectado: "
+msgstr "Detected theme: "
+
+msgid "Tipo de fuente"
+msgstr "Source type"
+
+msgid "Todas las categorías"
+msgstr "All categories"
+
+msgid "Tu televisión. A tu manera."
+msgstr "Your television. Your way."
+
+msgid "URL M3U"
+msgstr "M3U URL"
+
+msgid "User-Agent de MPV y solicitudes HTTP"
+msgstr "MPV / HTTP request User-Agent"
+
+msgid "User-Agent personalizado"
+msgstr "Custom User-Agent"
+
+msgid "Usuario Xtream"
+msgstr "Xtream username"
+
+msgid "Ver la programación sin salir de pantalla completa"
+msgstr "Browse programmes without leaving fullscreen"
+
+msgid "Ver más ↓"
+msgstr "Show more ↓"
+
+msgid "Volver a elegir una fuente"
+msgstr "Go back to source selection"
+
+msgid "Xtream no devolvió una lista de canales."
+msgstr "Xtream did not return a list of channels."
+
+msgid "del portal/libadwaita"
+msgstr "from the portal/libadwaita"
+
+msgid "‹ Anteriores"
+msgstr "‹ Previous"
+
+msgid "⏸ Pausa"
+msgstr "⏸ Pause"
+
+msgid ""
+"▣\n"
+"\n"
+"Selecciona un canal para empezar"
+msgstr ""
+"▣\n"
+"\n"
+"Select a channel to get started"
+
+msgid "▦  Abrir Guía EPG"
+msgstr "▦  Open TV Guide"
+
+msgid "▦ Guía EPG"
+msgstr "▦ TV Guide"
+
+msgid "▶  Reproducir"
+msgstr "▶  Play"
+
+msgid "▶ Ver"
+msgstr "▶ Watch"
+
+msgid "★ Favoritos"
+msgstr "★ Favourites"
+
+msgid "☰ Canales"
+msgstr "☰ Channels"
+
+msgid "＋ Nuevo perfil"
+msgstr "＋ New profile"

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SYN
+GenericName=Televisión IPTV
+Comment=Televisión IPTV adaptada a GNOME y KDE Plasma
+Exec=syn-flatpak
+Icon=com.mrseivane.Syn
+Terminal=false
+Categories=AudioVideo;Video;TV;
+Keywords=IPTV;M3U;Xtream;EPG;KDE;Plasma;GNOME;
+StartupNotify=true

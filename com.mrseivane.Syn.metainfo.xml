@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.mrseivane.Syn</id>
+  <name>SYN</name>
+  <summary>Televisión IPTV con libmpv integrado</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Reproductor IPTV con perfiles, fuentes M3U y Xtream, logos, guía EPG, reproducción integrada y zapping en pantalla completa.</p>
+  </description>
+  <launchable type="desktop-id">com.mrseivane.Syn.desktop</launchable>
+  <releases><release version="1.0.2b" date="2026-10-20"/><release version="1.0.2" date="2026-10-20"/><release version="1.0.1" date="2026-10-20"/><release version="1.0.0" date="2026-10-20"/><release version="3.8.11" date="2026-10-20"/><release version="3.8.6" date="2026-10-20"/><release version="3.8.3" date="2026-10-20"/><release version="3.8.2" date="2026-10-20"/><release version="3.8.1" date="2026-10-20"/><release version="3.8" date="2026-10-19"/><release version="3.7.5.0" date="2026-10-19"/><release version="3.5.0" date="2026-10-19"/><release version="3.0.0" date="2026-10-19"/></releases>
+  <categories><category>AudioVideo</category><category>Video</category></categories>
+</component>
