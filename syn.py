@@ -27,13 +27,14 @@ from collections import deque
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import syn_sources as sources
+import syn_dvr
 from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, locale_description
 from pathlib import Path
 from urllib.parse import urlsplit
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.0.2b"
+SYN_VERSION = "1.2.2-dvr"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -407,6 +408,7 @@ class NativeMpv:
         self._stop_controls = threading.Event()
         self._control_thread = None
         self._dimensions = None
+        self._awaiting_load = False
         self._is_paused = False
         self._last_frame_at = time.monotonic()
         self._render_count = 0
@@ -524,7 +526,7 @@ class NativeMpv:
                 except Exception as exc:
                     self.GLib.idle_add(self._notify, "Error de control de MPV: " + str(exc), True)
 
-            if self.active_url and time.monotonic() >= next_poll:
+            if self.active_url and not self._awaiting_load and time.monotonic() >= next_poll:
                 width, height = C.c_longlong(), C.c_longlong()
                 w = self.lib.mpv_get_property(self.ptr, b"video-params/w", 4, C.byref(width))
                 h = self.lib.mpv_get_property(self.ptr, b"video-params/h", 4, C.byref(height))
@@ -572,6 +574,10 @@ class NativeMpv:
                     with self._lock:
                         self.logs.append(sanitize_line(msg.text.decode("utf-8", "replace"), self.active_url))
             elif event.event_id == 8:  # MPV_EVENT_FILE_LOADED
+                # video-params may still describe the preceding DVR recording.
+                # Only poll dimensions after this media file has loaded.
+                self._dimensions = None
+                self._awaiting_load = False
                 self.GLib.idle_add(self._notify, "Reproduciendo", False)
             elif event.event_id == 7 and event.data:  # MPV_EVENT_END_FILE
                 end = C.cast(event.data, C.POINTER(MpvEndFile)).contents
@@ -687,6 +693,7 @@ class NativeMpv:
             self._watchdog_logged = False
 
     def play(self, channel):
+        self._awaiting_load = True
         self.active_url = channel.url
         self.active_name = channel.name
         self._dimensions = None
@@ -699,6 +706,7 @@ class NativeMpv:
         self._check(self.command("loadfile", channel.url, "replace"), "apertura de canal")
 
     def stop(self):
+        self._awaiting_load = True
         self.command("stop")
         self.active_url = ""
         self._dimensions = None
@@ -718,7 +726,8 @@ class NativeMpv:
 
     def video_dimensions(self):
         # Snapshot actualizado por el hilo de control: no bloquea GTK.
-        return self._dimensions if not self.closed and self.active_url else None
+        return (self._dimensions if not self.closed and self.active_url
+                and not self._awaiting_load else None)
 
     def write_diag(self):
         with self._lock:
@@ -931,6 +940,10 @@ def run_gui(playlist):
     # del televisor sea legible independientemente del tema de GNOME/KDE.
     BASE_CSS = """
     /* Colores de interfaz heredados de GTK4/libadwaita, no de una paleta fija. */
+    .syn-dvr-page { background-color: @window_bg_color; padding: 14px 18px; }
+    .syn-dvr-rec { min-height: 27px; min-width: 27px; padding: 0 4px;
+      border-radius: 6px; color: #e72f48; font-size: 17px; font-weight: 900; }
+    .syn-dvr-rec:hover { color: #ff5368; }
     .iptv-accent { background-color: var(--accent-bg-color);
                    color: var(--accent-fg-color);
                    border-radius: 10px; font-weight: 800; }
@@ -1120,6 +1133,20 @@ def run_gui(playlist):
     # Paletas exclusivas: no depender de un CSS oscuro ya cargado por el host.
     # El fondo del vídeo y los scrims de fullscreen permanecen cinematográficos.
     FAVORITE_GEOMETRY_CSS = """
+    window.iptv-tv button.syn-dvr-rec,
+    window.iptv-tv button.syn-dvr-action-record,
+    window.iptv-tv button.syn-dvr-rec:hover,
+    window.iptv-tv button.syn-dvr-action-record:hover {
+      background-color: #d82e46; background-image: none;
+      color: #ffffff; border-color: #a91c32;
+      box-shadow: none; font-weight: 800;
+    }
+    window.iptv-tv button.syn-dvr-rec.syn-dvr-recording {
+      background-color: #f01835; border: 2px solid #ffffff;
+    }
+    window.iptv-tv label.syn-dvr-indicator {
+      color: #f33e58; font-weight: 900; font-size: 12px;
+    }
     window.iptv-tv row.syn-unified-channel-row { min-height: 0; padding: 0; }
     window.iptv-tv image.syn-unified-favorite-star,
     window.iptv-tv picture.syn-channel-logo-picture {
@@ -1689,6 +1716,10 @@ def run_gui(playlist):
             self.filtered = []
             self.category_names = ["Todas las categorías"]
             self.current = None
+            self._instant_recording_id = None
+            self._dvr_playing_file = False
+            self._dvr_return_channel = None
+            self.dvr_store = syn_dvr.DVRStore()
             self.fullscreen_mode = False
             self._fullscreen_target = None
             self._fullscreen_timeout_id = 0
@@ -1755,6 +1786,15 @@ def run_gui(playlist):
             self.epg_btn.add_css_class('syn-epg-launcher')
             self.epg_btn.connect('clicked', self.show_guide)
             self.header.pack_end(self.epg_btn)
+            self.dvr_nav_button = Gtk.Button(label='DVR')
+            self.dvr_nav_button.set_tooltip_text('Calendario, programación y grabaciones')
+            self.dvr_nav_button.connect('clicked', self.toggle_dvr_view)
+            self.header.pack_end(self.dvr_nav_button)
+            self.dvr_recording_indicator = Gtk.Label(label='● REC')
+            self.dvr_recording_indicator.add_css_class('syn-dvr-indicator')
+            self.dvr_recording_indicator.set_tooltip_text('SYN DVR está grabando en segundo plano')
+            self.dvr_recording_indicator.set_visible(False)
+            self.header.pack_end(self.dvr_recording_indicator)
             # El selector compacto tiene su propia lista; así la barra lateral
             # puede ocultarse SIN desplazar/reparentar el renderizador OpenGL.
             self.channel_menu = Gtk.MenuButton(label=tr("☰ Canales"))
@@ -1777,7 +1817,12 @@ def run_gui(playlist):
             # el divisor. Mantener >=280px o mostrar el menú compacto.
             self.paned.connect('notify::position', self._enforce_sidebar_width)
             self.paned.set_vexpand(True)
-            base.append(self.paned)
+            # Keep Gtk.GLArea realised while viewing the DVR planner.
+            # Gtk.Stack unmapping the player can lose the mpv/GL context.
+            self.main_stack = Gtk.Overlay()
+            self.main_stack.set_vexpand(True)
+            self.main_stack.set_child(self.paned)
+            base.append(self.main_stack)
 
             self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             self.sidebar.add_css_class("iptv-sidebar")
@@ -1876,6 +1921,11 @@ def run_gui(playlist):
             self.resolution.set_ellipsize(Pango.EllipsizeMode.END)
             self.resolution.set_max_width_chars(25)
             details.append(self.resolution)
+            self.dvr_back_btn = Gtk.Button(label='↩ Volver al directo')
+            self.dvr_back_btn.set_tooltip_text('Regresar al último canal en directo')
+            self.dvr_back_btn.set_visible(False)
+            self.dvr_back_btn.connect('clicked', self.dvr_back_to_live)
+            details.append(self.dvr_back_btn)
 
             self.toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
             self.toolbar.add_css_class("iptv-toolbar")
@@ -1899,6 +1949,11 @@ def run_gui(playlist):
             stop = Gtk.Button.new_from_icon_name("media-playback-stop-symbolic")
             stop.set_tooltip_text(tr("Detener el canal"))
             stop.connect("clicked", self.stop)
+            self.rec_button = Gtk.Button(label='●')
+            self.rec_button.add_css_class('syn-dvr-rec')
+            self.rec_button.set_size_request(27, 27)
+            self.rec_button.set_tooltip_text('Grabar canal actual')
+            self.rec_button.connect('clicked', self.toggle_instant_record)
             volume_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
             self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
             self.volume.set_value(100)
@@ -1912,7 +1967,7 @@ def run_gui(playlist):
             full.set_tooltip_text(tr("Pantalla completa · F"))
             full.connect("clicked", self.toggle_fullscreen)
             self.toolbar_widgets = (self.play_button, self.pause_button, stop,
-                                    volume_icon, self.volume, info, full)
+                                    self.rec_button, volume_icon, self.volume, info, full)
             self._arrange_toolbar(compact=False)
 
             self.footer = Gtk.Label(label=tr("Doble clic en canal para reproducir · Espacio pausa · F pantalla completa · Esc salir de pantalla completa"), xalign=0)
@@ -1932,6 +1987,13 @@ def run_gui(playlist):
             self.status.set_margin_bottom(10)
             video_column.append(self.status)
 
+            self.build_dvr_page()
+            self.main_stack.add_overlay(self.dvr_view)
+            self.dvr_view.set_visible(False)
+            GLib.timeout_add_seconds(3, self.dvr_refresh)
+            syn_dvr.ensure_worker()
+            GLib.timeout_add_seconds(8, self.dvr_worker_check)
+
             self._keys = Gtk.EventControllerKey.new()
             self._keys.connect("key-pressed", self.key_press)
             self.add_controller(self._keys)
@@ -1950,6 +2012,446 @@ def run_gui(playlist):
                 GLib.idle_add(self.show_welcome)
             else:
                 self.load_channels()
+
+        def build_dvr_page(self):
+            """Embedded DVR screen: no modal/pop-up, and no mpv reparenting."""
+            self.dvr_view = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+            self.dvr_view.add_css_class('syn-dvr-page')
+            self.dvr_view.set_hexpand(True)
+            self.dvr_view.set_vexpand(True)
+            self.dvr_view.set_halign(Gtk.Align.FILL)
+            self.dvr_view.set_valign(Gtk.Align.FILL)
+            head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            back = Gtk.Button(label='← TV')
+            back.connect('clicked', self.toggle_dvr_view)
+            head.append(back)
+            title = Gtk.Label(label='DVR · Grabaciones', xalign=0)
+            title.add_css_class('title-1')
+            title.set_hexpand(True)
+            head.append(title)
+            self.dvr_view.append(head)
+            # Open the recording's real folder in the host file manager through
+            # the desktop's default handler (Flatpak portal when available).
+            open_folder = Gtk.Button.new_from_icon_name('folder-open-symbolic')
+            open_folder.set_tooltip_text('Abrir carpeta de grabaciones')
+            open_folder.connect('clicked', lambda *_: self.dvr_open_folder())
+            head.append(open_folder)
+            choose_folder = Gtk.Button(label='Elegir carpeta…')
+            choose_folder.set_tooltip_text('Cambiar la carpeta donde se guardan las grabaciones')
+            choose_folder.connect('clicked', self.dvr_choose_folder)
+            head.append(choose_folder)
+
+            split = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+            split.set_vexpand(True)
+            split.set_wide_handle(True)
+            self.dvr_view.append(split)
+
+            planner_scroll = Gtk.ScrolledWindow()
+            planner_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            planner_scroll.set_size_request(335, -1)
+            planner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            planner.set_margin_start(8)
+            planner.set_margin_end(20)
+            planner.set_margin_top(10)
+            planner.set_margin_bottom(12)
+            planner_scroll.set_child(planner)
+            split.set_start_child(planner_scroll)
+            split.set_position(370)
+
+            section = Gtk.Label(label='Programar una grabación', xalign=0)
+            section.add_css_class('title-3')
+            planner.append(section)
+            planner.append(Gtk.Label(label='Fecha', xalign=0))
+            self.dvr_calendar = Gtk.Calendar()
+            planner.append(self.dvr_calendar)
+            planner.append(Gtk.Label(label='Canal', xalign=0))
+            self.dvr_channel_dropdown = Gtk.DropDown.new_from_strings(['Cargando canales…'])
+            self.dvr_channel_dropdown.set_enable_search(True)
+            planner.append(self.dvr_channel_dropdown)
+            planner.append(Gtk.Label(label='Horario (24 h)', xalign=0))
+            times = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            now = dt.datetime.now() + dt.timedelta(minutes=5)
+            self.dvr_start_entry = Gtk.Entry()
+            self.dvr_start_entry.set_text(now.strftime('%H:%M'))
+            self.dvr_start_entry.set_max_length(5)
+            self.dvr_start_entry.set_width_chars(6)
+            self.dvr_start_entry.set_tooltip_text('Inicio: HH:MM')
+            self.dvr_end_entry = Gtk.Entry()
+            self.dvr_end_entry.set_text((now + dt.timedelta(hours=1)).strftime('%H:%M'))
+            self.dvr_end_entry.set_max_length(5)
+            self.dvr_end_entry.set_width_chars(6)
+            self.dvr_end_entry.set_tooltip_text('Fin: HH:MM')
+            times.append(Gtk.Label(label='De'))
+            times.append(self.dvr_start_entry)
+            times.append(Gtk.Label(label='a'))
+            times.append(self.dvr_end_entry)
+            planner.append(times)
+            planned = Gtk.Button(label='Programar grabación')
+            planned.add_css_class('suggested-action')
+            planned.connect('clicked', self.dvr_schedule)
+            planner.append(planned)
+            instant = Gtk.Button(label='● Grabar canal seleccionado ahora')
+            instant.add_css_class('syn-dvr-action-record')
+            instant.connect('clicked', self.dvr_record_selected)
+            planner.append(instant)
+            planner.append(Gtk.Label(label='Se utiliza FFmpeg sin recodificar y User-Agent VLC.',
+                                     xalign=0, wrap=True))
+
+            library = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            library.set_margin_start(16)
+            library.set_margin_end(8)
+            library.set_margin_top(10)
+            split.set_end_child(library)
+            library_title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            title2 = Gtk.Label(label='Programadas y grabadas', xalign=0)
+            title2.add_css_class('title-3')
+            title2.set_hexpand(True)
+            library_title.append(title2)
+            refresh = Gtk.Button.new_from_icon_name('view-refresh-symbolic')
+            refresh.set_tooltip_text('Actualizar grabaciones')
+            refresh.connect('clicked', lambda *_: self.dvr_refresh(force=True))
+            library_title.append(refresh)
+            library.append(library_title)
+            self.dvr_folder_label = Gtk.Label(xalign=0)
+            self.dvr_folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            library.append(self.dvr_folder_label)
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_vexpand(True)
+            library.append(scroller)
+            self.dvr_recording_list = Gtk.ListBox()
+            self.dvr_recording_list.set_selection_mode(Gtk.SelectionMode.NONE)
+            self.dvr_recording_list.add_css_class('boxed-list')
+            scroller.set_child(self.dvr_recording_list)
+            self.dvr_feedback = Gtk.Label(label='', xalign=0, wrap=True)
+            self.dvr_view.append(self.dvr_feedback)
+            self.dvr_service_label = Gtk.Label(label='Servicio DVR: comprobando…', xalign=0, wrap=True)
+            self.dvr_service_label.add_css_class('dim-label')
+            self.dvr_view.append(self.dvr_service_label)
+            self.dvr_worker_check()  # immediate status on first opening
+            self.dvr_refresh(force=True)
+
+        def dvr_open_folder(self, filepath=None):
+            # Gtk.FileLauncher utiliza el portal OpenURI en Flatpak. Con un
+            # archivo abre su carpeta original; sin él abre el directorio
+            # de destino. No requiere ejecutar Nautilus desde el sandbox.
+            try:
+                if filepath:
+                    target = Path(filepath).expanduser()
+                    if not target.is_file():
+                        raise FileNotFoundError('La grabación ya no está disponible.')
+                else:
+                    db = self.dvr_store.read()
+                    target = Path(db.get('folder') or syn_dvr.video_directory()).expanduser()
+                    if not target.is_dir():
+                        raise FileNotFoundError('La carpeta de grabaciones todavía no existe.')
+                launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(target)))
+                def finished(task, result):
+                    try:
+                        if filepath:
+                            task.open_containing_folder_finish(result)
+                        else:
+                            task.launch_finish(result)
+                    except GLib.Error as exc:
+                        self.dvr_feedback.set_text('No se pudo abrir el gestor de archivos: ' + str(exc))
+                if filepath:
+                    launcher.open_containing_folder(self, None, finished)
+                else:
+                    launcher.launch(self, None, finished)
+            except (OSError, GLib.Error, ValueError) as exc:
+                self.dvr_feedback.set_text('No se pudo abrir la carpeta: ' + str(exc))
+
+        def dvr_choose_folder(self, *_):
+            dialog = Gtk.FileDialog(title='Elegir carpeta para grabaciones SYN')
+            try:
+                stored = Path(self.dvr_store.read().get('folder') or syn_dvr.video_directory())
+                if stored.is_dir():
+                    dialog.set_initial_folder(Gio.File.new_for_path(str(stored)))
+            except (OSError, ValueError):
+                pass
+            dialog.select_folder(self, None, self.dvr_folder_selected)
+
+        def dvr_folder_selected(self, dialog, result):
+            try:
+                location = dialog.select_folder_finish(result)
+                folder = location.get_path() if location else None
+                if not folder:
+                    raise ValueError('El portal no ha proporcionado una carpeta local.')
+                self.dvr_store.choose_directory(folder)
+                self.dvr_refresh(force=True)
+                self.dvr_feedback.set_text('Carpeta de grabaciones: ' + folder)
+            except GLib.Error as exc:
+                if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                    self.dvr_feedback.set_text('No se pudo seleccionar la carpeta: ' + str(exc))
+            except (OSError, ValueError) as exc:
+                self.dvr_feedback.set_text('No se pudo cambiar la carpeta: ' + str(exc))
+
+        def dvr_record_epg_program(self, channel, clipped_start, clipped_end, programme_title):
+            # epg_geometry() clips programme times to the visible viewport.
+            # Use original programme bounds from XMLTV, not the clipped block.
+            programmes = sources.epg_for_channel(channel, self.guide, self.epg_aliases)
+            match = next((p for p in programmes
+                          if len(p) >= 3 and p[0] <= clipped_start < p[1]
+                          and str(p[2]) == programme_title), None)
+            if match is None:
+                self.guide_count.set_text('No encuentro el horario original del programa en la EPG.')
+                return
+            start, end = match[0], match[1]
+            now = dt.datetime.now().astimezone()
+            if end <= now:
+                self.guide_count.set_text('Este programa ya ha terminado y no se puede programar.')
+                return
+            start = max(start, now)
+            try:
+                self.dvr_enqueue(channel, start.timestamp(), end.timestamp(), programme=programme_title)
+                self.guide_count.set_text('● DVR programado: ' + programme_title + ' · ' +
+                                          format_time(start) + '–' + format_time(end))
+            except (ValueError, OSError) as exc:
+                self.guide_count.set_text('DVR: ' + str(exc))
+
+        def dvr_epg_context_menu(self, target, channel, clipped_start, clipped_end, programme_title):
+            # A context popover is appropriate for right-click; DVR main view
+            # itself remains embedded, never in a separate window.
+            old = getattr(self, '_dvr_epg_popover', None)
+            if old:
+                old.popdown()
+                old.unparent()
+            popover = Gtk.Popover()
+            popover.set_parent(target)
+            popover.set_has_arrow(True)
+            popover.set_position(Gtk.PositionType.BOTTOM)
+            button = Gtk.Button(label='● Programar grabación')
+            button.add_css_class('syn-dvr-action-record')
+            button.set_margin_top(7)
+            button.set_margin_bottom(7)
+            button.set_margin_start(7)
+            button.set_margin_end(7)
+            button.connect('clicked', lambda *_: (
+                self.dvr_record_epg_program(channel, clipped_start, clipped_end, programme_title),
+                popover.popdown()))
+            popover.set_child(button)
+            self._dvr_epg_popover = popover
+            popover.popup()
+
+        def dvr_back_to_live(self, *_):
+            live = getattr(self, '_dvr_return_channel', None)
+            self._dvr_playing_file = False
+            self.dvr_back_btn.set_visible(False)
+            if live and syn_dvr.allowed_stream_url(live.url):
+                self.start_channel(live)
+            else:
+                self.stop()
+
+        def dvr_notify_on_exit(self):
+            # No persistent notification/badge. Only a transient banner on
+            # VERIFIED independent worker status, never the old ambiguous one.
+            data = self.dvr_store.read()
+            if not syn_dvr.background_worker_confirmed(data):
+                return
+            recording = sum(j.get('status') == 'running' for j in data.get('jobs', []))
+            scheduled = sum(j.get('status') == 'scheduled' for j in data.get('jobs', []))
+            if recording:
+                syn_dvr.notify_transient(f'{recording} grabación(es) siguen en segundo plano.')
+            elif scheduled:
+                syn_dvr.notify_transient(f'{scheduled} grabación(es) programadas · servicio DVR activo.')
+
+        def toggle_dvr_view(self, *_):
+            show_dvr = not self.dvr_view.get_visible()
+            self.dvr_view.set_visible(show_dvr)
+            self.dvr_nav_button.set_label('← TV' if show_dvr else 'DVR')
+            if show_dvr:
+                self.dvr_refresh(force=True)
+
+        def dvr_update_channels(self):
+            if not hasattr(self, 'dvr_channel_dropdown'):
+                return
+            names = [display_channel_name(ch.name) for ch in self.channels]
+            self.dvr_channel_dropdown.set_model(Gtk.StringList.new(names or ['Sin canales']))
+            if self.current:
+                for i, ch in enumerate(self.channels):
+                    if ch.url == self.current.url:
+                        self.dvr_channel_dropdown.set_selected(i)
+                        break
+
+        def dvr_chosen_channel(self):
+            index = self.dvr_channel_dropdown.get_selected()
+            if not 0 <= index < len(self.channels):
+                raise ValueError('Selecciona un canal de tu lista IPTV.')
+            return self.channels[index]
+
+        def dvr_enqueue(self, channel, start=None, end=None, programme=None):
+            job = self.dvr_store.add(channel.name, channel.url,
+                                     time.time() if start is None else start,
+                                     end, syn_dvr.VLC_UA, programme=programme)
+            syn_dvr.ensure_worker()
+            self.dvr_refresh(force=True)
+            return job
+
+        def dvr_record_selected(self, *_):
+            try:
+                ch = self.dvr_chosen_channel()
+                self.dvr_enqueue(ch)
+                self.dvr_feedback.set_text('Grabación inmediata solicitada: ' + display_channel_name(ch.name))
+            except (OSError, ValueError) as exc:
+                self.dvr_feedback.set_text('DVR: ' + str(exc))
+
+        def dvr_schedule(self, *_):
+            try:
+                ch = self.dvr_chosen_channel()
+                caldate = self.dvr_calendar.get_date()
+                datestr = '%04d-%02d-%02d' % (caldate.get_year(), caldate.get_month(), caldate.get_day_of_month())
+                start_text = self.dvr_start_entry.get_text().strip()
+                end_text = self.dvr_end_entry.get_text().strip()
+                start = dt.datetime.strptime(datestr + ' ' + start_text, '%Y-%m-%d %H:%M').astimezone()
+                end = dt.datetime.strptime(datestr + ' ' + end_text, '%Y-%m-%d %H:%M').astimezone()
+                if end <= start:
+                    end += dt.timedelta(days=1)
+                self.dvr_enqueue(ch, start.timestamp(), end.timestamp())
+                self.dvr_feedback.set_text('Grabación programada: ' +
+                                           start.strftime('%d/%m/%Y %H:%M') + ' – ' + end.strftime('%H:%M'))
+            except (OSError, ValueError) as exc:
+                self.dvr_feedback.set_text('No se pudo programar: ' + str(exc))
+
+        def toggle_instant_record(self, *_):
+            if self._instant_recording_id:
+                self.dvr_store.stop(self._instant_recording_id)
+                self._instant_recording_id = None
+                self.rec_button.set_label('●')
+                self.rec_button.remove_css_class('syn-dvr-recording')
+                self.rec_button.set_tooltip_text('Grabar ahora')
+                self.status.set_text('DVR: deteniendo grabación…')
+                return
+            if not self.current:
+                self.status.set_text('DVR: reproduce un canal antes de grabar.')
+                return
+            try:
+                job = self.dvr_enqueue(self.current)
+                self._instant_recording_id = job['id']
+                self.rec_button.set_label('■')
+                self.rec_button.add_css_class('syn-dvr-recording')
+                self.rec_button.set_tooltip_text('Detener grabación')
+                self.status.set_text('DVR: grabación solicitada de ' + display_channel_name(self.current.name))
+            except (ValueError, OSError) as exc:
+                self.status.set_text('DVR: ' + str(exc))
+
+        def dvr_stop_job(self, job_id):
+            self.dvr_store.stop(job_id)
+            self.dvr_refresh(force=True)
+
+        def dvr_play_file(self, filepath):
+            path = Path(filepath)
+            if not path.is_file():
+                self.dvr_feedback.set_text('El archivo ya no está disponible: ' + path.name)
+                return
+            self.dvr_view.set_visible(False)
+            self.dvr_nav_button.set_label('DVR')
+            if not getattr(self, '_dvr_playing_file', False) and self.current and syn_dvr.allowed_stream_url(self.current.url):
+                self._dvr_return_channel = self.current
+            self._dvr_playing_file = True
+            self.dvr_back_btn.set_visible(True)
+            self.start_channel(Channel(path.stem, 'Grabaciones', path.resolve().as_uri()))
+
+        def dvr_refresh(self, force=False):
+            if not hasattr(self, 'dvr_recording_list'):
+                return True
+            data = self.dvr_store.read()
+            jobs = sorted(data.get('jobs', []), key=lambda j: j.get('created', 0), reverse=True)[:120]
+            files = syn_dvr.recorded_files()
+            sig = json.dumps([(j.get('id'), j.get('status'), j.get('stop_requested'),
+                                j.get('path'), j.get('programme')) for j in jobs])
+            sig += '|' + str(data.get('folder')) + '|' + '|'.join(str(f) for f in files)
+            if not force and sig == getattr(self, '_dvr_snapshot', None):
+                return True
+            self._dvr_snapshot = sig
+            self.dvr_folder_label.set_text('Carpeta: ' + str(data.get('folder') or syn_dvr.video_directory()))
+            active_count = sum(1 for j in data.get('jobs', []) if j.get('status') == 'running')
+            if hasattr(self, 'dvr_recording_indicator'):
+                self.dvr_recording_indicator.set_visible(bool(active_count))
+                self.dvr_recording_indicator.set_text(f'● REC {active_count}' if active_count > 1 else '● REC')
+            box = self.dvr_recording_list
+            while row := box.get_first_child():
+                box.remove(row)
+            statuses = {'scheduled':'Programada', 'running':'Grabando', 'completed':'Finalizada',
+                        'failed':'Error', 'cancelled':'Cancelada', 'missed':'Perdida',
+                        'interrupted':'Interrumpida'}
+            seen = set()
+            for job in jobs:
+                if job.get('path'):
+                    seen.add(str(job['path']))
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+                row.set_margin_start(8)
+                row.set_margin_end(8)
+                row.set_margin_top(8)
+                row.set_margin_bottom(8)
+                desc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+                desc.set_hexpand(True)
+                name = Gtk.Label(label=(job.get('programme') or display_channel_name(job.get('channel') or 'Canal')), xalign=0)
+                name.set_ellipsize(Pango.EllipsizeMode.END)
+                desc.append(name)
+                start = dt.datetime.fromtimestamp(float(job.get('start', time.time())))
+                when = start.strftime('%d/%m %H:%M')
+                detail = Gtk.Label(label=(statuses.get(job.get('status'), '?') + ' · ' + when + (' · ' + display_channel_name(job.get('channel') or 'Canal') if job.get('programme') else '')), xalign=0)
+                detail.add_css_class('dim-label')
+                desc.append(detail)
+                if job.get('status') == 'failed' and job.get('error'):
+                    info = Gtk.Label(label=str(job['error'])[:130], xalign=0, wrap=True)
+                    info.add_css_class('error')
+                    desc.append(info)
+                row.append(desc)
+                if job.get('status') in ('running', 'scheduled'):
+                    action = Gtk.Button(label='■' if job['status'] == 'running' else '✕')
+                    action.set_tooltip_text('Detener' if job['status'] == 'running' else 'Cancelar')
+                    action.connect('clicked', lambda _b, ident=job['id']: self.dvr_stop_job(ident))
+                    row.append(action)
+                if job.get('path') and Path(job['path']).is_file():
+                    action = Gtk.Button(label='▶ Ver')
+                    action.connect('clicked', lambda _b, path=job['path']: self.dvr_play_file(path))
+                    row.append(action)
+                    open_location = Gtk.Button.new_from_icon_name('folder-open-symbolic')
+                    open_location.set_tooltip_text('Abrir ubicación del archivo original')
+                    open_location.connect('clicked', lambda _b, path=job['path']: self.dvr_open_folder(path))
+                    row.append(open_location)
+                box.append(row)
+            for f in files[:120]:
+                if str(f) in seen:
+                    continue
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row.set_margin_start(8)
+                row.set_margin_end(8)
+                row.set_margin_top(8)
+                row.set_margin_bottom(8)
+                label = Gtk.Label(label=f.stem, xalign=0)
+                label.set_ellipsize(Pango.EllipsizeMode.END)
+                label.set_hexpand(True)
+                row.append(label)
+                action = Gtk.Button(label='▶ Ver')
+                action.connect('clicked', lambda _b, path=str(f): self.dvr_play_file(path))
+                row.append(action)
+                open_location = Gtk.Button.new_from_icon_name('folder-open-symbolic')
+                open_location.set_tooltip_text('Abrir ubicación del archivo original')
+                open_location.connect('clicked', lambda _b, path=str(f): self.dvr_open_folder(path))
+                row.append(open_location)
+                box.append(row)
+            if not jobs and not files:
+                box.append(Gtk.Label(label='Todavía no hay grabaciones.'))
+            if self._instant_recording_id:
+                tracked = next((j for j in jobs if j.get('id') == self._instant_recording_id), None)
+                if tracked and tracked.get('status') in ('failed','cancelled','missed','interrupted','completed'):
+                    self._instant_recording_id = None
+                    self.rec_button.set_label('●')
+                    self.rec_button.remove_css_class('syn-dvr-recording')
+            return True
+        def dvr_worker_check(self):
+            # Visual, continuously checked confirmation, not a notification.
+            db = self.dvr_store.read()
+            active = syn_dvr.background_worker_confirmed(db)
+            if active:
+                msg = '● Servicio DVR independiente activo · puedes cerrar SYN'
+            else:
+                msg = ('⚠ El servicio DVR independiente no está activo. '
+                       'Consulta: systemctl --user status syn-dvr-worker.service')
+            if hasattr(self, 'dvr_service_label'):
+                self.dvr_service_label.set_text(msg)
+            return True  # Keep the status current as service starts/stops.
 
         def show_welcome(self, *_):
             """Asistente de primer inicio, sin importar automáticamente alacarta.m3u."""
@@ -2565,12 +3067,12 @@ def run_gui(playlist):
             for child in self.toolbar_widgets:
                 if child.get_parent() == self.strip:
                     self.strip.remove(child)
-            play, pause, stop, speaker, slider, info, full = self.toolbar_widgets
+            play, pause, stop, rec, speaker, slider, info, full = self.toolbar_widgets
             if compact:
                 layout = ((play, 0, 0, 1), (pause, 1, 0, 1),
-                          (stop, 2, 0, 1), (full, 3, 0, 1),
+                          (stop, 2, 0, 1), (rec, 3, 0, 1),
                           (speaker, 0, 1, 1), (slider, 1, 1, 2),
-                          (info, 3, 1, 1))
+                          (info, 3, 1, 1), (full, 4, 1, 1))
             else:
                 layout = tuple((w, i, 0, 1) for i, w in enumerate(self.toolbar_widgets))
             for widget, column, row, span in layout:
@@ -2691,7 +3193,7 @@ def run_gui(playlist):
             profile = dict(self.profile)
             def worker():
                 try:
-                    channels = sources.load_channels(profile, user_agent=sources.network_user_agent(self.player_options))
+                    channels = sources.load_channels(profile, user_agent=sources.metadata_user_agent(self.player_options))
                     GLib.idle_add(self._channels_loaded, token, channels, None)
                 except Exception as exc:
                     GLib.idle_add(self._channels_loaded, token, None, exc)
@@ -2707,6 +3209,7 @@ def run_gui(playlist):
                 self.status.set_text(tr('No se pudo cargar el perfil: ') + message)
                 return False
             self.channels = channels
+            self.dvr_update_channels()
             self._refresh_categories()
             self.status.set_text(f"SYN · {len(channels)} {tr('channels loaded')} · {tr('profile')}: {self.profile['name']}")
             self.load_guide()
@@ -2741,7 +3244,7 @@ def run_gui(playlist):
                 return
             def worker():
                 try:
-                    data = sources.get_epg(profile, force=force, user_agent=sources.network_user_agent(self.player_options))
+                    data = sources.get_epg(profile, force=force, user_agent=sources.metadata_user_agent(self.player_options))
                     GLib.idle_add(self._guide_loaded, token, data, None)
                 except Exception as exc:
                     GLib.idle_add(self._guide_loaded, token, None, type(exc).__name__)
@@ -2855,7 +3358,7 @@ def run_gui(playlist):
                     return
                 self.status.set_text(tr('Descargando logo para ') + ch.name + '…')
                 profile = self.profile
-                agent = sources.network_user_agent(self.player_options)
+                agent = sources.metadata_user_agent(self.player_options)
                 def worker():
                     try:
                         # No descargar en el hilo GTK: el servidor puede tardar.
@@ -3202,7 +3705,7 @@ def run_gui(playlist):
                 self._logo_requested.add(key)
                 def worker():
                     try:
-                        path = sources.get_logo(url, user_agent=sources.network_user_agent(self.player_options))
+                        path = sources.get_logo(url, user_agent=sources.metadata_user_agent(self.player_options))
                         GLib.idle_add(self._fill_logo_image, path, widget, pill)
                     except Exception: pass
                     finally: self._logo_requested.discard(key)
@@ -3230,6 +3733,9 @@ def run_gui(playlist):
                 self.status.set_text(tr("Selecciona un canal en la lista."))
 
         def start_channel(self, channel):
+            if syn_dvr.allowed_stream_url(channel.url):
+                self._dvr_playing_file = False
+                self.dvr_back_btn.set_visible(False)
             self.current = channel
             self.blank_label.set_visible(False)
             self.now_playing.set_text(display_channel_name(channel.name))
@@ -3797,8 +4303,17 @@ def run_gui(playlist):
                             ttl.set_max_width_chars(max(4, int((width - 16) / 9)))
                             block.append(ttl)
                         click = Gtk.GestureClick()
+                        click.set_button(1)
                         click.connect('released', lambda _g, _n, _x, _y, ch=channel: self._guide_switch(ch))
                         block.add_controller(click)
+                        # Right-click the programme pill to schedule its
+                        # original (unclipped) XMLTV programme time.
+                        context = Gtk.GestureClick()
+                        context.set_button(3)
+                        context.connect('pressed', lambda _g, _n, _x, _y,
+                                        target=block, ch=channel, a0=a, b0=b, name=title:
+                                        self.dvr_epg_context_menu(target, ch, a0, b0, name))
+                        block.add_controller(context)
                     else:
                         block.add_css_class('syn-guide-gap')
                         if width >= 160:
@@ -3941,8 +4456,13 @@ def run_gui(playlist):
             mpvh = Gtk.Label(label=tr('Opciones de MPV'), xalign=0); mpvh.add_css_class('iptv-heading')
             outer.append(mpvh)
             opts = self.cfg.get('player', {})
-            ua = labeled(tr('User-Agent de MPV y solicitudes HTTP'), combo(['Predeterminado','VLC','Firefox','Safari','Personalizado'], opts.get('user_agent','Predeterminado'), localized=True))
-            custom_ua = labeled(tr('User-Agent personalizado'), text_entry(opts.get('custom_ua','')))
+            ua = labeled(tr('User-Agent de reproducción (MPV)'), combo(['Predeterminado','VLC','Firefox','Safari','Personalizado'], opts.get('user_agent','Predeterminado'), localized=True))
+            custom_ua = labeled(tr('User-Agent personalizado de reproducción'), text_entry(opts.get('custom_ua','')))
+            source_ua = labeled('User-Agent para M3U, Xtream, EPG y logos',
+                                combo(['Predeterminado','VLC','Firefox','Safari','Personalizado'],
+                                      opts.get('source_user_agent','Predeterminado'), localized=True))
+            source_custom_ua = labeled('User-Agent personalizado de las fuentes',
+                                       text_entry(opts.get('source_custom_ua','')))
             hwdec = labeled(tr('Decodificación de hardware'), combo(['Predeterminado','no','auto-safe','auto'], opts.get('hwdec','Predeterminado'), localized=True))
             cache = labeled(tr('Caché de MPV'), combo(['Predeterminado','auto','yes','no'], opts.get('cache','Predeterminado'), localized=True))
             sync = labeled(tr('Sincronización de vídeo'), combo(['Predeterminado','audio','display-resample'], opts.get('video_sync','Predeterminado'), localized=True))
@@ -4010,10 +4530,15 @@ def run_gui(playlist):
                 self.get_application().apply_theme(self.cfg['theme'], self.cfg['accent_hex'])
                 self.cfg['player'] = {
                     'user_agent': ['Predeterminado','VLC','Firefox','Safari','Personalizado'][ua.get_selected()], 'custom_ua': custom_ua.get_text().strip(),
+                    'source_user_agent': ['Predeterminado','VLC','Firefox','Safari','Personalizado'][source_ua.get_selected()],
+                    'source_custom_ua': source_custom_ua.get_text().strip(),
                     'hwdec': ['Predeterminado','no','auto-safe','auto'][hwdec.get_selected()], 'cache': ['Predeterminado','auto','yes','no'][cache.get_selected()],
                     'video_sync': ['Predeterminado','audio','display-resample'][sync.get_selected()], 'demuxer_mb': mb.get_value_as_int()
                 }
                 sources.save_config(self.cfg)
+                # Source downloads use new settings without waiting for MPV restart.
+                # The current libmpv instance retains its own agent until restart.
+                self.player_options = dict(self.cfg['player'])
                 self.profile = obj
                 self.favorites = set(obj.get('favorites', []))
                 self.profile_picker.set_model(Gtk.StringList.new([q['name'] for q in self.cfg['profiles']]))
@@ -4075,6 +4600,10 @@ def run_gui(playlist):
                 sources.save_config(self.cfg)
             except (OSError, ValueError, TypeError) as exc:
                 print(f'SYN: no se pudo guardar última vista: {exc}', file=sys.stderr)
+            try:
+                self.dvr_notify_on_exit()
+            except (GLib.Error, OSError, ValueError) as exc:
+                print('SYN DVR: aviso de salida no disponible: ' + type(exc).__name__, file=sys.stderr)
             if self.area.player:
                 self.area.player.stop()
             return False  # GTK realizará unrealize y liberará libmpv/GL correctamente.
@@ -4120,6 +4649,8 @@ def run_gui(playlist):
                 self._host_signature = self._host_theme_signature()
                 self.apply_theme(config.get('theme', 'system'), self._accent_hex)
                 self.win = IPTVWindow(self)
+                # Clear the old persistent "unconfirmed" GNOME notification.
+                self.withdraw_notification('syn-dvr-closing')
                 # GTK/Plasma/Xfce pueden cambiar settings.ini sin emitir
                 # notify::gtk-theme-name dentro del sandbox Flatpak.
                 GLib.timeout_add_seconds(5, self._poll_host_theme)

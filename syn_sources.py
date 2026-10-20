@@ -391,3 +391,17 @@ def network_user_agent(player_options):
         'Personalizado': str(options.get('custom_ua', '')).strip(),
     }
     return profiles.get(options.get('user_agent', 'Predeterminado')) or 'SYN/2.0'
+
+def metadata_user_agent(player_options):
+    """HTTP agent for M3U, Xtream player_api.php, XMLTV and logos.
+
+    Intentionally separate from mpv's agent: some Xtream servers accept
+    SYN/2.0 for their API but require VLC's agent for media delivery.
+    Default is backward-compatible with the previously working
+    «Predeterminado» setting, regardless of the player User-Agent.
+    """
+    options = player_options or {}
+    return network_user_agent({
+        'user_agent': options.get('source_user_agent', 'Predeterminado'),
+        'custom_ua': options.get('source_custom_ua', ''),
+    })
