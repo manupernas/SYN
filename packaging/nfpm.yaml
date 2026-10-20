@@ -1,0 +1,54 @@
+# Paquetes nativos de SYN; no incluyen libmpv ni GTK.
+# Esas bibliotecas se instalan desde la distribución del usuario.
+name: syn-iptv
+arch: ${NFPM_ARCH}
+platform: linux
+version: 1.0.2b
+version_schema: none
+release: 1
+maintainer: "manupernas <manupernas@users.noreply.github.com>"
+description: "SYN: IPTV player using GTK4, libadwaita and libmpv"
+homepage: https://github.com/manupernas/SYN
+license: MIT
+section: video
+priority: optional
+contents:
+  - src: packaging/stage/usr/bin/syn
+    dst: /usr/bin/syn
+    file_info:
+      mode: 0755
+  - src: packaging/stage/usr/share/syn/
+    dst: /usr/share/syn
+    type: tree
+  - src: packaging/stage/usr/share/applications/io.github.manupernas.SYN.desktop
+    dst: /usr/share/applications/io.github.manupernas.SYN.desktop
+  - src: packaging/stage/usr/share/icons/hicolor/
+    dst: /usr/share/icons/hicolor
+    type: tree
+  - src: packaging/stage/usr/share/locale/
+    dst: /usr/share/locale
+    type: tree
+  - src: LICENSE
+    dst: /usr/share/licenses/syn-iptv/LICENSE
+overrides:
+  deb:
+    depends:
+      - python3
+      - python3-gi
+      - gir1.2-gtk-4.0
+      - gir1.2-adw-1
+      - libmpv2
+  rpm:
+    depends:
+      - python3
+      - python3-gobject
+      - gtk4
+      - libadwaita
+      - mpv-libs
+  archlinux:
+    depends:
+      - python
+      - python-gobject
+      - gtk4
+      - libadwaita
+      - mpv

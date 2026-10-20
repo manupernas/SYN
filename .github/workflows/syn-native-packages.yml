@@ -1,0 +1,82 @@
+name: SYN - Linux native packages (RPM, DEB, Arch)
+
+on:
+  push:
+    branches:
+      - flathub-migracion
+    paths:
+      - .github/workflows/syn-native-packages.yml
+      - packaging/**
+      - syn.py
+      - syn_sources.py
+      - syn_i18n.py
+      - io.github.manupernas.SYN.desktop
+      - icons/**
+      - locale/**
+      - LICENSE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-packages:
+    name: Packages / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go for nFPM
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install nFPM
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Check and stage SYN
+        run: |
+          python3 -m py_compile syn.py syn_sources.py syn_i18n.py
+          bash packaging/stage.sh
+
+      - name: Build DEB, RPM and Arch Linux packages
+        env:
+          NFPM_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for format in deb rpm archlinux; do
+            echo "=== $format / $NFPM_ARCH ==="
+            nfpm package --config packaging/nfpm.yaml \
+              --packager "$format" --target dist/
+          done
+          find dist -maxdepth 1 -type f -printf '%f (%s bytes)\n' | sort
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 3
+
+      - name: Validate DEB contents
+        run: |
+          set -euo pipefail
+          deb="$(find dist -maxdepth 1 -name '*.deb' -print -quit)"
+          dpkg-deb --contents "$deb" | grep 'usr/bin/syn'
+          dpkg-deb --contents "$deb" | grep 'io.github.manupernas.SYN.desktop'
+
+      - name: Publish build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SYN-native-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
