@@ -16,7 +16,14 @@ mkdir -p "$DIR/usr/bin" "$DIR/usr/lib/$multiarch" "$DIR/usr/share" "$DIR/usr/lib
 bash packaging/stage-native.sh "$DIR" >/dev/null
 cp -L /usr/bin/python3 "$DIR/usr/bin/python3"
 cp -L "$(command -v ffmpeg)" "$DIR/usr/bin/ffmpeg"
-cp -a "/usr/lib/$pyver/." "$DIR/usr/lib/$pyver/"
+# Python informa la ubicación REAL de su stdlib; no es /usr/lib/3.12.
+# En Ubuntu 24.04 normalmente es /usr/lib/python3.12.
+stdlib_dir="$(/usr/bin/python3 -c 'import os; print(os.path.dirname(os.__file__))')"
+if [[ ! -f "$stdlib_dir/os.py" || ! -d "$stdlib_dir/encodings" ]]; then
+  echo "ERROR AppImage: stdlib de Python no válida: $stdlib_dir" >&2
+  exit 2
+fi
+cp -a "$stdlib_dir/." "$DIR/usr/lib/$pyver/"
 rm -rf "$DIR/usr/lib/$pyver/test" "$DIR/usr/lib/$pyver/ensurepip" "$DIR/usr/lib/$pyver/idlelib"
 cp -a /usr/lib/python3/dist-packages/gi "$DIR/usr/lib/python3/dist-packages/"
 if [[ -d /usr/lib/python3/dist-packages/cairo ]]; then
