@@ -1,0 +1,40 @@
+name: SYN tests Linux x86_64
+
+on:
+  push:
+    branches:
+      - flathub-migracion
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: Python ${{ matrix.python-version }} / x86_64
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.13', '3.14']
+
+    steps:
+      - name: Checkout SYN
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install testing dependencies
+        run: python -m pip install pytest tinycss2
+
+      - name: Check Python syntax
+        run: python -m py_compile syn.py syn_sources.py syn_i18n.py
+
+      - name: Run SYN tests
+        run: python -m pytest -q test_syn*.py
