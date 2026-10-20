@@ -2,11 +2,14 @@
 Type=Application
 Version=1.0
 Name=SYN
-GenericName=Televisión IPTV
-Comment=Televisión IPTV adaptada a GNOME y KDE Plasma
+GenericName=IPTV player
+GenericName[es]=Reproductor IPTV
+Comment=Watch live television using your own playlists and programme guides
+Comment[es]=Mira la televisión con tus listas de canales y guías de programación
 Exec=syn-flatpak
 Icon=io.github.manupernas.SYN
 Terminal=false
 Categories=AudioVideo;Video;TV;
-Keywords=IPTV;M3U;Xtream;EPG;KDE;Plasma;GNOME;
+Keywords=IPTV;M3U;Xtream;XMLTV;EPG;Television;TV;
+Keywords[es]=IPTV;M3U;Xtream;XMLTV;EPG;Televisión;TV;
 StartupNotify=true

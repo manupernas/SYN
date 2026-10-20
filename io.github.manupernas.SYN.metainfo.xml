@@ -2,21 +2,20 @@
 <component type="desktop-application">
   <id>io.github.manupernas.SYN</id>
   <name>SYN</name>
-  <summary>Modern IPTV player for Linux</summary>
-  <summary xml:lang="es">Reproductor IPTV moderno para Linux</summary>
+  <summary>Watch live TV your way</summary>
+  <summary xml:lang="es">Televisión a tu manera</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <developer id="io.github.manupernas">
-    <name>manupernas</name>
-  </developer>
+  <developer id="io.github.manupernas"><name>manupernas</name></developer>
   <description>
-    <p>Watch television using your own authorised M3U playlists and Xtream-compatible providers. Browse channels, manage favourites, and view XMLTV programme guides.</p>
-    <p xml:lang="es">Mira la televisión utilizando tus propias listas M3U autorizadas y proveedores compatibles con Xtream. Explora canales, organiza favoritos y consulta la guía de programación XMLTV.</p>
+    <p>Watch television with your own authorised M3U playlists and Xtream-compatible providers. Browse channels, manage favourites and view XMLTV programme guides.</p>
+    <p xml:lang="es">Mira la televisión con tus listas M3U autorizadas y proveedores compatibles con Xtream. Explora canales, organiza favoritos y consulta la guía XMLTV.</p>
   </description>
   <url type="homepage">https://github.com/manupernas/SYN</url>
   <url type="vcs-browser">https://github.com/manupernas/SYN</url>
   <url type="bugtracker">https://github.com/manupernas/SYN/issues</url>
   <launchable type="desktop-id">io.github.manupernas.SYN.desktop</launchable>
+  <translation type="gettext">syn</translation>
   <content_rating type="oars-1.1" />
   <screenshots>
     <screenshot type="default">
@@ -37,13 +36,8 @@
   </screenshots>
   <releases>
     <release version="1.0.2b" date="2026-10-20">
-      <description>
-        <p>First public release with a redesigned icon and improvements to the accent colour and last-view restoration.</p>
-      </description>
+      <description><p>First public release with icon and interface improvements.</p></description>
     </release>
   </releases>
-  <categories>
-    <category>AudioVideo</category>
-    <category>Video</category>
-  </categories>
+  <categories><category>AudioVideo</category><category>Video</category></categories>
 </component>
