@@ -1,0 +1,146 @@
+name: SYN - 6 native builds and GitHub Release
+
+# Un tag publica una versión concreta, sin tocar la rama main.
+on:
+  push:
+    tags:
+      - 'v*-native.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: syn-native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.label }} / ${{ matrix.arch_label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: RPM, format: rpm,       arch: amd64, arch_label: x86_64, runner: ubuntu-24.04 }
+          - { label: DEB, format: deb,       arch: amd64, arch_label: x86_64, runner: ubuntu-24.04 }
+          - { label: Pacman, format: archlinux, arch: amd64, arch_label: x86_64, runner: ubuntu-24.04 }
+          - { label: RPM, format: rpm,       arch: arm64, arch_label: ARM64, runner: ubuntu-24.04-arm }
+          - { label: DEB, format: deb,       arch: arm64, arch_label: ARM64, runner: ubuntu-24.04-arm }
+          - { label: Pacman, format: archlinux, arch: arm64, arch_label: ARM64, runner: ubuntu-24.04-arm }
+
+    steps:
+      - name: Checkout del tag de SYN
+        uses: actions/checkout@v4
+
+      - name: Verificar que el tag corresponde a la versión empaquetada
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          tag_version="${tag_version%-native.*}"
+          pkg_version="$(sed -n 's/^version: *//p' packaging/nfpm.yaml | head -n 1)"
+          if [[ "$tag_version" != "$pkg_version" ]]; then
+            echo "ERROR: tag $GITHUB_REF_NAME != version: $pkg_version" >&2
+            exit 1
+          fi
+
+      - name: Instalar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Instalar nFPM
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Preparar SYN (sin datos de usuario)
+        run: |
+          python3 -m py_compile syn.py syn_sources.py syn_i18n.py
+          bash packaging/stage.sh
+
+      - name: Crear y verificar el paquete
+        shell: bash
+        env:
+          NFPM_ARCH: ${{ matrix.arch }}
+          PACKAGE_FORMAT: ${{ matrix.format }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          nfpm package --config packaging/nfpm.yaml \
+            --packager "$PACKAGE_FORMAT" --target dist/
+          mapfile -t files < <(find dist -maxdepth 1 -type f)
+          [[ "${#files[@]}" -eq 1 && -s "${files[0]}" ]]
+          file "${files[0]}"
+          if [[ "$PACKAGE_FORMAT" == deb ]]; then
+            dpkg-deb --contents "${files[0]}" | grep -q 'usr/bin/syn'
+            dpkg-deb --contents "${files[0]}" | grep -q 'io.github.manupernas.SYN.desktop'
+          fi
+          echo "PAQUETE: ${files[0]}"
+
+      - name: Guardar un artefacto por trabajo
+        uses: actions/upload-artifact@v4
+        with:
+          name: SYN-${{ matrix.format }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publicar los 6 archivos en Releases
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Reunir los seis paquetes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: SYN-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verificar los seis paquetes y calcular SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(find dist -maxdepth 1 -type f | wc -l)" -eq 6 ]]
+          for ext in '*.rpm' '*.deb' '*.pkg.tar.zst'; do
+            [[ "$(find dist -maxdepth 1 -type f -name "$ext" | wc -l)" -eq 2 ]]
+          done
+          (cd dist && sha256sum -- * > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Publicar la versión en GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "ERROR: la Release ya existe; no se sobrescribe automáticamente." >&2
+            exit 1
+          fi
+          cat > release-notes.md <<'EOF'
+          SYN 1.0.2b - Paquetes nativos de Linux para x86_64 y ARM64.
+
+          Contenido: RPM (Fedora), DEB (Debian/Ubuntu) y pkg.tar.zst (Arch/Arch Linux ARM),
+          uno de cada formato por arquitectura. Se incluyen SHA256SUMS.txt para verificarlos.
+
+          Instalación nativa: las bibliotecas Python GI, GTK4, libadwaita y libmpv
+          proceden de la distribución. Los paquetes no son Flatpaks.
+
+          Estado de pruebas: RPM ARM64 probado en Fedora 45; los demás formatos
+          requieren pruebas de instalación y ejecución antes de considerarse estables.
+          Los paquetes son experimentales y no están firmados.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "SYN 1.0.2b - Linux native packages (6 builds)" \
+            --notes-file release-notes.md \
+            --prerelease \
+            --latest=false
