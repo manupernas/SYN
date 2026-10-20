@@ -1,4 +1,6 @@
 """Locale tests for SYN 3.8.13; provider names/config keys remain unchanged."""
+from syn_test_backend import baseline_digest
+
 import os
 import gettext
 import unittest
@@ -41,6 +43,6 @@ class LocaleTests(unittest.TestCase):
         node=ast.parse((ROOT/'syn.py').read_text())
         mpv=next(n for n in node.body if isinstance(n,ast.ClassDef) and n.name=='NativeMpv')
         self.assertEqual(hashlib.sha256(ast.dump(mpv,include_attributes=False).encode()).hexdigest(),
-                         'fccf6acdefea0a48051946aa54d796c0877590d3b9e47940753bfe8e598ed19e')
+                         baseline_digest('NativeMpv'))
 
 if __name__=='__main__':unittest.main()

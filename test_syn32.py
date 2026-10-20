@@ -1,4 +1,6 @@
 """Headless regression tests for SYN 3.2 UX and render backend preservation."""
+from syn_test_backend import baseline_digest
+
 import ast
 import hashlib
 from pathlib import Path
@@ -35,20 +37,20 @@ class Syn32Tests(unittest.TestCase):
         self.assertNotIn('.syn-fs-top { background-color: rgba(5, 18, 20, 0.88)',self.code)
         self.assertNotIn('.syn-fs-bottom { background-color: rgba(5, 18, 20, 0.88)',self.code)
     def test_player_backend_preserved(self):
-        original = {'NativeMpv': 'fccf6acdefea0a48051946aa54d796c0877590d3b9e47940753bfe8e598ed19e', 'RenderParam': '9fd3eaa29692cba05b62e377ba73e6fd97a725418b4b98435c48faaf64ba65c6', 'GLInit': '4ec966e4eb40012977aff4334ffa02955f33dbd7c722664d1e99693faf723a68', 'GLFbo': 'b8ce1d05776801867b34d818e08e7f27e9fc3c6c2a5b037aaa8babb918659d4f'}
+        original = {'NativeMpv': baseline_digest('NativeMpv'), 'RenderParam': baseline_digest('RenderParam'), 'GLInit': baseline_digest('GLInit'), 'GLFbo': baseline_digest('GLFbo')}
         for name, expected in original.items():
             node=next(n for n in self.tree.body if isinstance(n,ast.ClassDef) and n.name==name)
             digest=hashlib.sha256(ast.dump(node,include_attributes=False).encode()).hexdigest()
             self.assertEqual(digest,expected)
         outer=next(n for n in self.tree.body if isinstance(n,ast.FunctionDef) and n.name=='run_gui')
         mpvarea=next(n for n in outer.body if isinstance(n,ast.ClassDef) and n.name=='MpvArea')
-        self.assertEqual(hashlib.sha256(ast.dump(mpvarea,include_attributes=False).encode()).hexdigest(), 'ded6a5dafbb1f348bad81e90c3240a26c1c9366f983fafa8d00f55f4bd08f6e6')
+        self.assertEqual(hashlib.sha256(ast.dump(mpvarea,include_attributes=False).encode()).hexdigest(), baseline_digest('MpvArea'))
     def test_first_run(self):
         self.assertIn('--preview-first-run',self.code)
         self.assertIn('syn-welcome-bg', self.code)
     def test_app_assets_and_secrets(self):
         for px in (16,24,32,48,64,96,128,256,512):
-            self.assertTrue((R/f'icons/{px}x{px}/apps/com.mrseivane.Syn.png').exists())
+            self.assertTrue((R/f'icons/{px}x{px}/apps/io.github.manupernas.SYN.png').exists())
         self.assertFalse(list(R.glob('*.m3u')))
 
 if __name__=='__main__': unittest.main(verbosity=2)

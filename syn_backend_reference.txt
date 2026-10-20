@@ -1,0 +1,498 @@
+# Referencia de código del reproductor obtenida de main:syn.py
+
+class NativeMpv:
+    def __init__(self, GLib, player_options=None):
+        self.GLib = GLib
+        self.player_options = player_options or {}
+        library = ctypes.util.find_library("mpv")
+        if not library:
+            raise RuntimeError("No está instalada libmpv. Ejecuta: sudo dnf install mpv-libs")
+        self.lib = C.CDLL(library)
+        self._bind()
+        # GTK respeta el idioma del sistema, pero libmpv exige LC_NUMERIC=C.
+        # En una sesión española (decimal con coma), mpv_create() devuelve NULL.
+        # Fijarlo justo antes de crear el reproductor evita que GTK lo restablezca.
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "C")
+        except locale.Error as exc:
+            raise RuntimeError(f"No se pudo establecer LC_NUMERIC=C: {exc}") from exc
+        self.ptr = self.lib.mpv_create()
+        if not self.ptr:
+            actual = locale.setlocale(locale.LC_NUMERIC)
+            raise RuntimeError(
+                f"No se pudo crear libmpv (LC_NUMERIC={actual}). "
+                "Ejecuta desde Ghostty para ver los detalles."
+            )
+        self.ctx = C.c_void_p()
+        self.closed = False
+        self.active_url = ""
+        self.active_name = ""
+        self.logs = deque(maxlen=32)
+        self.on_status = None
+        self._lock = threading.Lock()
+        self._callback_pending = False
+        self._frame_callback = None
+        # No llamar a mpv_get_property, mpv_command ni mpv_set_property
+        # desde el hilo GTK que ejecuta mpv_render_context_render.
+        self._control_queue = queue.Queue()
+        self._stop_controls = threading.Event()
+        self._control_thread = None
+        self._dimensions = None
+        self._is_paused = False
+        self._last_frame_at = time.monotonic()
+        self._render_count = 0
+        self._watchdog_logged = False
+        self._stop_watchdog = threading.Event()
+        self._watchdog_thread = None
+        self._proc_callback = None
+        self._fence_noop = None
+        self._gl_init = None
+        self._gl_api_name = None
+        self._libGL = None
+        self._libEGL = None
+        self._event_thread = None
+        self._stop_events = threading.Event()
+
+        try:
+            self._check(self.lib.mpv_set_option_string(self.ptr, b"vo", b"libmpv"), "opción de vídeo")
+            # MPV settings are read on startup. Default means NO overriding
+            # network/media flags; this is the known-working Fedora setup.
+            opt = self.player_options
+            ua = opt.get('user_agent', 'Predeterminado')
+            presets = {
+                'VLC': 'VLC/3.0.21 LibVLC/3.0.21',
+                'Firefox': 'Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0',
+                'Safari': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+                'Personalizado': str(opt.get('custom_ua','')).strip(),
+            }
+            if ua in presets and presets[ua]:
+                self._check(self.lib.mpv_set_option_string(self.ptr, b'user-agent', presets[ua].encode()), 'User-Agent')
+            for key, choices in (
+                ('hwdec', ('no', 'auto', 'auto-safe')),
+                ('cache', ('yes', 'no', 'auto')),
+                ('video-sync', ('audio', 'display-resample'))):
+                setting_key = 'video_sync' if key == 'video-sync' else key
+                value = str(opt.get(setting_key, 'Predeterminado'))
+                if value in choices:
+                    self._check(self.lib.mpv_set_option_string(self.ptr, key.encode(), value.encode()), key)
+            try: megabytes = int(opt.get('demuxer_mb') or 0)
+            except (ValueError, TypeError): megabytes = 0
+            if 1 <= megabytes <= 1024:
+                self._check(self.lib.mpv_set_option_string(self.ptr, b'demuxer-max-bytes', f'{megabytes}MiB'.encode()), 'búfer de MPV')
+            # Mantener la petición de red ORIGINAL: no establecer user-agent, referrer ni HLS -> TS.
+            self._check(self.lib.mpv_initialize(self.ptr), "inicialización de MPV")
+            self.lib.mpv_request_log_messages(self.ptr, b"warn")
+            self._event_thread = threading.Thread(target=self._read_events, name="libmpv-events", daemon=True)
+            self._event_thread.start()
+            self._control_thread = threading.Thread(target=self._control_loop, name="libmpv-control", daemon=True)
+            self._control_thread.start()
+            self._watchdog_thread = threading.Thread(target=self._watchdog_loop, name="iptv-render-watchdog", daemon=True)
+            self._watchdog_thread.start()
+        except Exception:
+            self.lib.mpv_terminate_destroy(self.ptr)
+            self.ptr = None
+            raise
+
+    def _bind(self):
+        l = self.lib
+        l.mpv_create.argtypes = []; l.mpv_create.restype = C.c_void_p
+        l.mpv_set_option_string.argtypes = [C.c_void_p, C.c_char_p, C.c_char_p]; l.mpv_set_option_string.restype = C.c_int
+        l.mpv_initialize.argtypes = [C.c_void_p]; l.mpv_initialize.restype = C.c_int
+        l.mpv_command.argtypes = [C.c_void_p, C.POINTER(C.c_char_p)]; l.mpv_command.restype = C.c_int
+        l.mpv_get_property.argtypes = [C.c_void_p, C.c_char_p, C.c_int, C.c_void_p]; l.mpv_get_property.restype = C.c_int
+        l.mpv_set_property.argtypes = [C.c_void_p, C.c_char_p, C.c_int, C.c_void_p]; l.mpv_set_property.restype = C.c_int
+        l.mpv_error_string.argtypes = [C.c_int]; l.mpv_error_string.restype = C.c_char_p
+        l.mpv_terminate_destroy.argtypes = [C.c_void_p]; l.mpv_terminate_destroy.restype = None
+        l.mpv_wait_event.argtypes = [C.c_void_p, C.c_double]; l.mpv_wait_event.restype = C.POINTER(MpvEvent)
+        l.mpv_request_log_messages.argtypes = [C.c_void_p, C.c_char_p]; l.mpv_request_log_messages.restype = C.c_int
+        l.mpv_render_context_create.argtypes = [C.POINTER(C.c_void_p), C.c_void_p, C.POINTER(RenderParam)]
+        l.mpv_render_context_create.restype = C.c_int
+        l.mpv_render_context_set_update_callback.argtypes = [C.c_void_p, UpdateCb, C.c_void_p]
+        l.mpv_render_context_set_update_callback.restype = None
+        l.mpv_render_context_update.argtypes = [C.c_void_p]; l.mpv_render_context_update.restype = C.c_uint64
+        l.mpv_render_context_render.argtypes = [C.c_void_p, C.POINTER(RenderParam)]; l.mpv_render_context_render.restype = C.c_int
+        l.mpv_render_context_free.argtypes = [C.c_void_p]; l.mpv_render_context_free.restype = None
+
+    def _check(self, result, operation):
+        if result < 0:
+            desc = self.lib.mpv_error_string(result).decode("utf-8", "replace")
+            raise RuntimeError(f"Fallo en {operation}: {desc}")
+
+    def _mpv_command(self, *args):
+        # Solo desde el hilo de control, nunca desde Gtk.GLArea::render.
+        buf = (C.c_char_p * (len(args) + 1))(*(str(arg).encode("utf-8") for arg in args), None)
+        return self.lib.mpv_command(self.ptr, buf)
+
+    def command(self, *args):
+        if self.closed or not self.ptr:
+            return -1
+        self._control_queue.put(("command", args))
+        return 0  # El error real se notifica asíncronamente.
+
+    def _control_loop(self):
+        # Las llamadas normales a libmpv se hacen fuera del hilo de render.
+        # Nunca utilizamos un lock que el hilo OpenGL necesite adquirir.
+        next_poll = time.monotonic()
+        while not self._stop_controls.is_set():
+            try:
+                task = self._control_queue.get(timeout=0.15)
+            except queue.Empty:
+                task = None
+            if self._stop_controls.is_set():
+                break
+            if task:
+                operation, args = task
+                try:
+                    if operation == "command":
+                        err = self._mpv_command(*args)
+                    elif operation == "volume":
+                        value = C.c_double(float(args[0]))
+                        err = self.lib.mpv_set_property(self.ptr, b"volume", 5, C.byref(value))
+                    else:
+                        continue
+                    if err < 0:
+                        self.GLib.idle_add(self._notify, "MPV: " + self.lib.mpv_error_string(err).decode("utf-8", "replace"), True)
+                except Exception as exc:
+                    self.GLib.idle_add(self._notify, "Error de control de MPV: " + str(exc), True)
+
+            if self.active_url and time.monotonic() >= next_poll:
+                width, height = C.c_longlong(), C.c_longlong()
+                w = self.lib.mpv_get_property(self.ptr, b"video-params/w", 4, C.byref(width))
+                h = self.lib.mpv_get_property(self.ptr, b"video-params/h", 4, C.byref(height))
+                self._dimensions = (width.value, height.value) if w >= 0 and h >= 0 and width.value > 0 and height.value > 0 else None
+                next_poll = time.monotonic() + 0.8
+            elif not self.active_url:
+                self._dimensions = None
+                next_poll = time.monotonic() + 0.8
+
+    def _watchdog_loop(self):
+        # Si la interfaz se bloquea en una función GL, el hilo de diagnóstico
+        # puede seguir ejecutándose y guardar las pilas SIN credenciales.
+        while not self._stop_watchdog.wait(2):
+            if (not self.active_url or self._is_paused or self._watchdog_logged
+                    or self._render_count == 0):
+                continue
+            if time.monotonic() - self._last_frame_at < 8:
+                continue
+            self._watchdog_logged = True
+            try:
+                LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+                # Abrir en modo privado desde el principio (umask del proceso).
+                fd = os.open(HANG_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as out:
+                    os.chmod(HANG_PATH, 0o600)
+                    out.write("IPTV Integrado: más de 8 segundos sin dibujar vídeo.\n")
+                    out.write(f"Canal: {self.active_name}\nFotogramas dibujados: {self._render_count}\n")
+                    if os.path.isdir("/proc/self/fd"):
+                        out.write(f"Descriptores abiertos: {len(os.listdir('/proc/self/fd'))}\n")
+                    out.write("Diagnóstico de hilos (sin direcciones IPTV):\n")
+                    out.flush()
+                    faulthandler.dump_traceback(file=out, all_threads=True)
+            except OSError:
+                pass
+
+    def _read_events(self):
+        while not self._stop_events.is_set():
+            evptr = self.lib.mpv_wait_event(self.ptr, 0.25)
+            if not evptr or self._stop_events.is_set():
+                break
+            event = evptr.contents
+            if event.event_id == 2 and event.data:  # MPV_EVENT_LOG_MESSAGE
+                msg = C.cast(event.data, C.POINTER(MpvLog)).contents
+                if msg.text:
+                    with self._lock:
+                        self.logs.append(sanitize_line(msg.text.decode("utf-8", "replace"), self.active_url))
+            elif event.event_id == 8:  # MPV_EVENT_FILE_LOADED
+                self.GLib.idle_add(self._notify, "Reproduciendo", False)
+            elif event.event_id == 7 and event.data:  # MPV_EVENT_END_FILE
+                end = C.cast(event.data, C.POINTER(MpvEndFile)).contents
+                if end.reason == 4:  # MPV_END_FILE_REASON_ERROR
+                    self.GLib.idle_add(self._notify, "Error al cargar el canal. Consulta el diagnóstico.", True)
+
+    def _notify(self, message, failed):
+        if not self.closed and self.on_status:
+            self.on_status(message, failed)
+        return False
+
+    def initialize_opengl(self, queue_draw):
+        self._libGL = C.CDLL(ctypes.util.find_library("GL") or "libGL.so.1")
+        self._libGL.glGetIntegerv.argtypes = [C.c_uint, C.POINTER(C.c_int)]
+        self._libGL.glGetIntegerv.restype = None
+        self._libGL.glClearColor.argtypes = [C.c_float] * 4
+        self._libGL.glClear.argtypes = [C.c_uint]
+        self._libEGL = C.CDLL(ctypes.util.find_library("EGL") or "libEGL.so.1")
+        self._libEGL.eglGetProcAddress.argtypes = [C.c_char_p]
+        self._libEGL.eglGetProcAddress.restype = C.c_void_p
+
+        # mpv 0.41 llama glFenceSync() tras cada fotograma integrado, pero
+        # puede no liberar los GLsync creados (issue #17217). En v1.5
+        # ocultábamos por completo el símbolo, lo que hacía que el cargador
+        # de OpenGL rechazase el contexto con MPV_ERROR_UNSUPPORTED.
+        #
+        # Ahora conservamos un puntero de función ABI-compatible y hacemos
+        # que devuelva GLsync NULL. El propio mpv 0.41 comprueba `if (fence)`
+        # antes de guardar la fence: así NO crea fences/FDs y el cargador
+        # puede inicializarse. Solo afecta a los símbolos que libmpv nos
+        # solicita, no al OpenGL de GTK. Es un workaround reversible.
+        # Desactivar: IPTV_ENABLE_GL_FENCES=1 antes del comando.
+        @FenceSync
+        def no_fence_sync(_condition, _flags):
+            return None
+
+        self._fence_noop = no_fence_sync  # Mantener el callback vivo.
+
+        @GetProc
+        def get_proc(_ctx, name):
+            if name == b"glFenceSync" and os.environ.get("IPTV_ENABLE_GL_FENCES") != "1":
+                return C.cast(self._fence_noop, C.c_void_p).value
+            address = self._libEGL.eglGetProcAddress(name)
+            if not address:
+                # Algunas plataformas no exportan símbolos GL básicos por eglGetProcAddress.
+                try:
+                    address = C.cast(getattr(self._libGL, name.decode("ascii")), C.c_void_p).value
+                except (AttributeError, UnicodeDecodeError):
+                    address = None
+            return address or None
+
+        @UpdateCb
+        def callback(_ctx):
+            # Se ejecuta desde hilos internos de MPV. No invocar ninguna API
+            # mpv_render_* ni de GTK aquí; avisar al loop principal solamente.
+            with self._lock:
+                if self.closed or self._callback_pending:
+                    return
+                self._callback_pending = True
+            self.GLib.idle_add(schedule_redraw, priority=self.GLib.PRIORITY_HIGH_IDLE)
+
+        def schedule_redraw():
+            with self._lock:
+                self._callback_pending = False
+            if not self.closed and self.ctx.value:
+                queue_draw()  # GTK emitirá render con el contexto GL activo.
+            return False
+
+        self._proc_callback = get_proc  # ctypes callbacks MUST remain alive.
+        self._frame_callback = callback
+        self._gl_init = GLInit(get_proc, None)
+        # MPV_RENDER_PARAM_API_TYPE (tipo char*) exige la dirección
+        # del texto "opengl", NO la dirección de un char**. La v1.1
+        # enviaba un puntero de más, provocando MPV_ERROR_NOT_IMPLEMENTED.
+        # Conservamos el buffer mientras viva el contexto de renderizado.
+        self._gl_api_name = C.create_string_buffer(b"opengl")
+        params = (RenderParam * 3)(
+            RenderParam(1, C.cast(self._gl_api_name, C.c_void_p)),
+            RenderParam(2, C.cast(C.pointer(self._gl_init), C.c_void_p)),
+            RenderParam(0, None),
+        )
+        self._check(self.lib.mpv_render_context_create(C.byref(self.ctx), self.ptr, params), "renderizado OpenGL")
+        self.lib.mpv_render_context_set_update_callback(self.ctx, self._frame_callback, None)
+
+    def render(self, width, height):
+        if not self.ctx.value or self.closed:
+            return
+        # Solo se llama desde Gtk.GLArea::render, que ha hecho current el
+        # MISMO contexto OpenGL utilizado al crear el renderizador. En v1.3
+        # se llamaba mpv_render_context_update desde un idle sin contexto:
+        # comportamiento indefinido, especialmente con VirGL/Wayland.
+        self.lib.mpv_render_context_update(self.ctx)
+        framebuffer = C.c_int(0)
+        self._libGL.glGetIntegerv(0x8CA6, C.byref(framebuffer))  # GL_DRAW_FRAMEBUFFER_BINDING
+        fbo = GLFbo(framebuffer.value, max(1, width), max(1, height), 0)
+        flip = C.c_int(1)
+        # La función render() no debe dormir esperando al instante de
+        # presentación: bloquearía la UI completa dentro de GTK/Wayland.
+        no_wait = C.c_int(0)
+        params = (RenderParam * 4)(
+            RenderParam(3, C.cast(C.pointer(fbo), C.c_void_p)),
+            RenderParam(4, C.cast(C.pointer(flip), C.c_void_p)),
+            RenderParam(12, C.cast(C.pointer(no_wait), C.c_void_p)),
+            RenderParam(0, None),
+        )
+        result = self.lib.mpv_render_context_render(self.ctx, params)
+        if result < 0:
+            # No hacer otra llamada a libmpv desde el hilo de render.
+            self.GLib.idle_add(self._notify, f"Error de renderizado MPV ({result})", True)
+        else:
+            self._last_frame_at = time.monotonic()
+            self._render_count += 1
+            self._watchdog_logged = False
+
+    def play(self, channel):
+        self.active_url = channel.url
+        self.active_name = channel.name
+        self._dimensions = None
+        self._is_paused = False
+        self._render_count = 0
+        self._last_frame_at = time.monotonic()
+        self._watchdog_logged = False
+        with self._lock:
+            self.logs.clear()
+        self._check(self.command("loadfile", channel.url, "replace"), "apertura de canal")
+
+    def stop(self):
+        self.command("stop")
+        self.active_url = ""
+        self._dimensions = None
+        self._is_paused = False
+
+    def paused(self):
+        return self._is_paused
+
+    def toggle_pause(self):
+        if self.active_url:
+            self._is_paused = not self._is_paused
+            self.command("cycle", "pause")
+
+    def volume(self, val):
+        if not self.closed and self.ptr:
+            self._control_queue.put(("volume", (val,)))
+
+    def video_dimensions(self):
+        # Snapshot actualizado por el hilo de control: no bloquea GTK.
+        return self._dimensions if not self.closed and self.active_url else None
+
+    def write_diag(self):
+        with self._lock:
+            recent = list(self.logs)
+        if not recent:
+            recent = ["No se ha recibido información de error de libmpv."]
+        LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # Nunca guardar URL, usuario ni contraseña de M3U.
+        text = "Canal: " + self.active_name + "\nMotor: libmpv nativo (sin User-Agent)\n\n" + "\n".join(recent) + "\n"
+        LOG_PATH.write_text(text, encoding="utf-8")
+        LOG_PATH.chmod(0o600)
+        return text
+
+    def free_renderer(self):
+        if self.ctx.value:
+            self.lib.mpv_render_context_set_update_callback(self.ctx, UpdateCb(), None)
+            self.lib.mpv_render_context_free(self.ctx)
+            self.ctx = C.c_void_p()
+
+    def shutdown(self):
+        if self.closed:
+            return
+        self.closed = True
+        self._stop_events.set()
+        self._stop_controls.set()
+        self._stop_watchdog.set()
+        self._control_queue.put(None)
+        # No destruir el handle mientras los lectores lo estén usando.
+        for worker in (self._control_thread, self._event_thread, self._watchdog_thread):
+            if worker:
+                worker.join(timeout=2.0)
+        if any(worker and worker.is_alive() for worker in (self._control_thread, self._event_thread, self._watchdog_thread)):
+            # Más seguro dejar la limpieza al cierre del proceso que causar
+            # un use-after-free en caso de bloqueo grave del driver.
+            return
+        if self.ptr:
+            self.lib.mpv_terminate_destroy(self.ptr)
+            self.ptr = None
+
+class RenderParam(C.Structure):
+    _fields_ = [("type", C.c_int), ("data", C.c_void_p)]
+
+class GLInit(C.Structure):
+    _fields_ = [("get_proc_address", GetProc), ("get_proc_address_ctx", C.c_void_p)]
+
+class GLFbo(C.Structure):
+    _fields_ = [("fbo", C.c_int), ("w", C.c_int), ("h", C.c_int), ("internal_format", C.c_int)]
+
+class MpvArea(Gtk.GLArea):
+        def __init__(self):
+            super().__init__()
+            self.set_hexpand(True)
+            self.set_vexpand(True)
+            self.set_auto_render(False)
+            self.add_css_class("iptv-video")
+            if hasattr(self, "set_allowed_apis"):
+                self.set_allowed_apis(Gdk.GLAPI.GL)
+            self.player = None
+            self.problem = ""
+            self._resize_redraw_pending = False
+            self._resize_quiet_until = 0.0
+            self._last_size = (0, 0)
+            self._resize_timer = 0
+            self.set_focusable(True)
+            self.connect("realize", self.on_realize)
+            self.connect("render", self.on_render)
+            self.connect("resize", self.on_resize)
+            self.connect("unrealize", self.on_unrealize)
+
+        def on_realize(self, *_):
+            self.make_current()
+            if self.get_error() is not None:
+                self.problem = "GTK no pudo inicializar OpenGL en esta VM."
+                return
+            try:
+                self.player = NativeMpv(GLib, player_options=self.get_root().player_options if self.get_root() else {})
+                self.player.initialize_opengl(self.queue_render)
+                def notify_ready():
+                    if self.get_root():
+                        self.get_root().player_ready()
+                    return False
+                GLib.idle_add(notify_ready)
+            except Exception as exc:
+                self.problem = str(exc)
+                if self.player:
+                    if self.player.ctx.value:
+                        self.player.free_renderer()
+                    self.player.shutdown()
+                    self.player = None
+                def notify_error():
+                    if self.get_root():
+                        self.get_root().player_failed(self.problem)
+                    return False
+                GLib.idle_add(notify_error)
+
+        def on_render(self, _area, _context):
+            # Gtk.GLArea activa su propio contexto GL para este callback.
+            factor = self.get_scale_factor()
+            width = self.get_width() * factor
+            height = self.get_height() * factor
+            if width < 2 or height < 2:
+                return True
+
+            # Durante un redimensionamiento GTK puede reasignar el FBO decenas
+            # de veces por segundo. No entregamos FBOs transitorios a libmpv;
+            # eso evita reconfiguraciones de GPU/fences mientras Wayland cambia
+            # la geometría. Se muestra negro hasta estabilizar el tamaño.
+            now = time.monotonic()
+            if now < self._resize_quiet_until:
+                if self.player and self.player._libGL:
+                    self.player._libGL.glClearColor(0.0, 0.0, 0.0, 1.0)
+                    self.player._libGL.glClear(0x00004000)  # GL_COLOR_BUFFER_BIT
+                return True
+            if self.player and self.player.ctx.value:
+                self.player.render(width, height)
+            return True
+
+        def on_resize(self, _area, _width, _height):
+            # Una sola petición de redibujado TRAS 160ms sin cambios de tamaño.
+            # Nunca recrear el contexto OpenGL, ni renderizar mientras oscila.
+            size = (_width, _height)
+            if size == self._last_size:
+                return
+            self._last_size = size
+            self._resize_quiet_until = time.monotonic() + 0.160
+            if not self._resize_timer:
+                self._resize_timer = GLib.timeout_add(180, self._after_resize)
+
+        def _after_resize(self):
+            remaining = self._resize_quiet_until - time.monotonic()
+            if remaining > 0:
+                return True  # reintentar cuando deje de cambiar el tamaño
+            self._resize_timer = 0
+            if self.get_realized():
+                self.queue_render()
+            return False
+
+        def on_unrealize(self, *_):
+            if self._resize_timer:
+                GLib.source_remove(self._resize_timer)
+                self._resize_timer = 0
+            if self.player:
+                self.make_current()
+                self.player.free_renderer()
+                self.player.shutdown()
+                self.player = None

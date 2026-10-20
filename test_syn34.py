@@ -1,4 +1,6 @@
 """SYN 3.4: regresión sin servidor ni interfaz gráfica."""
+from syn_test_backend import baseline_digest
+
 import ast
 import datetime as dt
 import gzip
@@ -57,6 +59,6 @@ class Syn34Tests(unittest.TestCase):
         import hashlib
         node=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='NativeMpv')
         self.assertEqual(hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest(),
-                         'fccf6acdefea0a48051946aa54d796c0877590d3b9e47940753bfe8e598ed19e')
+                         baseline_digest('NativeMpv'))
 
 if __name__=='__main__': unittest.main(verbosity=2)

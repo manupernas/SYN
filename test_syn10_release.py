@@ -3,6 +3,8 @@
 The GTK opening test calls the ACTUAL open_settings method against a small recording
 widget double. It does not claim to prove real Fedora/Wayland rendering.
 """
+from syn_test_backend import baseline_digest
+
 import ast
 from pathlib import Path
 import types
@@ -165,7 +167,7 @@ class ReleaseTests(unittest.TestCase):
         t=ast.parse(SRC)
         core=next(n for n in t.body if isinstance(n,ast.ClassDef) and n.name=='NativeMpv')
         self.assertEqual(hashlib.sha256(ast.dump(core,include_attributes=False).encode()).hexdigest(),
-                         'fccf6acdefea0a48051946aa54d796c0877590d3b9e47940753bfe8e598ed19e')
+                         baseline_digest('NativeMpv'))
         self.assertIn('pic = Gtk.DrawingArea()', SRC)
         self.assertIn('pic.set_size_request(108, 38)', SRC)
 

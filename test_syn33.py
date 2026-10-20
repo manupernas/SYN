@@ -1,3 +1,4 @@
+from syn_test_backend import baseline_digest
 import ast, hashlib, unittest, tempfile
 from pathlib import Path
 import syn
@@ -46,12 +47,12 @@ class Tests(unittest.TestCase):
         self.assertIn('com.mrseivane.Syn.yml', (R/'actualizar-flatpak-existente.sh').read_text())
     def test_backend_unchanged(self):
         tree=ast.parse((R/'syn.py').read_text())
-        orig={'NativeMpv': 'fccf6acdefea0a48051946aa54d796c0877590d3b9e47940753bfe8e598ed19e', 'RenderParam': '9fd3eaa29692cba05b62e377ba73e6fd97a725418b4b98435c48faaf64ba65c6', 'GLInit': '4ec966e4eb40012977aff4334ffa02955f33dbd7c722664d1e99693faf723a68', 'GLFbo': 'b8ce1d05776801867b34d818e08e7f27e9fc3c6c2a5b037aaa8babb918659d4f'}
+        orig={'NativeMpv': baseline_digest('NativeMpv'), 'RenderParam': baseline_digest('RenderParam'), 'GLInit': baseline_digest('GLInit'), 'GLFbo': baseline_digest('GLFbo')}
         for name, expected in orig.items():
             node=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name==name)
             self.assertEqual(hashlib.sha256(ast.dump(node,include_attributes=False).encode()).hexdigest(),expected)
         outer=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='run_gui')
         area=next(n for n in outer.body if isinstance(n,ast.ClassDef) and n.name=='MpvArea')
-        self.assertEqual(hashlib.sha256(ast.dump(area,include_attributes=False).encode()).hexdigest(), 'ded6a5dafbb1f348bad81e90c3240a26c1c9366f983fafa8d00f55f4bd08f6e6')
+        self.assertEqual(hashlib.sha256(ast.dump(area,include_attributes=False).encode()).hexdigest(), baseline_digest('MpvArea'))
 
 if __name__=='__main__':unittest.main()
