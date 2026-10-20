@@ -75,8 +75,9 @@ jobs:
           [[ "${#files[@]}" -eq 1 && -s "${files[0]}" ]]
           file "${files[0]}"
           if [[ "$PACKAGE_FORMAT" == deb ]]; then
-            dpkg-deb --contents "${files[0]}" | grep -q 'usr/bin/syn'
-            dpkg-deb --contents "${files[0]}" | grep -q 'io.github.manupernas.SYN.desktop'
+            dpkg-deb --contents "${files[0]}" > "$RUNNER_TEMP/syn-deb-contents.txt"
+            grep -Fq 'usr/bin/syn' "$RUNNER_TEMP/syn-deb-contents.txt"
+            grep -Fq 'io.github.manupernas.SYN.desktop' "$RUNNER_TEMP/syn-deb-contents.txt"
           fi
           echo "PAQUETE: ${files[0]}"
 
