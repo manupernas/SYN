@@ -31,7 +31,7 @@ from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, lo
 from pathlib import Path
 from urllib.parse import urlsplit
 
-APP_ID = "com.mrseivane.Syn"
+APP_ID = "io.github.manupernas.SYN"
 APP_TITLE = "SYN"
 SYN_VERSION = "1.0.2b"
 CONFIG_DIR = sources.APP_CONFIG

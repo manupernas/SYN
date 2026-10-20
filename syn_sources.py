@@ -21,8 +21,16 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_CONFIG = Path.home() / '.config' / 'syn'
-APP_CACHE = Path.home() / '.cache' / 'syn'
+def _xdg_home(variable, fallback):
+    # Flatpak proporciona XDG_CONFIG_HOME y XDG_CACHE_HOME privados por app.
+    # En instalaciones nativas, se conserva ~/.config/syn y ~/.cache/syn.
+    value = os.environ.get(variable, '')
+    base = Path(value).expanduser() if value and Path(value).is_absolute() else Path.home() / fallback
+    return base / 'syn'
+
+
+APP_CONFIG = _xdg_home('XDG_CONFIG_HOME', '.config')
+APP_CACHE = _xdg_home('XDG_CACHE_HOME', '.cache')
 CONFIG_FILE = APP_CONFIG / 'profiles.json'
 MAX_PLAYLIST = 28 * 1024 * 1024
 MAX_EPG = 85 * 1024 * 1024

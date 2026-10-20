@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.mrseivane.Syn</id>
+  <id>io.github.manupernas.SYN</id>
   <name>SYN</name>
   <summary>Modern IPTV player for Linux</summary>
   <summary xml:lang="es">Reproductor IPTV moderno para Linux</summary>
@@ -16,7 +16,7 @@
   <url type="homepage">https://github.com/manupernas/SYN</url>
   <url type="vcs-browser">https://github.com/manupernas/SYN</url>
   <url type="bugtracker">https://github.com/manupernas/SYN/issues</url>
-  <launchable type="desktop-id">com.mrseivane.Syn.desktop</launchable>
+  <launchable type="desktop-id">io.github.manupernas.SYN.desktop</launchable>
   <content_rating type="oars-1.1" />
   <screenshots>
     <screenshot type="default">
