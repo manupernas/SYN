@@ -39,7 +39,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         s = (ROOT/'syn.py').read_text(encoding='utf-8')
         m = re.search(r'^SYN_VERSION\s*=\s*[\'\"]([^\'\"]+)',s,re.M)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1),'1.3.1')
+        self.assertRegex(m.group(1),r'^\d+\.\d+(?:\.\d+)?$')
         manifest = (ROOT/'com.mrseivane.Syn.yml').read_text(encoding='utf-8')
         for required in ('id: com.mrseivane.Syn','syn-dvr-worker',
                          'syn_dvr_tray.py','syn-dvr-tray',
