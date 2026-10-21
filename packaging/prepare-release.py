@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Preparar una release de SYN; seis nativos obligatorios, extras por parejas.
-
-Nunca publica un artefacto suelto de una única arquitectura opcional.
-Genera SHA256SUMS.txt de los ficheros realmente seleccionados y notas coherentes.
-"""
+"""Publish only complete SYN 1.3 releases (4 package formats x 2 architectures)."""
 import hashlib
 import os
 from pathlib import Path
@@ -11,77 +7,86 @@ import re
 import sys
 
 
-def prepare(directory: Path, notes_source: Path, notes_destination: Path, tag: str):
-    version = tag.removeprefix('v')
-    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
-        raise ValueError('Versión de etiqueta inválida: ' + tag)
-    if not directory.is_dir():
-        raise ValueError('No existe la carpeta con artefactos')
-    required = [
+def required_assets(version):
+    return [
         f'syn-iptv-{version}-1.x86_64.rpm',
         f'syn-iptv-{version}-1.aarch64.rpm',
         f'syn-iptv_{version}-1_amd64.deb',
         f'syn-iptv_{version}-1_arm64.deb',
         f'syn-iptv-{version}-1-x86_64.pkg.tar.zst',
         f'syn-iptv-{version}-1-aarch64.pkg.tar.zst',
+        f'SYN-{version}-x86_64.flatpak',
+        f'SYN-{version}-aarch64.flatpak',
     ]
-    missing = [name for name in required if not (directory / name).is_file() or (directory / name).stat().st_size < 1024]
-    if missing:
-        raise ValueError('Faltan paquetes NATIVOS obligatorios: ' + ', '.join(missing))
 
-    optional = {
-        'Flatpak': [f'SYN-{version}-x86_64.flatpak', f'SYN-{version}-aarch64.flatpak'],
-        'AppImage': [f'SYN-{version}-x86_64.AppImage', f'SYN-{version}-aarch64.AppImage'],
-    }
-    allowed = set(required)
-    for pair in optional.values():
-        allowed.update(pair)
-    unknown = sorted(p.name for p in directory.iterdir() if p.name not in allowed)
-    if unknown:
-        raise ValueError('Artefactos desconocidos o sobrantes: ' + ', '.join(unknown))
 
-    included = []
-    omitted = []
-    for label, pair in optional.items():
-        if all((directory / file).is_file() and (directory / file).stat().st_size >= 1024 for file in pair):
-            included.append(label)
-        else:
-            # Solo limpiar extras DESPUÉS de validar los seis obligatorios.
-            for name in pair:
-                (directory / name).unlink(missing_ok=True)
-            omitted.append(label)
-
-    published = sorted(p for p in directory.iterdir() if p.is_file())
-    assert len(published) in (6, 8, 10), f'Tamaño de Release inesperado: {len(published)}'
-    checksum_lines = []
-    for p in published:
+def prepare(directory: Path, notes_source: Path, notes_destination: Path, tag: str):
+    version = tag.removeprefix('v')
+    if not re.fullmatch(r'\d+\.\d+\.\d+', version):
+        raise ValueError(f'Invalid release tag: {tag}')
+    if not directory.is_dir():
+        raise ValueError('Artifact directory does not exist')
+    expected = set(required_assets(version))
+    found = {p.name for p in directory.iterdir()}
+    missing = sorted(expected - found)
+    extras = sorted(found - expected)
+    if missing or extras:
+        raise ValueError(f'Expected exactly 8 assets. Missing: {missing}; unexpected: {extras}')
+    files = sorted(directory / name for name in expected)
+    for p in files:
+        if not p.is_file() or p.stat().st_size <= 1024:
+            raise ValueError(f'Empty or invalid asset: {p.name}')
+    checksums = []
+    for p in files:
         with p.open('rb') as fp:
             digest = hashlib.file_digest(fp, 'sha256').hexdigest()
-        checksum_lines.append(f'{digest}  {p.name}')
-    (directory / 'SHA256SUMS.txt').write_text('\n'.join(checksum_lines) + '\n', encoding='utf-8')
-    base_notes = notes_source.read_text(encoding='utf-8')
-    status = [
-        '', '## Resultado real de la compilación',
-        f'**{len(published)} paquetes publicados** (siempre los seis nativos RPM, DEB y Pacman para x86_64 y ARM64).',
-    ]
-    for label in optional:
-        if label in included:
-            status.append(f'- **{label}:** incluidos x86_64 y ARM64.')
-        else:
-            status.append(f'- **{label}:** excluidos de esta Release; no se completaron correctamente ambas arquitecturas.')
-    status.append('Todos los archivos publicados figuran en `SHA256SUMS.txt`.')
-    notes_destination.write_text(base_notes.rstrip() + '\n' + '\n'.join(status) + '\n', encoding='utf-8')
-    print('RELEASE:')
+        checksums.append(f'{digest}  {p.name}')
+    (directory / 'SHA256SUMS.txt').write_text('\n'.join(checksums) + '\n', encoding='utf-8')
+    source = notes_source.read_text(encoding='utf-8').rstrip()
+    english_summary = (
+        '\n\n## Build artifacts\n\n'
+        'All **eight required packages** passed the GitHub Actions build pipeline: '
+        'RPM, DEB, Arch Linux/pacman and Flatpak for both x86_64 and ARM64. '
+        'The `SHA256SUMS.txt` file contains SHA-256 hashes for every downloadable package.\n'
+    )
+    notes_destination.write_text(source + english_summary, encoding='utf-8')
     for p in sorted(directory.iterdir()):
-        print(' ', p.name, p.stat().st_size, 'bytes')
-    print('Incluidos:', ', '.join(included) or '(ningún opcional)')
-    print('Omitidos:', ', '.join(omitted) or '(ninguno)')
-    return [p.name for p in published]
+        print(f'{p.name}: {p.stat().st_size} bytes')
+    return [p.name for p in files]
+
+
+def self_test():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        assets = base / 'assets'
+        assets.mkdir()
+        names = required_assets('1.3.0')
+        for name in names:
+            (assets / name).write_bytes(b'package-content' * 80)
+        notes = base / 'notes.md'
+        notes.write_text('# SYN 1.3\n', encoding='utf-8')
+        output = base / 'release.md'
+        result = prepare(assets, notes, output, 'v1.3.0')
+        assert len(result) == 8
+        assert len((assets / 'SHA256SUMS.txt').read_text().splitlines()) == 8
+        assert 'SYN 1.3' in output.read_text()
+        (assets / names[-1]).unlink()
+        try:
+            prepare(assets, notes, output, 'v1.3.0')
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('A missing Flatpak must block publication')
+    print('OK: exactly eight packages, hashes and missing-build guard')
 
 
 if __name__ == '__main__':
+    if len(sys.argv) == 2 and sys.argv[1] == '--self-test':
+        self_test()
+        raise SystemExit(0)
     if len(sys.argv) != 4:
-        raise SystemExit('Uso: prepare-release.py <artefactos> <notas originales> <notas generadas>')
+        raise SystemExit('Usage: prepare-release.py ASSETS_DIR ENGLISH_NOTES OUTPUT_BODY')
     try:
         prepare(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), os.environ['SYN_RELEASE_VERSION'])
     except (ValueError, OSError) as exc:
