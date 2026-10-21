@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m compileall -q syn.py syn_dvr.py syn_dvr_tray.py syn_sources.py syn_i18n.py
-          python3 -m pytest -q tests/test_syn_dvr_release.py tests/test_syn_service_setup.py
+          python3 -m pytest -q tests/test_syn_dvr_release.py tests/test_syn_service_setup.py tests/test_syn_release_132.py
           bash -n packaging/build-native.sh packaging/build-flatpak.sh packaging/stage-native.sh
           python3 packaging/prepare-release.py --self-test
       - name: Determine release version from SYN_VERSION and validate tag

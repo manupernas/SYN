@@ -41,7 +41,8 @@ _TRANSLATOR = _gettext.translation('syn', localedir=str(_LOCALE_PATH),
                                    languages=[LANGUAGE], fallback=True)
 
 def translate(message):
-    return _TRANSLATOR.gettext(message)
+    from syn_locale_rev3 import localize
+    return localize(message, _TRANSLATOR.gettext(message), LANGUAGE)
 
 def format_time(value):
     if LANGUAGE == 'en_US':

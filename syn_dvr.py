@@ -188,21 +188,24 @@ def ffmpeg_command(job, path):
 
 
 def notify_transient(message):
-    """Brief desktop banner, deliberately NOT a persistent Gio.Notification.
+    """One best-effort OS notification per real DVR event, never per poll.
 
-    The default GNOME notification queue keeps a badge on the SYN icon. A
-    transient host notification is only best-effort; the reliable signal is
-    the on-screen heartbeat from a separate systemd-managed Flatpak worker.
+    Works for native RPM/DEB/Pacman and self-contained Flatpak worker.
+    The independent worker remains functional without a notification daemon.
     """
-    if not Path('/.flatpak-info').exists() or not shutil.which('flatpak-spawn'):
+    args = ['notify-send', '--transient', '--expire-time=4500',
+            '--urgency=normal', '--app-name=SYN', '-i', APP_ID,
+            'SYN DVR', str(message)]
+    if Path('/.flatpak-info').exists():
+        if not shutil.which('flatpak-spawn'):
+            return False
+        args = ['flatpak-spawn', '--host'] + args
+    elif not shutil.which('notify-send'):
         return False
     try:
-        subprocess.Popen([
-            'flatpak-spawn', '--host', 'notify-send', '--transient',
-            '--expire-time=4500', '--urgency=low', '--app-name=SYN',
-            'SYN DVR', str(message),
-        ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, start_new_session=True)
+        subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
         return True
     except OSError:
         return False
@@ -292,7 +295,7 @@ def run_worker(poll_seconds=2):
                             store.change(lambda d, k=key: _set_job(
                                 d, k, status='completed', error='', finished=time.time(),
                                 stop_requested=requested))
-                            notify_recording_worker('Grabación terminada: ' + job['channel'])
+                            notify_recording_worker(('Grabación detenida: ' if requested else 'Grabación finalizada: ') + job['channel'])
                         else:
                             attempt = int(latest.get('reconnect_count', 0)) + 1
                             # Throttle persistent 403/expired-URL errors; no CPU/HTTP storm.
@@ -336,10 +339,11 @@ def run_worker(poll_seconds=2):
                     store.change(lambda d, k=key, p=str(output):
                                  _set_job(d, k, status='running', path=p, error='', stop_requested=False,
                                           relay_url=syn_relay_url(k)))
-                    notify_recording_worker('● Grabación en curso: ' + job['channel'] +
-                                            ' · continuará al cerrar la ventana de SYN.')
+                    notify_recording_worker('Grabación iniciada: ' + job['channel'] +
+                                             ' · continúa con SYN cerrado.')
                 except (OSError, ValueError) as exc:
                     store.change(lambda d, k=key, e=str(exc): _set_job(d, k, status='failed', error=e))
+                    notify_recording_worker('Error al iniciar grabación: ' + job['channel'])
             # A fresh heartbeat alone cannot tell whether the worker will
             # survive the GTK window closing. Persist its owner and mode.
             worker_mode = ('background' if threading.current_thread() is threading.main_thread()

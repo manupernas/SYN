@@ -95,6 +95,9 @@ modules:
       - install -Dm755 syn-dvr-tray /app/bin/syn-dvr-tray
       - install -Dm644 syn_sources.py /app/share/syn/syn_sources.py
       - install -Dm644 syn_i18n.py /app/share/syn/syn_i18n.py
+      - install -Dm644 syn_favoritos.py /app/share/syn/syn_favoritos.py
+      - install -Dm644 syn_settings_rev3.py /app/share/syn/syn_settings_rev3.py
+      - install -Dm644 syn_locale_rev3.py /app/share/syn/syn_locale_rev3.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo
       - install -Dm644 locale/en_GB/LC_MESSAGES/syn.mo /app/share/locale/en_GB/LC_MESSAGES/syn.mo
       - install -Dm644 com.mrseivane.Syn.desktop /app/share/applications/com.mrseivane.Syn.desktop

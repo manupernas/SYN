@@ -36,6 +36,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.2" date="2026-10-21">
+      <description>
+        <p>Continuous vertical programme guide with mouse-driven horizontal timeline, improved favourites and EPG recording, a reorganised settings window and Spanish/English locale fixes.</p>
+        <p xml:lang="es">Guía de programación con desplazamiento vertical continuo, navegación temporal con el ratón, favoritos mejorados, ajustes reorganizados y correcciones de traducción.</p>
+      </description>
+    </release>
     <release version="1.3" date="2026-10-21">
       <description>
         <p>Independent DVR with shared live playback, a real desktop recording menu, smooth aligned EPG and four complete appearance themes.</p>

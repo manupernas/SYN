@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import syn_sources as sources
 import syn_dvr
+import syn_favoritos
 import syn_service_setup
 from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, locale_description
 from pathlib import Path
@@ -35,7 +36,7 @@ from urllib.parse import urlsplit
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.1"
+SYN_VERSION = "1.3.2"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -1121,11 +1122,11 @@ def run_gui(playlist):
     .syn-favorite-display-name { font-size: 11px; font-weight: 650; opacity: .82; }
     .syn-unified-channel-row { min-height: 0; }
     .syn-channel-logo-picture { margin: 0; padding: 0; background: transparent; border: none; box-shadow: none; }
-    .syn-unified-favorite-star { opacity: .83; padding: 0; margin: 0;
+    .syn-favorite-heart { opacity: .83; padding: 0; margin: 0;
       min-width: 0; min-height: 0; background: transparent; }
-    .syn-unified-favorite-star:hover { opacity: 1; }
+    .syn-favorite-heart:hover { opacity: 1; }
     .syn-favorite-display-name { font-size: 11px; font-weight: 600; opacity: .78; }
-    .syn-row-star { padding: 2px; min-width: 28px; min-height: 28px; }
+    .syn-row-heart { padding: 2px; min-width: 28px; min-height: 28px; }
 
     """
 
@@ -1146,11 +1147,54 @@ def run_gui(playlist):
     window.iptv-tv label.syn-dvr-indicator {
       color: #f33e58; font-weight: 900; font-size: 12px;
     }
+    @keyframes syn-guide-arrive {
+      from { opacity: .68; }
+      to { opacity: 1; }
+    }
+    window.iptv-tv .syn-guide-program.syn-guide-soft-arrival {
+      animation: syn-guide-arrive 170ms ease-out 1;
+    }
+    window.iptv-tv .syn-guide-program {
+      transition: background-color 160ms ease, border-color 160ms ease;
+    }
     window.iptv-tv row.syn-unified-channel-row { min-height: 0; padding: 0; }
-    window.iptv-tv image.syn-unified-favorite-star,
     window.iptv-tv picture.syn-channel-logo-picture {
       min-width: 0; min-height: 0; margin: 0; padding: 0;
       background: transparent; border: none; box-shadow: none;
+    }
+    /* Dedicated 40px hit area; the text and the scrollbar never share it. */
+    window.iptv-tv button.syn-favorite-heart {
+      min-width: 40px; min-height: 40px;
+      padding: 0; margin: 0;
+      border: 0; border-radius: 12px;
+      background: transparent; background-image: none;
+      color: #b8ceca; font-size: 24px; font-weight: 700;
+      box-shadow: none;
+    }
+    window.iptv-tv button.syn-favorite-heart:hover {
+      background: alpha(#8caeb1, 0.16); color: #f1fffd;
+    }
+    window.iptv-tv button.syn-favorite-heart.syn-heart-active,
+    window.iptv-tv button.syn-favorite-heart.syn-heart-active:hover {
+      background: alpha(#ef334b, 0.10); color: #ed334b;
+    }
+    @keyframes syn-heart-shake {
+      0%   { transform: translateX(0px) scale(1); }
+      24%  { transform: translateX(-2px) scale(1.18); }
+      45%  { transform: translateX(2px) scale(1.10); }
+      67%  { transform: translateX(-1px) scale(1.06); }
+      100% { transform: translateX(0px) scale(1); }
+    }
+    window.iptv-tv button.syn-heart-animate {
+      animation: syn-heart-shake 260ms ease-out 1;
+    }
+    window.iptv-tv button.syn-heart-filter:checked,
+    window.iptv-tv button.syn-favorite-filter:checked,
+    window.iptv-tv button.syn-heart-filter:checked:hover,
+    window.iptv-tv button.syn-favorite-filter:checked:hover,
+    window.iptv-tv label.syn-heart-active,
+    window.iptv-tv .syn-guide-cat.active .syn-guide-favorites-heart {
+      color: #ed334b;
     }
     """
 
@@ -1915,9 +1959,20 @@ def run_gui(playlist):
             if not isinstance(self._restore_ui, dict):
                 self._restore_ui = {}
             self.guide_start = epg_initial_start(dt.datetime.now().astimezone())
-            self.guide_category_name = 'Todas las categorías'
+            self.guide_category_name = syn_favoritos.ALL_CATEGORY
             self.guide_page = 0
             self.guide_search_timer = 0
+            self._guide_virtual_first = -1
+            self._guide_virtual_total = -1
+            self._guide_virtual_timer = 0
+            self._guide_rebase_timer = 0
+            self._guide_render_busy = False
+            self._guide_reset_vertical = True
+            self._guide_open_initial = True
+            self._guide_dragging = False
+            self._guide_drag_last = 0.0
+            self._guide_drag_until = 0.0
+            self._guide_soft_arrival = False
 
             base = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             base.add_css_class("iptv-surface")
@@ -1964,12 +2019,12 @@ def run_gui(playlist):
             self.epg_btn.connect('clicked', self.show_guide)
             self.header.pack_end(self.epg_btn)
             self.dvr_nav_button = Gtk.Button(label='DVR')
-            self.dvr_nav_button.set_tooltip_text('Calendario, programación y grabaciones')
+            self.dvr_nav_button.set_tooltip_text(tr('Calendario, programación y grabaciones'))
             self.dvr_nav_button.connect('clicked', self.toggle_dvr_view)
             self.header.pack_end(self.dvr_nav_button)
             self.dvr_recording_indicator = Gtk.Label(label='● REC')
             self.dvr_recording_indicator.add_css_class('syn-dvr-indicator')
-            self.dvr_recording_indicator.set_tooltip_text('SYN DVR está grabando en segundo plano')
+            self.dvr_recording_indicator.set_tooltip_text(tr('SYN DVR está grabando en segundo plano'))
             self.dvr_recording_indicator.set_visible(False)
             self.header.pack_end(self.dvr_recording_indicator)
             # El selector compacto tiene su propia lista; así la barra lateral
@@ -2026,9 +2081,11 @@ def run_gui(playlist):
             self.category.set_hexpand(True)
             self.category.connect("notify::selected", lambda *_: self.render_list())
             filter_row.append(self.category)
-            self.favs = Gtk.ToggleButton(label="★")
+            self.favs = Gtk.ToggleButton(label="♡")
+            self.favs.add_css_class('syn-heart-filter')
             self.favs.set_tooltip_text(tr("Solo favoritos"))
-            self.favs.connect("toggled", lambda *_: self.render_list())
+            self.favs.connect('toggled', lambda btn: (
+                btn.set_label('♥' if btn.get_active() else '♡'), self.render_list()))
             filter_row.append(self.favs)
             # Restore the exact filter the user last left open (not just TV/EPG).
             if self._restore_ui.get('favorites') is True:
@@ -2099,7 +2156,7 @@ def run_gui(playlist):
             self.resolution.set_max_width_chars(25)
             details.append(self.resolution)
             self.dvr_back_btn = Gtk.Button(label='↩ Volver al directo')
-            self.dvr_back_btn.set_tooltip_text('Regresar al último canal en directo')
+            self.dvr_back_btn.set_tooltip_text(tr('Regresar al último canal en directo'))
             self.dvr_back_btn.set_visible(False)
             self.dvr_back_btn.connect('clicked', self.dvr_back_to_live)
             details.append(self.dvr_back_btn)
@@ -2129,7 +2186,7 @@ def run_gui(playlist):
             self.rec_button = Gtk.Button(label='●')
             self.rec_button.add_css_class('syn-dvr-rec')
             self.rec_button.set_size_request(27, 27)
-            self.rec_button.set_tooltip_text('Grabar canal actual')
+            self.rec_button.set_tooltip_text(tr('Grabar canal actual'))
             self.rec_button.connect('clicked', self.toggle_instant_record)
             volume_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
             self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
@@ -2204,7 +2261,7 @@ def run_gui(playlist):
             back = Gtk.Button(label='← TV')
             back.connect('clicked', self.toggle_dvr_view)
             head.append(back)
-            title = Gtk.Label(label='DVR · Grabaciones', xalign=0)
+            title = Gtk.Label(label=tr('DVR · Grabaciones'), xalign=0)
             title.add_css_class('title-1')
             title.set_hexpand(True)
             head.append(title)
@@ -2212,11 +2269,11 @@ def run_gui(playlist):
             # Open the recording's real folder in the host file manager through
             # the desktop's default handler (Flatpak portal when available).
             open_folder = Gtk.Button.new_from_icon_name('folder-open-symbolic')
-            open_folder.set_tooltip_text('Abrir carpeta de grabaciones')
+            open_folder.set_tooltip_text(tr('Abrir carpeta de grabaciones'))
             open_folder.connect('clicked', lambda *_: self.dvr_open_folder())
             head.append(open_folder)
-            choose_folder = Gtk.Button(label='Elegir carpeta…')
-            choose_folder.set_tooltip_text('Cambiar la carpeta donde se guardan las grabaciones')
+            choose_folder = Gtk.Button(label=tr('Elegir carpeta…'))
+            choose_folder.set_tooltip_text(tr('Cambiar la carpeta donde se guardan las grabaciones'))
             choose_folder.connect('clicked', self.dvr_choose_folder)
             head.append(choose_folder)
 
@@ -2237,45 +2294,45 @@ def run_gui(playlist):
             split.set_start_child(planner_scroll)
             split.set_position(370)
 
-            section = Gtk.Label(label='Programar una grabación', xalign=0)
+            section = Gtk.Label(label=tr('Programar una grabación'), xalign=0)
             section.add_css_class('title-3')
             planner.append(section)
-            planner.append(Gtk.Label(label='Fecha', xalign=0))
+            planner.append(Gtk.Label(label=tr('Fecha'), xalign=0))
             self.dvr_calendar = Gtk.Calendar()
             planner.append(self.dvr_calendar)
-            planner.append(Gtk.Label(label='Canal', xalign=0))
+            planner.append(Gtk.Label(label=tr('Canal'), xalign=0))
             self.dvr_channel_dropdown = Gtk.DropDown.new_from_strings(['Cargando canales…'])
             self.dvr_channel_dropdown.add_css_class('syn-dvr-channel-picker')
             self.dvr_channel_dropdown.set_enable_search(True)
             planner.append(self.dvr_channel_dropdown)
-            planner.append(Gtk.Label(label='Horario (24 h)', xalign=0))
+            planner.append(Gtk.Label(label=tr('Horario (24 h)'), xalign=0))
             times = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             now = dt.datetime.now() + dt.timedelta(minutes=5)
             self.dvr_start_entry = Gtk.Entry()
             self.dvr_start_entry.set_text(now.strftime('%H:%M'))
             self.dvr_start_entry.set_max_length(5)
             self.dvr_start_entry.set_width_chars(6)
-            self.dvr_start_entry.set_tooltip_text('Inicio: HH:MM')
+            self.dvr_start_entry.set_tooltip_text(tr('Inicio: HH:MM'))
             self.dvr_end_entry = Gtk.Entry()
             self.dvr_end_entry.set_text((now + dt.timedelta(hours=1)).strftime('%H:%M'))
             self.dvr_end_entry.set_max_length(5)
             self.dvr_end_entry.set_width_chars(6)
-            self.dvr_end_entry.set_tooltip_text('Fin: HH:MM')
-            times.append(Gtk.Label(label='De'))
+            self.dvr_end_entry.set_tooltip_text(tr('Fin: HH:MM'))
+            times.append(Gtk.Label(label=tr('De')))
             times.append(self.dvr_start_entry)
-            times.append(Gtk.Label(label='a'))
+            times.append(Gtk.Label(label=tr('a')))
             times.append(self.dvr_end_entry)
             planner.append(times)
-            planned = Gtk.Button(label='Programar grabación')
+            planned = Gtk.Button(label=tr('Programar grabación'))
             planned.add_css_class('suggested-action')
             planned.add_css_class('syn-dvr-schedule-action')
             planned.connect('clicked', self.dvr_schedule)
             planner.append(planned)
-            instant = Gtk.Button(label='● Grabar canal seleccionado ahora')
+            instant = Gtk.Button(label=tr('● Grabar canal seleccionado ahora'))
             instant.add_css_class('syn-dvr-action-record')
             instant.connect('clicked', self.dvr_record_selected)
             planner.append(instant)
-            planner.append(Gtk.Label(label='Se utiliza FFmpeg sin recodificar y User-Agent VLC.',
+            planner.append(Gtk.Label(label=tr('Se utiliza FFmpeg sin recodificar y User-Agent VLC.'),
                                      xalign=0, wrap=True))
 
             library = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -2284,12 +2341,12 @@ def run_gui(playlist):
             library.set_margin_top(10)
             split.set_end_child(library)
             library_title = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            title2 = Gtk.Label(label='Programadas y grabadas', xalign=0)
+            title2 = Gtk.Label(label=tr('Programadas y grabadas'), xalign=0)
             title2.add_css_class('title-3')
             title2.set_hexpand(True)
             library_title.append(title2)
             refresh = Gtk.Button.new_from_icon_name('view-refresh-symbolic')
-            refresh.set_tooltip_text('Actualizar grabaciones')
+            refresh.set_tooltip_text(tr('Actualizar grabaciones'))
             refresh.connect('clicked', lambda *_: self.dvr_refresh(force=True))
             library_title.append(refresh)
             library.append(library_title)
@@ -2305,7 +2362,7 @@ def run_gui(playlist):
             scroller.set_child(self.dvr_recording_list)
             self.dvr_feedback = Gtk.Label(label='', xalign=0, wrap=True)
             self.dvr_view.append(self.dvr_feedback)
-            self.dvr_service_label = Gtk.Label(label='Servicio DVR: comprobando…', xalign=0, wrap=True)
+            self.dvr_service_label = Gtk.Label(label=tr('Servicio DVR: comprobando…'), xalign=0, wrap=True)
             self.dvr_service_label.add_css_class('dim-label')
             self.dvr_view.append(self.dvr_service_label)
             self.dvr_worker_check()  # immediate status on first opening
@@ -2369,7 +2426,7 @@ def run_gui(playlist):
         def dvr_record_epg_program(self, channel, clipped_start, clipped_end, programme_title):
             # epg_geometry() clips programme times to the visible viewport.
             # Use original programme bounds from XMLTV, not the clipped block.
-            programmes = sources.epg_for_channel(channel, self.guide, self.epg_aliases)
+            programmes = self._guide_programmes_for(channel)
             match = next((p for p in programmes
                           if len(p) >= 3 and p[0] <= clipped_start < p[1]
                           and str(p[2]) == programme_title), None)
@@ -2489,7 +2546,7 @@ def run_gui(playlist):
             try:
                 ch = self.dvr_chosen_channel()
                 self.dvr_enqueue(ch)
-                self.dvr_feedback.set_text('Grabación inmediata solicitada: ' + display_channel_name(ch.name))
+                self.dvr_feedback.set_text(tr('Grabación inmediata solicitada: ') + display_channel_name(ch.name))
             except (OSError, ValueError) as exc:
                 self.dvr_feedback.set_text('DVR: ' + str(exc))
 
@@ -2505,7 +2562,7 @@ def run_gui(playlist):
                 if end <= start:
                     end += dt.timedelta(days=1)
                 self.dvr_enqueue(ch, start.timestamp(), end.timestamp())
-                self.dvr_feedback.set_text('Grabación programada: ' +
+                self.dvr_feedback.set_text(tr('Grabación programada: ') +
                                            start.strftime('%d/%m/%Y %H:%M') + ' – ' + end.strftime('%H:%M'))
             except (OSError, ValueError) as exc:
                 self.dvr_feedback.set_text('No se pudo programar: ' + str(exc))
@@ -2516,19 +2573,19 @@ def run_gui(playlist):
                 self._instant_recording_id = None
                 self.rec_button.set_label('●')
                 self.rec_button.remove_css_class('syn-dvr-recording')
-                self.rec_button.set_tooltip_text('Grabar ahora')
-                self.status.set_text('DVR: deteniendo grabación…')
+                self.rec_button.set_tooltip_text(tr('Grabar ahora'))
+                self.status.set_text(tr('DVR: deteniendo grabación…'))
                 return
             if not self.current:
-                self.status.set_text('DVR: reproduce un canal antes de grabar.')
+                self.status.set_text(tr('DVR: reproduce un canal antes de grabar.'))
                 return
             try:
                 job = self.dvr_enqueue(self.current)
                 self._instant_recording_id = job['id']
                 self.rec_button.set_label('■')
                 self.rec_button.add_css_class('syn-dvr-recording')
-                self.rec_button.set_tooltip_text('Detener grabación')
-                self.status.set_text('DVR: grabación solicitada de ' + display_channel_name(self.current.name))
+                self.rec_button.set_tooltip_text(tr('Detener grabación'))
+                self.status.set_text(tr('DVR: grabación solicitada de ') + display_channel_name(self.current.name))
             except (ValueError, OSError) as exc:
                 self.status.set_text('DVR: ' + str(exc))
 
@@ -2539,7 +2596,7 @@ def run_gui(playlist):
         def dvr_play_file(self, filepath):
             path = Path(filepath)
             if not path.is_file():
-                self.dvr_feedback.set_text('El archivo ya no está disponible: ' + path.name)
+                self.dvr_feedback.set_text(tr('El archivo ya no está disponible: ') + path.name)
                 return
             self.dvr_view.set_visible(False)
             self.dvr_nav_button.set_label('DVR')
@@ -2569,11 +2626,11 @@ def run_gui(playlist):
             if tracked:
                 self.rec_button.set_label('■')
                 self.rec_button.add_css_class('syn-dvr-recording')
-                self.rec_button.set_tooltip_text('Detener grabación')
+                self.rec_button.set_tooltip_text(tr('Detener grabación'))
             else:
                 self.rec_button.set_label('●')
                 self.rec_button.remove_css_class('syn-dvr-recording')
-                self.rec_button.set_tooltip_text('Grabar ahora')
+                self.rec_button.set_tooltip_text(tr('Grabar ahora'))
 
         def dvr_refresh(self, force=False):
             if not hasattr(self, 'dvr_recording_list'):
@@ -2590,7 +2647,7 @@ def run_gui(playlist):
             if not force and sig == getattr(self, '_dvr_snapshot', None):
                 return True
             self._dvr_snapshot = sig
-            self.dvr_folder_label.set_text('Carpeta: ' + str(data.get('folder') or syn_dvr.video_directory()))
+            self.dvr_folder_label.set_text(tr('Carpeta: ') + str(data.get('folder') or syn_dvr.video_directory()))
             active_count = sum(1 for j in data.get('jobs', []) if j.get('status') == 'running')
             if hasattr(self, 'dvr_recording_indicator'):
                 self.dvr_recording_indicator.set_visible(bool(active_count))
@@ -2598,9 +2655,9 @@ def run_gui(playlist):
             box = self.dvr_recording_list
             while row := box.get_first_child():
                 box.remove(row)
-            statuses = {'scheduled':'Programada', 'running':'Grabando', 'completed':'Finalizada',
-                        'failed':'Error', 'cancelled':'Cancelada', 'missed':'Perdida',
-                        'interrupted':'Interrumpida'}
+            statuses = {'scheduled':tr('Programada'), 'running':tr('Grabando'), 'completed':tr('Finalizada'),
+                        'failed':'Error', 'cancelled':tr('Cancelada'), 'missed':tr('Perdida'),
+                        'interrupted':tr('Interrumpida')}
             seen = set()
             for job in jobs:
                 if job.get('path'):
@@ -2616,7 +2673,7 @@ def run_gui(playlist):
                 name.set_ellipsize(Pango.EllipsizeMode.END)
                 desc.append(name)
                 start = dt.datetime.fromtimestamp(float(job.get('start', time.time())))
-                when = start.strftime('%d/%m %H:%M')
+                when = format_day_time(start)
                 detail = Gtk.Label(label=(statuses.get(job.get('status'), '?') + ' · ' + when + (' · ' + display_channel_name(job.get('channel') or 'Canal') if job.get('programme') else '')), xalign=0)
                 detail.add_css_class('dim-label')
                 desc.append(detail)
@@ -2631,11 +2688,11 @@ def run_gui(playlist):
                     action.connect('clicked', lambda _b, ident=job['id']: self.dvr_stop_job(ident))
                     row.append(action)
                 if job.get('path') and Path(job['path']).is_file():
-                    action = Gtk.Button(label='▶ Ver')
+                    action = Gtk.Button(label=tr('▶ Ver'))
                     action.connect('clicked', lambda _b, path=job['path']: self.dvr_play_file(path))
                     row.append(action)
                     open_location = Gtk.Button.new_from_icon_name('folder-open-symbolic')
-                    open_location.set_tooltip_text('Abrir ubicación del archivo original')
+                    open_location.set_tooltip_text(tr('Abrir ubicación del archivo original'))
                     open_location.connect('clicked', lambda _b, path=job['path']: self.dvr_open_folder(path))
                     row.append(open_location)
                 box.append(row)
@@ -2651,16 +2708,16 @@ def run_gui(playlist):
                 label.set_ellipsize(Pango.EllipsizeMode.END)
                 label.set_hexpand(True)
                 row.append(label)
-                action = Gtk.Button(label='▶ Ver')
+                action = Gtk.Button(label=tr('▶ Ver'))
                 action.connect('clicked', lambda _b, path=str(f): self.dvr_play_file(path))
                 row.append(action)
                 open_location = Gtk.Button.new_from_icon_name('folder-open-symbolic')
-                open_location.set_tooltip_text('Abrir ubicación del archivo original')
+                open_location.set_tooltip_text(tr('Abrir ubicación del archivo original'))
                 open_location.connect('clicked', lambda _b, path=str(f): self.dvr_open_folder(path))
                 row.append(open_location)
                 box.append(row)
             if not jobs and not files:
-                box.append(Gtk.Label(label='Todavía no hay grabaciones.'))
+                box.append(Gtk.Label(label=tr('Todavía no hay grabaciones.')))
             if self._instant_recording_id:
                 tracked = next((j for j in jobs if j.get('id') == self._instant_recording_id), None)
                 if tracked and tracked.get('status') in ('failed','cancelled','missed','interrupted','completed'):
@@ -3003,9 +3060,11 @@ def run_gui(playlist):
             self.fs_category.connect("notify::selected", self.fs_filter_changed)
             filters.append(self.fs_category)
             self.fs_only_favorites = Gtk.ToggleButton()
-            self.fs_only_favorites.set_icon_name("starred-symbolic")
+            self.fs_only_favorites.set_label("♡")
+            self.fs_only_favorites.add_css_class('syn-favorite-filter')
             self.fs_only_favorites.set_tooltip_text(tr("Mostrar solo favoritos"))
-            self.fs_only_favorites.connect("toggled", self.fs_filter_changed)
+            self.fs_only_favorites.connect('toggled', lambda btn: (
+                btn.set_label('♥' if btn.get_active() else '♡'), self.fs_filter_changed(btn)))
             filters.append(self.fs_only_favorites)
             remote_box.append(filters)
 
@@ -3138,9 +3197,10 @@ def run_gui(playlist):
                     live.add_css_class("syn-zap-live")
                     line.append(live)
                 elif ch.favorite_id in self.favorites:
-                    star = Gtk.Image.new_from_icon_name("starred-symbolic")
-                    star.set_tooltip_text("Favorito")
-                    line.append(star)
+                    heart = Gtk.Label(label="♥")
+                    heart.add_css_class('syn-heart-active')
+                    heart.set_tooltip_text('Favorito')
+                    line.append(heart)
                 row.set_child(line)
                 self.fs_list.append(row)
             self.fs_count.set_text(f"{limit} de {len(matches)} canales")
@@ -3320,12 +3380,7 @@ def run_gui(playlist):
                 label.set_hexpand(True)
                 label.set_ellipsize(Pango.EllipsizeMode.END)
                 line.append(label)
-                fav = Gtk.Button.new_from_icon_name(
-                    "starred-symbolic" if ch.favorite_id in self.favorites
-                    else "non-starred-symbolic")
-                fav.add_css_class("flat")
-                fav.set_tooltip_text(tr("Marcar o quitar favorito"))
-                fav.connect("clicked", lambda _button, c=ch: self.toggle_favorite(c))
+                fav = self._favorite_heart_button(ch)
                 line.append(fav)
                 row.set_child(line)
                 self.quick_listbox.append(row)
@@ -3865,7 +3920,7 @@ def run_gui(playlist):
             """UNA fila para todos los canales. El filtro Favoritos NO cambia el diseño.
 
             Recuperamos el diseño horizontal original de la lista general:
-            pastilla, nombre limpio, estrella pequeña. Ninguna tarjeta vertical
+            pastilla, nombre limpio, corazón independiente. Ninguna tarjeta vertical
             especial para favoritos, Gtk.Overlay, ni botones con altura heredada.
             """
             row = Gtk.ListBoxRow()
@@ -3877,7 +3932,8 @@ def run_gui(playlist):
             content.set_halign(Gtk.Align.FILL)
             content.set_hexpand(True)
             content.set_margin_start(10)
-            content.set_margin_end(10)
+            # 20 px between the 40 px button and the overlay scrollbar.
+            content.set_margin_end(20)
             content.set_margin_top(5)
             content.set_margin_bottom(5)
 
@@ -3894,27 +3950,10 @@ def run_gui(playlist):
             name.set_tooltip_text(display_channel_name(ch.name))
             content.append(name)
 
-            # La estrella es una imagen de 17px; no un botón de 90px de alto.
-            star = Gtk.Image.new_from_icon_name(
-                'starred-symbolic' if ch.favorite_id in self.favorites else 'non-starred-symbolic')
-            star.add_css_class('syn-unified-favorite-star')
-            star.set_pixel_size(17)
-            star.set_size_request(19, 19)
-            star.set_halign(Gtk.Align.END)
-            star.set_valign(Gtk.Align.CENTER)
-            star.set_hexpand(False)
-            star.set_vexpand(False)
-            star.set_can_target(True)
-            star.set_tooltip_text(tr('Quitar de favoritos') if ch.favorite_id in self.favorites
-                                  else tr('Añadir a favoritos'))
-            click = Gtk.GestureClick.new()
-            click.set_button(1)
-            def on_star_press(gesture, _count, _x, _y):
-                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
-                GLib.idle_add(self.toggle_favorite, ch)
-            click.connect('pressed', on_star_press)
-            star.add_controller(click)
-            content.append(star)
+            # The full 40px Gtk.Button captures the click and keyboard activation;
+            # no overlapping GtkGestureClick near the ScrolledWindow scrollbar.
+            heart = self._favorite_heart_button(ch)
+            content.append(heart)
             row.set_child(content)
             return row
 
@@ -3957,8 +3996,8 @@ def run_gui(playlist):
                 box = row.get_child()
                 pill = box.get_first_child()
                 name = pill.get_next_sibling()
-                star = name.get_next_sibling()
-                widgets = [('row', row), ('box', box), ('pill', pill), ('name', name), ('star', star)]
+                heart = name.get_next_sibling()
+                widgets = [('row', row), ('box', box), ('pill', pill), ('name', name), ('heart', heart)]
                 data = ' '.join(f'{n}={w.get_width()}x{w.get_height()}' for n,w in widgets)
                 print(f'SYN_LAYOUT v{SYN_VERSION}: {data}; favoritos={self.favs.get_active()}', file=sys.stderr, flush=True)
             except Exception as e:
@@ -3989,15 +4028,60 @@ def run_gui(playlist):
                 self._logo_pool.submit(worker)
             except Exception: pass
 
-        def toggle_favorite(self, channel):
+        def _favorite_heart_button(self, channel):
+            active = channel.favorite_id in self.favorites
+            heart = Gtk.Button(label='♥' if active else '♡')
+            heart.add_css_class('syn-favorite-heart')
+            if active:
+                heart.add_css_class('syn-heart-active')
+            heart.set_size_request(40, 40)
+            heart.set_halign(Gtk.Align.CENTER)
+            heart.set_valign(Gtk.Align.CENTER)
+            heart.set_hexpand(False)
+            heart.set_tooltip_text(tr('Quitar de favoritos') if active
+                                  else tr('Añadir a favoritos'))
+            heart.connect('clicked', self._favorite_clicked, channel)
+            return heart
+
+        def _favorite_clicked(self, button, channel):
+            # Defer rebuilding Gtk.ListBox until the 260ms animation finishes.
+            # Removing the row immediately would destroy the animation.
+            self.toggle_favorite(channel, animate_button=button)
+
+        def toggle_favorite(self, channel, animate_button=None):
             key = channel.favorite_id
-            if key in self.favorites:
-                self.favorites.remove(key)
-            else:
+            active = key not in self.favorites
+            if active:
                 self.favorites.add(key)
+            else:
+                self.favorites.remove(key)
             self.profile['favorites'] = sorted(self.favorites)
             sources.save_config(self.cfg)
+            if animate_button is None:
+                self.render_list()
+                self._syn_sync_favorite_guide()
+                return
+            animate_button.set_label('♥' if active else '♡')
+            if active:
+                animate_button.add_css_class('syn-heart-active')
+            else:
+                animate_button.remove_css_class('syn-heart-active')
+            animate_button.set_tooltip_text(tr('Quitar de favoritos') if active
+                                            else tr('Añadir a favoritos'))
+            # Force the animation to restart if the user clicks repeatedly.
+            animate_button.remove_css_class('syn-heart-animate')
+            animate_button.add_css_class('syn-heart-animate')
+            GLib.timeout_add(285, self._finish_favorite_animation)
+
+        def _finish_favorite_animation(self):
             self.render_list()
+            self._syn_sync_favorite_guide()
+            return False
+
+        def _syn_sync_favorite_guide(self):
+            if self.guide_open:
+                self.guide_render_categories()
+                self.guide_render_rows()
 
         def play_selected(self):
             if self.compact_sidebar and self.current:
@@ -4044,18 +4128,18 @@ def run_gui(playlist):
                 if url:
                     if playing != url:
                         player.play(Channel(channel.name, channel.group, url, channel.logo))
-                        self.status.set_text('DVR: viendo la señal compartida, sin segunda conexión IPTV')
+                        self.status.set_text(tr('DVR: viendo la señal compartida, sin segunda conexión IPTV'))
                 elif waiting:
                     if playing == channel.url:
                         player.stop()  # Never displace the recording session.
                     if not playing or playing == channel.url:
-                        self.status.set_text('DVR: esperando al grabador o su reconexión…')
+                        self.status.set_text(tr('DVR: esperando al grabador o su reconexión…'))
                 elif playing and playing.startswith('udp://127.0.0.1:'):
                     player.play(channel)  # The DVR has stopped: return to live IPTV.
                 if hasattr(self, '_syn_reattach_rec_button'):
                     self._syn_reattach_rec_button(self.dvr_store.read())
             except (ValueError, OSError, RuntimeError, AttributeError) as exc:
-                self.status.set_text('DVR compartido: ' + str(exc)[:130])
+                self.status.set_text(tr('DVR compartido: ') + str(exc)[:130])
             return True
 
         def start_channel(self, channel):
@@ -4080,10 +4164,10 @@ def run_gui(playlist):
                 relay_url, wait_for_relay = self._syn_dvr_playback_target(channel)
                 if relay_url:
                     player.play(Channel(channel.name, channel.group, relay_url, channel.logo))
-                    self.status.set_text('DVR: viendo la señal compartida')
+                    self.status.set_text(tr('DVR: viendo la señal compartida'))
                 elif wait_for_relay:
                     player.stop()  # Never open a second IPTV session while DVR is active.
-                    self.status.set_text('DVR: esperando la señal compartida…')
+                    self.status.set_text(tr('DVR: esperando la señal compartida…'))
                 else:
                     player.play(channel)
             except Exception as exc:
@@ -4255,6 +4339,8 @@ def run_gui(playlist):
             self.guide_surface.set_valign(Gtk.Align.FILL)
             self.guide_surface.add_css_class('syn-guide-backdrop')
             self.overlay.add_overlay(self.guide_surface)
+            self.overlay.set_clip_overlay(self.guide_surface, True)
+            self.guide_surface.set_overflow(Gtk.Overflow.HIDDEN)
             self.guide_surface.set_visible(False)
             head = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             head.add_css_class('syn-guide-header')
@@ -4265,10 +4351,12 @@ def run_gui(playlist):
             subtitle = Gtk.Label(label=tr('Explora la programación sin abandonar el directo'), xalign=0)
             subtitle.add_css_class('syn-guide-muted')
             heading.append(subtitle)
+            self._guide_header_subtitle = subtitle
             heading.set_hexpand(True)
             head.append(heading)
             self.guide_search = Gtk.SearchEntry(placeholder_text=tr('Buscar canal…'))
             self.guide_search.set_size_request(180, -1)
+            self.guide_search.set_hexpand(False)
             self.guide_search.add_css_class('syn-guide-search')
             self.guide_search.connect('search-changed', self.guide_search_changed)
             head.append(self.guide_search)
@@ -4297,6 +4385,7 @@ def run_gui(playlist):
             self.guide_categories_scroll.set_min_content_width(GUIDE_CATEGORIES_WIDTH)
             self.guide_categories_scroll.set_max_content_width(GUIDE_CATEGORIES_WIDTH)
             self.guide_categories_scroll.set_propagate_natural_width(False)
+            self.guide_categories_scroll.set_propagate_natural_height(False)
             self.guide_categories_scroll.set_hexpand(False)
             self.guide_categories_scroll.set_halign(Gtk.Align.START)
             self.guide_categories_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -4309,6 +4398,7 @@ def run_gui(playlist):
             programmes = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             programmes.set_hexpand(True)
             programmes.set_vexpand(True)
+            programmes.set_overflow(Gtk.Overflow.HIDDEN)
             body.append(programmes)
             time_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             time_row.add_css_class('syn-guide-axis')
@@ -4332,6 +4422,7 @@ def run_gui(playlist):
 
             row_area = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
             row_area.set_vexpand(True)
+            row_area.set_overflow(Gtk.Overflow.HIDDEN)
             programmes.append(row_area)
             self.guide_names_scroll = Gtk.ScrolledWindow()
             # La columna de canales NO puede crecer al ancho natural de las estrellas.
@@ -4340,16 +4431,25 @@ def run_gui(playlist):
             self.guide_names_scroll.set_size_request(GUIDE_CHANNEL_WIDTH, -1)
             self.guide_names_scroll.set_min_content_width(GUIDE_CHANNEL_WIDTH)
             self.guide_names_scroll.set_max_content_width(GUIDE_CHANNEL_WIDTH)
+            self.guide_names_scroll.set_min_content_height(0)
             self.guide_names_scroll.set_propagate_natural_width(False)
+            self.guide_names_scroll.set_propagate_natural_height(False)
             self.guide_names_scroll.set_hexpand(False)
             self.guide_names_scroll.set_halign(Gtk.Align.START)
-            self.guide_names_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+            # SYN_REV6_EXTERNAL_SCROLL: NEVER pide altura natural completa y
+            # puede hacer que GTK considere la EPG no desplazable.
+            # EXTERNAL conserva viewport limitado sin una segunda barra.
+            self.guide_names_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.EXTERNAL)
             self.guide_names_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             self.guide_names_scroll.set_child(self.guide_names_box)
             row_area.append(self.guide_names_scroll)
             self.guide_tracks_scroll = Gtk.ScrolledWindow()
             self.guide_tracks_scroll.set_hexpand(True)
             self.guide_tracks_scroll.set_vexpand(True)
+            self.guide_tracks_scroll.set_propagate_natural_width(False)
+            self.guide_tracks_scroll.set_propagate_natural_height(False)
+            self.guide_tracks_scroll.set_min_content_height(0)
+            self.guide_tracks_scroll.set_kinetic_scrolling(True)
             # Mostrar siempre la barra vertical: con miles de canales, el usuario
             # debe saber que puede seguir bajando. La barra horizontal sigue auto.
             self.guide_tracks_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
@@ -4371,12 +4471,25 @@ def run_gui(playlist):
             self.guide_tracks_scroll.get_hadjustment().connect(
                 'value-changed', lambda *_: self.guide_axis.queue_draw())
             self.guide_names_scroll.set_vadjustment(self.guide_tracks_scroll.get_vadjustment())
+            self.guide_tracks_scroll.get_vadjustment().connect(
+                'value-changed', self._guide_virtual_scroll_changed)
+            self.guide_tracks_scroll.get_hadjustment().connect(
+                'value-changed', self._guide_time_scroll_changed)
+            # Arrastre con ratón de la parrilla y de la regla, sin sacrificar clic derecho DVR.
+            for drag_surface in (self.guide_tracks_scroll, self.guide_axis):
+                drag = Gtk.GestureDrag.new()
+                drag.set_button(1)
+                drag.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+                drag.connect('drag-begin', self._guide_touch_begin)
+                drag.connect('drag-update', self._guide_touch_update)
+                drag.connect('drag-end', self._guide_touch_end)
+                drag_surface.add_controller(drag)
             # GTK no siempre entrega el giro de rueda de una columna cuya
             # política vertical es NEVER al ScrolledWindow vecino. Capturamos
             # el scroll en AMBAS columnas y avanzamos automáticamente de tanda
             # al llegar al final. Las categorías conservan su scroll propio.
             for scrolling_column in (self.guide_names_scroll, self.guide_tracks_scroll):
-                wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.VERTICAL)
+                wheel = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
                 wheel.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
                 wheel.connect('scroll', self._guide_wheel_scroll)
                 scrolling_column.add_controller(wheel)
@@ -4384,6 +4497,7 @@ def run_gui(playlist):
             footer.add_css_class('syn-guide-footer')
             self.guide_count = Gtk.Label(label='', xalign=0)
             self.guide_count.set_hexpand(True)
+            self.guide_count.set_ellipsize(Pango.EllipsizeMode.END)
             footer.append(self.guide_count)
             self.guide_back = Gtk.Button(label=tr('‹ Anteriores'))
             self.guide_back.add_css_class('syn-guide-head-button')
@@ -4409,7 +4523,7 @@ def run_gui(playlist):
             scroll_x = self.guide_tracks_scroll.get_hadjustment().get_value()
             ctx.set_line_width(1.0)
             ctx.set_font_size(12)
-            for instant, minutes in epg_axis_sections(start):
+            for instant, minutes in epg_axis_sections(start, duration_minutes=720):
                 if instant is None:
                     continue
                 x = epg_x_at(instant, start, scale) - scroll_x
@@ -4423,15 +4537,106 @@ def run_gui(playlist):
                 ctx.move_to(x + 9, 25)
                 ctx.show_text(format_time(instant))
 
-        def _guide_reset_horizontal(self):
-            """Resetea el scroll tras medir el contenido de la nueva parrilla."""
+        def _guide_restore_position(self, horizontal, vertical):
+            """Restore the same absolute viewport after GTK measures replacement rows."""
             if self.guide_open:
-                adj = self.guide_tracks_scroll.get_hadjustment()
-                adj.set_value(adj.get_lower())
+                for adj, target in ((self.guide_tracks_scroll.get_hadjustment(), horizontal),
+                                    (self.guide_tracks_scroll.get_vadjustment(), vertical)):
+                    upper = max(adj.get_lower(), adj.get_upper() - adj.get_page_size())
+                    adj.set_value(max(adj.get_lower(), min(upper, target)))
                 self.guide_axis.queue_draw()
+                if os.environ.get('SYN_EPG_DEBUG') == '1':
+                    a = self.guide_tracks_scroll.get_vadjustment()
+                    print(f'SYN EPG medido: upper={a.get_upper():.0f} '
+                          f'page={a.get_page_size():.0f} pos={a.get_value():.1f}',
+                          file=sys.stderr, flush=True)
             return False
 
+        def _guide_virtual_scroll_changed(self, *_):
+            if not self.guide_open or self._guide_render_busy or self._guide_virtual_timer:
+                return
+            y = self.guide_tracks_scroll.get_vadjustment().get_value()
+            first = max(0, ((int(y) // 70) // 12) * 12 - 12)
+            if first != self._guide_virtual_first:
+                self._guide_virtual_timer = GLib.timeout_add(80, self._guide_virtual_refresh)
+
+        def _guide_virtual_refresh(self):
+            self._guide_virtual_timer = 0
+            if self.guide_open and not self._guide_render_busy:
+                self._guide_soft_arrival = True
+                self.guide_render_rows()
+            return False
+
+        def _guide_time_scroll_changed(self, *_):
+            if (not self.guide_open or self._guide_render_busy
+                    or self._guide_rebase_timer):
+                return
+            self.guide_axis.queue_draw()
+            self._guide_rebase_timer = GLib.timeout_add(70, self._guide_rebase_if_needed)
+
+        def _guide_rebase_if_needed(self):
+            self._guide_rebase_timer = 0
+            if not self.guide_open or self._guide_render_busy:
+                return False
+            adj = self.guide_tracks_scroll.get_hadjustment()
+            scale = max(0.1, self._guide_axis_scale)
+            right = max(0, adj.get_upper() - adj.get_page_size())
+            if right < 240 * scale:
+                return False
+            value = adj.get_value()
+            threshold = 85 * scale
+            if value < threshold:
+                self._guide_rebase_time(-180)
+            elif value > right - threshold:
+                self._guide_rebase_time(180)
+            return False
+
+        def _guide_rebase_time(self, minutes):
+            """Slide the 12-hour time window without changing visible wall-clock time."""
+            h = self.guide_tracks_scroll.get_hadjustment().get_value()
+            v = self.guide_tracks_scroll.get_vadjustment().get_value()
+            old_scale = self._guide_axis_scale
+            self.guide_start += dt.timedelta(minutes=minutes)
+            self._guide_saved_adjustments = (h - minutes * old_scale, v)
+            self.guide_render_rows()
+
+        def _guide_horizontal_move(self, pixels):
+            if not self.guide_open:
+                return
+            adj = self.guide_tracks_scroll.get_hadjustment()
+            right = max(adj.get_lower(), adj.get_upper() - adj.get_page_size())
+            adj.set_value(max(adj.get_lower(), min(right, adj.get_value() + pixels)))
+
+        def _guide_touch_begin(self, _gesture, _x, _y):
+            self._guide_drag_last = 0.0
+            self._guide_dragging = False
+
+        def _guide_touch_update(self, gesture, offset_x, offset_y):
+            # Do NOT hijack natural vertical scrolling or clicks. A drag must
+            # be clearly horizontal before it becomes a timetable pan.
+            if abs(offset_y) >= 7 and abs(offset_y) > abs(offset_x) * 1.15:
+                gesture.set_state(Gtk.EventSequenceState.DENIED)
+                return
+            if abs(offset_x) < 7 or abs(offset_x) <= abs(offset_y) * 1.15:
+                return
+            self._guide_dragging = True
+            self._guide_horizontal_move(self._guide_drag_last - offset_x)
+            self._guide_drag_last = offset_x
+
+        def _guide_touch_end(self, _gesture, _x, _y):
+            if self._guide_dragging:
+                self._guide_drag_until = time.monotonic() + 0.28
+            self._guide_dragging = False
+
+        def _guide_adapt_width(self):
+            if not hasattr(self, '_guide_header_subtitle'):
+                return
+            available = max(0, self.get_width())
+            self._guide_header_subtitle.set_visible(available >= 1050)
+            self.guide_search.set_visible(available >= 865)
+
         def _guide_size_changed(self, _area, width, _height):
+            self._guide_adapt_width()
             if not self.guide_open:
                 return
             width = max(0, width - GUIDE_CHANNEL_WIDTH)
@@ -4457,6 +4662,7 @@ def run_gui(playlist):
         def _guide_apply_search(self):
             self.guide_search_timer = 0
             self.guide_page = 0
+            self._guide_reset_vertical = True
             if self.guide_open:
                 self.guide_render_rows()
             return False
@@ -4464,24 +4670,38 @@ def run_gui(playlist):
         def guide_choose_category(self, category):
             self.guide_category_name = category
             self.guide_page = 0
+            self._guide_reset_vertical = True
             self.guide_render_categories()
             self.guide_render_rows()
 
         def guide_render_categories(self):
             while (child := self.guide_categories_box.get_first_child()) is not None:
                 self.guide_categories_box.remove(child)
-            groups = ['Todas las categorías', '★ Favoritos'] + sorted({c.group for c in self.channels}, key=norm)
+            groups = [syn_favoritos.ALL_CATEGORY, syn_favoritos.FAVORITES_CATEGORY] + sorted(
+                {c.group for c in self.channels if c.group not in
+                 (syn_favoritos.ALL_CATEGORY, syn_favoritos.FAVORITES_CATEGORY)}, key=norm)
             for name in groups:
                 # Los nombres de categorías largos (Xtream) no pueden forzar
                 # a la columna izquierda a crecer: elipsis + tooltip.
                 btn = Gtk.Button()
-                cat_label = Gtk.Label(label=(tr('Todas las categorías') if name == 'Todas las categorías' else tr('★ Favoritos') if name == '★ Favoritos' else name), xalign=0)
+                if name == syn_favoritos.FAVORITES_CATEGORY:
+                    is_selected = self.guide_category_name == name
+                    shown = ('♥ ' if is_selected else '♡ ') + tr('Favoritos')
+                elif name == syn_favoritos.ALL_CATEGORY:
+                    shown = tr('Todas las categorías')
+                else:
+                    shown = name
+                cat_label = Gtk.Label(label=shown, xalign=0)
+                if name == syn_favoritos.FAVORITES_CATEGORY:
+                    cat_label.add_css_class('syn-guide-favorites-heart')
+                    if self.guide_category_name == name:
+                        cat_label.add_css_class('syn-heart-active')
                 cat_label.set_ellipsize(Pango.EllipsizeMode.END)
                 cat_label.set_width_chars(11)
                 cat_label.set_max_width_chars(15)
                 cat_label.set_single_line_mode(True)
                 btn.set_child(cat_label)
-                btn.set_tooltip_text(name)
+                btn.set_tooltip_text(tr('Solo favoritos') if name == syn_favoritos.FAVORITES_CATEGORY else shown)
                 btn.set_halign(Gtk.Align.FILL)
                 btn.add_css_class('syn-guide-cat')
                 if name == self.guide_category_name:
@@ -4490,21 +4710,24 @@ def run_gui(playlist):
                 self.guide_categories_box.append(btn)
 
         def guide_filtered_channels(self):
-            query = norm(self.guide_search.get_text().strip())
-            cat = self.guide_category_name
-            return [ch for ch in self.channels
-                    if (cat == 'Todas las categorías' or
-                        (cat == '★ Favoritos' and ch.favorite_id in self.favorites) or
-                        ch.group == cat)
-                    and (not query or query in norm(ch.name + ' ' + ch.group))]
+            # Keep the exact original Channel instance and its XMLTV ID.
+            return syn_favoritos.filter_channels(
+                self.channels, self.favorites, self.guide_category_name,
+                self.guide_search.get_text(), norm)
+
+        def _guide_programmes_for(self, channel):
+            return syn_favoritos.programmes_for(
+                channel, self.channels, self.guide, self.epg_aliases,
+                sources.epg_for_channel, norm)
 
         def guide_go_now(self):
-            self.guide_start = epg_initial_start(dt.datetime.now().astimezone())
+            self.guide_start = epg_initial_start(dt.datetime.now().astimezone()) - dt.timedelta(hours=3)
+            self._guide_open_initial = True
             self.guide_render_rows()
 
         def guide_shift(self, minutes):
-            self.guide_start += dt.timedelta(minutes=minutes)
-            self.guide_render_rows()
+            # Header arrows move the same scroll position as mouse/trackpad.
+            self._guide_horizontal_move(minutes * self._guide_axis_scale)
 
         def _guide_set_vertical_position(self, at_end=False):
             """Aplicar el scroll tras la nueva medición GTK de la tanda."""
@@ -4537,28 +4760,37 @@ def run_gui(playlist):
             adj.set_value(current + remaining * 0.27)
             return True
 
-        def _guide_wheel_scroll(self, _controller, _dx, dy):
-            """Desplazamiento suave, misma posición exacta en ambas columnas."""
-            if not self.guide_open or abs(dy) < 0.0001:
+        def _guide_wheel_scroll(self, controller, dx, dy):
+            """Wheel on names OR tracks moves ONE vertical document.
+
+            Captured deliberately on both GtkScrolledWindows, avoiding
+            nested GTK wheel handlers and never snapping to full 70px rows.
+            Shift/Ctrl or real horizontal wheel continues to pan time.
+            """
+            if not self.guide_open:
                 return False
+            mods = controller.get_current_event_state()
+            if mods & (Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK):
+                delta = dx if abs(dx) > 0.08 else dy
+                if abs(delta) > 0.0001:
+                    self._guide_horizontal_move(delta * 56)
+                    return True
+            if abs(dx) > max(0.08, abs(dy) * 0.75):
+                self._guide_horizontal_move(dx * 56)
+                return True
+            if abs(dy) <= 0.0001:
+                return False
+            # Gtk.PolicyType.EXTERNAL on names gives the same constrained
+            # vertical geometry as tracks, rather than forcing natural height.
             adj = self.guide_tracks_scroll.get_vadjustment()
-            current = adj.get_value()
-            lower = adj.get_lower()
-            end = max(lower, adj.get_upper() - adj.get_page_size())
-            if dy > 0 and current >= end - 1:
-                self.guide_page_step(1, wheel=True)
-                return True
-            if dy < 0 and current <= lower + 1:
-                self.guide_page_step(-1, wheel=True)
-                return True
-            # Acumulamos giros de rueda sin perder precisión del trackpad.
-            basis = self._guide_scroll_target
-            if basis is None:
-                basis = current
-            amount = max(-2.5, min(2.5, dy)) * 57
-            self._guide_scroll_target = max(lower, min(end, basis + amount))
-            if not self._guide_scroll_timer:
-                self._guide_scroll_timer = GLib.timeout_add(16, self._guide_smooth_scroll_tick)
+            lo = adj.get_lower()
+            hi = max(lo, adj.get_upper() - adj.get_page_size())
+            step = max(-3.5, min(3.5, dy)) * 58
+            adj.set_value(max(lo, min(hi, adj.get_value() + step)))
+            if os.environ.get('SYN_EPG_DEBUG') == '1':
+                print(f'SYN EPG rueda: dy={dy:.3f} range={lo:.0f}..{hi:.0f} '
+                      f'pos={adj.get_value():.1f} upper={adj.get_upper():.0f} '
+                      f'page={adj.get_page_size():.0f}', file=sys.stderr, flush=True)
             return True
 
         def guide_page_step(self, direction, wheel=False):
@@ -4577,23 +4809,31 @@ def run_gui(playlist):
             self.guide_page_step(1)
 
         def _guide_switch(self, channel):
+            if self._guide_dragging or time.monotonic() < self._guide_drag_until:
+                return
             self.set_guide_open(False)
             self.start_channel(channel)
             if self.fullscreen_mode:
                 self.set_fs_osd(True)
 
         def guide_render_rows(self):
-            """Máximo 24 filas por página para no congelar listas Xtream enormes."""
-            if not self.guide_open: return
-            if getattr(self, '_guide_scroll_timer', 0):
-                GLib.source_remove(self._guide_scroll_timer)
-                self._guide_scroll_timer = 0
-            self._guide_scroll_target = None
+            """One continuous y document, windowed in 60-row buffers."""
+            if not self.guide_open or self._guide_render_busy:
+                return
+            self._guide_render_busy = True
+            hadj = self.guide_tracks_scroll.get_hadjustment()
+            vadj = self.guide_tracks_scroll.get_vadjustment()
+            hsave, vsave = (getattr(self, '_guide_saved_adjustments', None)
+                            or (hadj.get_value(), vadj.get_value()))
+            self._guide_saved_adjustments = None
+            if self._guide_reset_vertical:
+                vsave = 0
+                self._guide_reset_vertical = False
             for box in (self.guide_names_box, self.guide_tracks_box):
                 while (child := box.get_first_child()) is not None:
                     box.remove(child)
             start = self.guide_start
-            end = start + dt.timedelta(hours=5)
+            end = start + dt.timedelta(hours=12)
             now = dt.datetime.now().astimezone()
             # Gtk puede no haber asignado aún tamaño al mostrar el overlay;
             # usar el ancho de la ventana como respaldo sin tocar GLArea.
@@ -4606,14 +4846,35 @@ def run_gui(playlist):
             self._guide_viewport_width = viewport
             px_min = epg_minutes_scale(viewport)
             total = epg_x_at(end, start, px_min)
+            if self._guide_open_initial:
+                hsave = 180 * px_min  # 'Ahora' retains three hours of draggable history.
+                self._guide_open_initial = False
             self._guide_axis_start = start
             self._guide_axis_scale = px_min
             self.guide_axis.queue_draw()
             matches = self.guide_filtered_channels()
-            page_size = 24
-            page_count = max(1, (len(matches) + page_size - 1) // page_size)
-            self.guide_page = min(self.guide_page, page_count - 1)
-            subset = matches[self.guide_page * page_size: (self.guide_page + 1) * page_size]
+            # 70px fixed row height and matching invisible spacers in both columns.
+            # The scrollbar sees the entire list, never a 24-channel 'page'.
+            first = max(0, ((int(vsave) // 70) // 12) * 12 - 12)
+            first = min(first, max(0, len(matches) - 1))
+            subset = matches[first:first + 60]
+            self._guide_virtual_first = first
+            self._guide_virtual_total = len(matches)
+            if first:
+                for column in (self.guide_names_box, self.guide_tracks_box):
+                    spacer = Gtk.Box()
+                    spacer.set_size_request(-1, first * 70)
+                    column.append(spacer)
+            if not matches:
+                empty_text = (tr('No hay favoritos todavía. Marca ♡ en algún canal.')
+                              if self.guide_category_name == syn_favoritos.FAVORITES_CATEGORY and not self.favorites
+                              else tr('No hay canales que coincidan con este filtro.'))
+                msg = Gtk.Label(label=empty_text, xalign=0)
+                msg.add_css_class('syn-guide-muted')
+                msg.set_margin_start(12)
+                msg.set_margin_top(15)
+                msg.set_wrap(True)
+                self.guide_tracks_box.append(msg)
             for channel in subset:
                 channel_widget = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
                 channel_widget.set_size_request(GUIDE_CHANNEL_WIDTH, 70)
@@ -4634,8 +4895,9 @@ def run_gui(playlist):
                 channel_widget.append(guide_logo_name)
                 # Favorito pequeño junto al logo, no una fila expansible.
                 if channel.favorite_id in self.favorites:
-                    fav_icon = Gtk.Image.new_from_icon_name('starred-symbolic')
-                    fav_icon.set_pixel_size(13)
+                    fav_icon = Gtk.Label(label='♥')
+                    fav_icon.add_css_class('syn-heart-active')
+                    fav_icon.set_size_request(14, 14)
                     fav_icon.set_size_request(14, 14)
                     fav_icon.set_hexpand(False)
                     fav_icon.set_halign(Gtk.Align.END)
@@ -4651,8 +4913,8 @@ def run_gui(playlist):
                 track.set_overflow(Gtk.Overflow.HIDDEN)
                 track.add_css_class('syn-guide-track')
                 for x, width, a, b, title, description, available in epg_geometry(
-                        sources.epg_for_channel(channel, self.guide, self.epg_aliases),
-                        start, px_min):
+                        self._guide_programmes_for(channel),
+                        start, px_min, duration_minutes=720):
                     # Gtk.Box interactivo: Gtk.Button tiene ancho mínimo del
                     # tema (Adwaita/Colloid) y desalineaba los programas.
                     block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -4660,6 +4922,8 @@ def run_gui(playlist):
                     block.set_overflow(Gtk.Overflow.HIDDEN)
                     if available:
                         block.add_css_class('syn-guide-program')
+                        if self._guide_soft_arrival:
+                            block.add_css_class('syn-guide-soft-arrival')
                         block.add_css_class('syn-guide-program-' + str(sum(map(ord,channel.name)) % 6))
                         if a <= now < b:
                             block.add_css_class('syn-guide-current')
@@ -4704,11 +4968,24 @@ def run_gui(playlist):
                     line.set_can_target(False)
                     track.put(line, now_pos, 0)
                 self.guide_tracks_box.append(track)
-            self.guide_back.set_visible(self.guide_page > 0)
-            self.guide_more.set_visible(self.guide_page < page_count - 1)
-            self.guide_more.set_label(f"{tr('Page')} {self.guide_page + 1}/{page_count} · {tr('Next 24')} ›")
-            self.guide_count.set_text(f"{len(matches)} {tr('channels')} · {format_day_time(start)} {tr('to')} {format_time(end)} · {tr('page')} {self.guide_page + 1}/{page_count} · {tr('scroll for more')}")
-            GLib.idle_add(self._guide_reset_horizontal)
+            # Invisible y spacers keep one shared continuous scrollbar for all channels.
+            remain = max(0, len(matches) - first - len(subset))
+            if remain:
+                for column in (self.guide_names_box, self.guide_tracks_box):
+                    spacer = Gtk.Box()
+                    spacer.set_size_request(-1, remain * 70)
+                    column.append(spacer)
+            self.guide_back.set_visible(False)
+            self.guide_more.set_visible(False)
+            hint = ('Rueda: canales · Shift+rueda / arrastrar: horas' if LANGUAGE == 'es'
+                    else 'Wheel: channels · Shift+wheel / drag: hours')
+            self.guide_count.set_text(f"{len(matches)} {tr('channels')} · " +
+                                      f"{format_day_time(start)} {tr('to')} {format_day_time(end)} · " + hint)
+            self._guide_soft_arrival = False
+            self._guide_render_busy = False
+            # Apply AFTER Gtk has recomputed both scroll adjustments.
+            GLib.timeout_add(36, self._guide_restore_position, hsave, vsave)
+
 
         def set_guide_open(self, visible):
             if self.guide_open == bool(visible): return
@@ -4724,13 +5001,18 @@ def run_gui(playlist):
                 selected_category = (self.category_names[index] if
                                      0 <= index < len(self.category_names) else
                                      'Todas las categorías')
-                self.guide_category_name = ('★ Favoritos' if self.favs.get_active()
+                self.guide_category_name = (syn_favoritos.FAVORITES_CATEGORY if self.favs.get_active()
                                             else selected_category)
                 self.guide_page = 0
                 # Mantener una franja de pasado; el eje y los programas usan idénticas X.
-                self.guide_start = epg_initial_start(dt.datetime.now().astimezone())
+                self.guide_start = (epg_initial_start(dt.datetime.now().astimezone())
+                                    - dt.timedelta(hours=3))
+                self._guide_open_initial = True
+                self._guide_reset_vertical = True
+                self._guide_virtual_first = -1
                 self.guide_render_categories()
                 self.guide_surface.set_visible(True)
+                self._guide_adapt_width()
                 self.guide_render_rows()
                 self.guide_search.grab_focus()
             else:
@@ -4750,207 +5032,9 @@ def run_gui(playlist):
             self.set_guide_open(not self.guide_open)
 
         def open_settings(self, *_):
-            # Si Gtk falla, mostrar la excepción en stderr en vez de dejar el botón mudo.
-            win = Gtk.Window(title=tr('SYN · Ajustes'), transient_for=self, modal=True,
-                             default_width=620, default_height=690)
-            win.add_css_class('syn-settings-window')
-            scroll = Gtk.ScrolledWindow(); scroll.set_vexpand(True)
-            outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            outer.set_margin_top(16); outer.set_margin_bottom(16)
-            outer.set_margin_start(22); outer.set_margin_end(22)
-            scroll.set_child(outer)
-            heading = Gtk.Label(label=tr('SYN · Fuentes y perfiles'), xalign=0)
-            heading.add_css_class('iptv-heading'); outer.append(heading)
-            def labeled(title, widget):
-                label = Gtk.Label(label=title, xalign=0)
-                label.add_css_class('iptv-details'); outer.append(label)
-                if hasattr(widget, 'set_hexpand'): widget.set_hexpand(True)
-                outer.append(widget)
-                return widget
-            def combo(strings, choice, localized=False):
-                w = Gtk.DropDown.new_from_strings([tr(s) for s in strings] if localized else strings)
-                w.set_selected(strings.index(choice) if choice in strings else 0)
-                return w
-            def selected(w):
-                item = w.get_selected_item()
-                return item.get_string() if item else ''
-            def text_entry(value='', hidden=False):
-                w = Gtk.PasswordEntry() if hidden else Gtk.Entry()
-                w.set_text(str(value or ''))
-                return w
-            profile_names = [p['name'] for p in self.cfg['profiles']] + [tr('＋ Nuevo perfil')]
-            theme_labels = [tr('Sistema (GTK3/GTK4 disponible)'), tr('Claro · Teal pastel'), tr('Oscuro · Gris/negro'), 'Teal SYN']
-            theme_codes = ['system', 'light', 'dark', 'teal']
-            active_theme = self.cfg.get('theme', 'teal')
-            theme_picker = labeled(tr('Aspecto de SYN'), combo(theme_labels, theme_labels[theme_codes.index(active_theme)] if active_theme in theme_codes else theme_labels[3]))
-            accent_picker = labeled(tr('Realce personalizado (opcional, #RRGGBB)'),
-                                    text_entry(self.cfg.get('accent_hex', '')))
-            theme_info = Gtk.Label(label=self.get_application().theme_description(), xalign=0)
-            theme_info.set_wrap(True); theme_info.add_css_class('iptv-details'); outer.append(theme_info)
-            theme_info.set_selectable(True)
-
-            picker = labeled(tr('Editar perfil'), combo(profile_names, self.profile['name']))
-            p = dict(self.profile)
-            pname = labeled(tr('Nombre del perfil'), text_entry(p.get('name')))
-            types = [tr('Archivo M3U'), tr('URL M3U'), 'Xtream Codes']
-            kinds = {types[0]:'file', types[1]:'url', types[2]:'xtream'}
-            source_type = labeled(tr('Tipo de fuente'), combo(types, next((v for v,k in kinds.items() if k == p['type']), types[0])))
-            source = labeled(tr('Ruta del archivo o URL M3U'), text_entry(p.get('source')))
-            server = labeled(tr('Servidor Xtream, con http:// o https://'), text_entry(p.get('server')))
-            username = labeled(tr('Usuario Xtream'), text_entry(p.get('username')))
-            password = labeled(tr('Contraseña Xtream'), text_entry(p.get('password'), hidden=True))
-            fmt = labeled(tr('Formato Xtream'), combo(['m3u8','ts'], p.get('format','m3u8')))
-            epg = labeled(tr('EPG XMLTV: URL, archivo .xml o .xml.gz'), text_entry(p.get('epg_url')))
-            epg_file_button = Gtk.Button(label=tr('Buscar archivo EPG…'))
-            epg_file_button.set_halign(Gtk.Align.START)
-            outer.append(epg_file_button)
-            def epg_selected(dlg, result):
-                try:
-                    f = dlg.open_finish(result)
-                    if f and f.get_path(): epg.set_text(f.get_path())
-                except GLib.Error: pass
-            epg_file_button.connect('clicked', lambda *_: Gtk.FileDialog(
-                title=tr('Seleccionar EPG XMLTV (.xml o .xml.gz)')).open(win, None, epg_selected))
-            divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL); outer.append(divider)
-            lh = Gtk.Label(label=tr('Logos y pastillas de canales'), xalign=0)
-            lh.add_css_class('iptv-heading'); outer.append(lh)
-            ch = self._logo_selected_channel()
-            help_logos = Gtk.Label(label=(tr('Canal seleccionado: ') + ch.name if ch else tr('Selecciona un canal en la lista principal.')))
-            help_logos.set_xalign(0); help_logos.set_wrap(True); outer.append(help_logos)
-            preview_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            preview_box.set_halign(Gtk.Align.START)
-            if ch:
-                preview_box.append(self.channel_pill(ch, 148, 58))
-            self._logo_settings_preview = (ch, preview_box)
-            outer.append(preview_box)
-            logo_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            choose_logo_btn = Gtk.Button(label=tr('Cargar PNG/JPG/WebP…'))
-            choose_logo_btn.connect('clicked', lambda *_: self.choose_custom_logo(channel=ch))
-            choose_logo_btn.set_sensitive(bool(ch))
-            logo_actions.append(choose_logo_btn)
-            url_logo_btn = Gtk.Button(label=tr('Logo desde URL…'))
-            url_logo_btn.connect('clicked', lambda *_: self.choose_custom_logo_url(channel=ch))
-            url_logo_btn.set_sensitive(bool(ch))
-            logo_actions.append(url_logo_btn)
-            reset_logo_btn = Gtk.Button(label=tr('Restaurar logo'))
-            reset_logo_btn.connect('clicked', lambda *_: self.reset_selected_logo())
-            reset_logo_btn.set_sensitive(bool(ch))
-            logo_actions.append(reset_logo_btn)
-            outer.append(logo_actions)
-            logo_expl = Gtk.Label(label=tr('SYN guarda una copia del archivo por perfil, usa el color del logo y muestra el nombre si falta imagen. Clic derecho en la pastilla para cambiarla.'), xalign=0)
-            logo_expl.set_wrap(True); logo_expl.add_css_class('iptv-details'); outer.append(logo_expl)
-            divider = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL); outer.append(divider)
-            mpvh = Gtk.Label(label=tr('Opciones de MPV'), xalign=0); mpvh.add_css_class('iptv-heading')
-            outer.append(mpvh)
-            opts = self.cfg.get('player', {})
-            ua = labeled(tr('User-Agent de reproducción (MPV)'), combo(['Predeterminado','VLC','Firefox','Safari','Personalizado'], opts.get('user_agent','Predeterminado'), localized=True))
-            custom_ua = labeled(tr('User-Agent personalizado de reproducción'), text_entry(opts.get('custom_ua','')))
-            source_ua = labeled('User-Agent para M3U, Xtream, EPG y logos',
-                                combo(['Predeterminado','VLC','Firefox','Safari','Personalizado'],
-                                      opts.get('source_user_agent','Predeterminado'), localized=True))
-            source_custom_ua = labeled('User-Agent personalizado de las fuentes',
-                                       text_entry(opts.get('source_custom_ua','')))
-            hwdec = labeled(tr('Decodificación de hardware'), combo(['Predeterminado','no','auto-safe','auto'], opts.get('hwdec','Predeterminado'), localized=True))
-            cache = labeled(tr('Caché de MPV'), combo(['Predeterminado','auto','yes','no'], opts.get('cache','Predeterminado'), localized=True))
-            sync = labeled(tr('Sincronización de vídeo'), combo(['Predeterminado','audio','display-resample'], opts.get('video_sync','Predeterminado'), localized=True))
-            mb = labeled(tr('Búfer demuxer, MiB (0 = predeterminado)'), Gtk.SpinButton.new_with_range(0, 1024, 16))
-            mb.set_value(int(opts.get('demuxer_mb',0) or 0))
-            tip = Gtk.Label(label=tr('Las opciones de MPV se aplican al reiniciar SYN. No se modifica OpenGL integrado ni el sistema.'), xalign=0)
-            tip.set_wrap(True); tip.add_css_class('iptv-details'); outer.append(tip)
-            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            actions.set_margin_top(10); outer.append(actions)
-            delete = Gtk.Button(label=tr('Eliminar perfil')); actions.append(delete)
-            cancel = Gtk.Button(label=tr('Cancelar')); actions.append(cancel)
-            save = Gtk.Button(label=tr('Guardar ajustes')); save.add_css_class('suggested-action'); actions.append(save)
-            notice = Gtk.Label(label='', xalign=0); notice.set_wrap(True)
-            outer.append(notice)
-            state = {'id': self.profile['id']}
-            def update_fields():
-                is_xtream = selected(source_type) == 'Xtream Codes'
-                source.set_sensitive(not is_xtream)
-                for w in (server, username, password, fmt): w.set_sensitive(is_xtream)
-            def picked(_w, *_):
-                index = picker.get_selected()
-                if index == len(self.cfg['profiles']):
-                    state['id'] = None
-                    pname.set_text(tr('Nuevo perfil')); source.set_text(''); server.set_text('');
-                    username.set_text(''); password.set_text(''); epg.set_text('')
-                    source_type.set_selected(0)
-                else:
-                    q = self.cfg['profiles'][index]; state['id'] = q['id']
-                    pname.set_text(q.get('name', '')); source.set_text(q.get('source',''))
-                    server.set_text(q.get('server','')); username.set_text(q.get('username',''))
-                    password.set_text(q.get('password','')); epg.set_text(q.get('epg_url',''))
-                    source_type.set_selected(types.index(next(k for k,v in kinds.items() if v == q['type'])))
-                    fmt.set_selected(1 if q.get('format') == 'ts' else 0)
-                update_fields()
-            picker.connect('notify::selected', picked)
-            source_type.connect('notify::selected', lambda *_: update_fields())
-            update_fields()
-            def save_click(*_):
-                obj = {
-                    'id': state['id'] or sources.next_profile_id(),
-                    'name': pname.get_text().strip(),
-                    'type': kinds[selected(source_type)],
-                    'source': source.get_text().strip(),
-                    'server': server.get_text().strip(),
-                    'username': username.get_text().strip(),
-                    'password': password.get_text(),
-                    'format': selected(fmt), 'epg_url': epg.get_text().strip(),
-                }
-                old = next((q for q in self.cfg['profiles'] if q.get('id') == obj['id']), None)
-                if old:
-                    obj['favorites'] = old.get('favorites', [])
-                    obj['logo_overrides'] = old.get('logo_overrides', {})
-                try: sources.validate_profile(obj)
-                except ValueError as exc:
-                    notice.set_text(str(exc)); return
-                if old:
-                    self.cfg['profiles'][self.cfg['profiles'].index(old)] = obj
-                else: self.cfg['profiles'].append(obj)
-                self.cfg['selected'] = obj['id']
-                try:
-                    self.cfg['accent_hex'] = normalize_accent_hex(accent_picker.get_text())
-                except ValueError as exc:
-                    notice.set_text(str(exc)); return
-                self.cfg['theme'] = theme_codes[theme_picker.get_selected()]
-                self.get_application().apply_theme(self.cfg['theme'], self.cfg['accent_hex'])
-                self.cfg['player'] = {
-                    'user_agent': ['Predeterminado','VLC','Firefox','Safari','Personalizado'][ua.get_selected()], 'custom_ua': custom_ua.get_text().strip(),
-                    'source_user_agent': ['Predeterminado','VLC','Firefox','Safari','Personalizado'][source_ua.get_selected()],
-                    'source_custom_ua': source_custom_ua.get_text().strip(),
-                    'hwdec': ['Predeterminado','no','auto-safe','auto'][hwdec.get_selected()], 'cache': ['Predeterminado','auto','yes','no'][cache.get_selected()],
-                    'video_sync': ['Predeterminado','audio','display-resample'][sync.get_selected()], 'demuxer_mb': mb.get_value_as_int()
-                }
-                sources.save_config(self.cfg)
-                # Source downloads use new settings without waiting for MPV restart.
-                # The current libmpv instance retains its own agent until restart.
-                self.player_options = dict(self.cfg['player'])
-                self.profile = obj
-                self.favorites = set(obj.get('favorites', []))
-                self.profile_picker.set_model(Gtk.StringList.new([q['name'] for q in self.cfg['profiles']]))
-                self.profile_picker.set_selected(self.cfg['profiles'].index(obj))
-                self.load_channels()
-                self.status.set_text(tr('Ajustes guardados. Reinicia SYN para aplicar las opciones de MPV.'))
-                win.close()
-            def delete_click(*_):
-                if len(self.cfg['profiles']) <= 1:
-                    notice.set_text(tr('Debe quedar al menos un perfil.')); return
-                old = next((q for q in self.cfg['profiles'] if q['id'] == state['id']), None)
-                if not old:
-                    notice.set_text(tr('Selecciona un perfil existente.')); return
-                self.cfg['profiles'].remove(old)
-                self.profile = self.cfg['profiles'][0]
-                self.cfg['selected'] = self.profile['id']
-                self.favorites = set(self.profile.get('favorites', []))
-                sources.save_config(self.cfg)
-                self.profile_picker.set_model(Gtk.StringList.new([q['name'] for q in self.cfg['profiles']]))
-                self.profile_picker.set_selected(0)
-                self.load_channels(); win.close()
-            save.connect('clicked', save_click)
-            delete.connect('clicked', delete_click)
-            cancel.connect('clicked', lambda *_: win.close())
-            win.set_child(scroll); win.present()
+            # 1.3b Rev3: Profile / Playback / Appearance in independent pages.
+            from syn_settings_rev3 import open_settings
+            return open_settings(self, Gtk, GLib, Pango, normalize_accent_hex)
 
         def open_playlist(self, *_):
             dlg = Gtk.FileDialog(title=tr("Selecciona una lista M3U"))

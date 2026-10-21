@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from syn_i18n import translate as tr
 import time
 
 APP_ID = 'com.mrseivane.Syn'
@@ -116,18 +117,29 @@ def read_state(path=DB_PATH, now=None):
         return False, [], None
 
 
+def is_gnome_desktop(environ=None):
+    """Use notifications, not a system tray icon, on GNOME Shell."""
+    env = os.environ if environ is None else environ
+    desktops = ':'.join((env.get('XDG_CURRENT_DESKTOP', ''),
+                         env.get('XDG_SESSION_DESKTOP', ''),
+                         env.get('DESKTOP_SESSION', ''))).lower().replace(';', ':')
+    return any(part.strip() in ('gnome', 'gnome-classic', 'ubuntu', 'ubuntu:gnome')
+               for part in desktops.split(':'))
+
+
 def menu_rows(channels, worker_alive):
     """Stable IDs; disabled informational entries are non-interactive."""
     count = len(channels)
-    rows = [(1, f'● Grabando: {count} canal' + ('' if count == 1 else 'es'), False, False)]
+    state = (tr('● Grabando: ') + str(count) + ' ' + (tr('canal') if count == 1 else tr('canales'))) if count else '○ Sin grabaciones en curso'
+    rows = [(1, state, False, False)]
     for idx, ch in enumerate(channels[:4]):
         rows.append((10 + idx, '  ' + ch, False, False))
     if count > 4:
-        rows.append((14, f'  Y {count - 4} grabación(es) más', False, False))
-    rows += [(20, 'Servicio DVR: activo' if worker_alive else 'Servicio DVR: no disponible', False, False),
+        rows.append((14, tr('  Y ') + str(count - 4) + tr(' grabaciones más'), False, False))
+    rows += [(20, tr('Servicio DVR: activo') if worker_alive else tr('Servicio DVR: no disponible'), False, False),
              (30, '', False, True),
-             (40, 'Abrir SYN', True, False),
-             (41, 'Abrir carpeta de grabaciones', True, False)]
+             (40, tr('Abrir SYN'), True, False),
+             (41, tr('Abrir carpeta de grabaciones'), True, False)]
     return rows
 
 
@@ -160,7 +172,7 @@ class RecordingIndicator:
             MENU_PATH, self.menu_node.interfaces[0], self.on_method, self.get_property, None)
         self.mainloop = GLib.MainLoop()
 
-    def build_pixmaps(self):
+    def build_pixmaps(self, active=False):
         if not ICON_PATH.is_file():
             return []
         result = []
@@ -175,10 +187,14 @@ class RecordingIndicator:
                         p = y * stride + x * chans
                         r, g, b = data[p:p+3]
                         a = data[p+3] if chans == 4 else 255
-                        dx = x - (size - size // 5)
-                        dy = y - size // 5
-                        if dx*dx+dy*dy <= (size//7)**2:
-                            r, g, b, a = 237, 55, 67, 255
+                        if active:
+                            dx = x - (size - size // 5)
+                            dy = y - size // 5
+                            if dx*dx+dy*dy <= (size//7)**2:
+                                r, g, b, a = 237, 55, 67, 255
+                        else:
+                            luminance = int(0.2126*r + 0.7152*g + 0.0722*b)
+                            r = g = b = max(88, min(193, luminance))
                         rgba.extend((a, r, g, b))
                 result.append((size, size, bytes(rgba)))
             except (self.GLib.Error, OSError, ValueError):
@@ -192,7 +208,7 @@ class RecordingIndicator:
             props = {
                 'Category': v('s', 'ApplicationStatus'),
                 'Id': v('s', 'syn-dvr-recording'),
-                'Title': v('s', f'SYN DVR · {n} grabación(es)'),
+                'Title': v('s', f'SYN DVR · {n} ' + (tr('grabación') if n == 1 else tr('grabaciones')) if n else 'SYN DVR · en espera'),
                 'Status': v('s', 'Active'),
                 'WindowId': v('u', 0),
                 'IconName': v('s', '' if self.pixmaps else APP_ID),
@@ -202,7 +218,8 @@ class RecordingIndicator:
                 'AttentionIconName': v('s', ''),
                 'AttentionIconPixmap': v('a(iiay)', []),
                 'ToolTip': v('(sa(iiay)ss)', ('', self.pixmaps, 'SYN · DVR',
-                           f'{n} grabación(es) en segundo plano')),
+                           str(n) + ' ' + (tr('grabación') if n == 1 else tr('grabaciones')) + tr(' en segundo plano') if n else
+                           ('DVR activo · sin grabaciones' if self.alive else 'DVR no disponible'))),
                 'ItemIsMenu': v('b', True),
                 'Menu': v('o', MENU_PATH),
             }
@@ -241,8 +258,13 @@ class RecordingIndicator:
     def refresh(self):
         alive, channels, folder = read_state()
         changed = (self.alive, self.channels, self.folder) != (alive, channels, folder)
+        was_recording = bool(self.channels)
         self.alive, self.channels, self.folder = alive, channels, folder
         self.rows = menu_rows(channels, alive)
+        if bool(channels) != was_recording:
+            self.pixmaps = self.build_pixmaps(active=bool(channels))
+            if self.name_owned:
+                self.bus.emit_signal(None, SNI_PATH, SNI, 'NewIcon', None)
         if changed:
             self.revision = (self.revision + 1) % (2**32)
             if self.name_owned:
@@ -279,7 +301,7 @@ class RecordingIndicator:
             row = next((r for r in self.rows if r[0] == ident), None)
             prop = self.row_properties(row).get(name) if row else None
             if prop is None:
-                invocation.return_dbus_error('com.canonical.dbusmenu.Error', 'Propiedad no disponible')
+                invocation.return_dbus_error('com.canonical.dbusmenu.Error', tr('Propiedad no disponible'))
             else:
                 invocation.return_value(v('(v)', (prop,)))
         elif method in ('Event', 'EventGroup'):
@@ -352,8 +374,11 @@ class RecordingIndicator:
 
     def tick(self):
         self.refresh()
-        # Icono visible mientras el DVR independiente graba, esté o no abierta la ventana.
-        self.set_visible(self.alive and len(self.channels) > 0)
+        # No empty tray placeholders on GNOME. KDE/XFCE/Cinnamon etc. show
+        # a grey idle icon when a StatusNotifier watcher is available.
+        supported = any(self.name_has_owner(name) for name in (
+            'org.kde.StatusNotifierWatcher', 'org.freedesktop.StatusNotifierWatcher'))
+        self.set_visible(supported and not is_gnome_desktop())
         if self.name_owned:
             self.register_watchers()
         return True

@@ -82,7 +82,7 @@ Run **only the command for your distribution**, and download **only the package 
 Flatpak bundles are **not universal across CPU architectures**. Download the matching `x86_64` or `aarch64` file, then install it:
 
 ```bash
-flatpak --user install ./SYN-1.3.0-x86_64.flatpak
+flatpak --user install ./SYN-1.3.2-x86_64.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -129,9 +129,10 @@ This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SD
 
 ## Development & release notes
 
-The current source release is **SYN 1.3.1**: shared-stream DVR, EPG improvements, recording indicator and consistent themes. Eight packages are required to publish the release.
+The current source release is **SYN 1.3.2**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
 
 - [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
+- [SYN 1.3.2 release notes](docs/RELEASE_1.3.2.md)
 - [SYN 1.3.1 release notes](docs/RELEASE_1.3.1.md)
 - [GitHub Actions](https://github.com/manupernas/SYN/actions) — all eight RPM/DEB/Arch/Flatpak builds are required
 
