@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.2.2-dvr"
+SYN_VERSION = "1.3"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -1052,20 +1052,18 @@ def run_gui(playlist):
     .syn-guide-cat.active { background: rgba(65,171,143,.30); color: #fff;
       border-left: 3px solid #f3aa73; }
     .syn-guide-channel { background: rgba(10,38,43,.96);
-      border-right: 1px solid rgba(153,226,200,.14);
-      border-bottom: 2px solid rgba(11,34,38,.95);
-      color: #fff; padding: 6px; }
+      border: 0; color: #fff; padding: 0;
+      box-shadow: inset -1px 0 rgba(153,226,200,.14), inset 0 -1px rgba(11,34,38,.95); }
     .syn-guide-channel-name { color: #fff; font-size: 11px; font-weight: 700; }
     .syn-guide-channel-playing { background: rgba(27,98,81,.8); }
     .syn-guide-axis { background: rgba(8,30,34,.95);
       border-bottom: 1px solid rgba(180, 237, 217, .22); }
     .syn-guide-tick { color: #a6c9c3; font-size: 12px; padding: 8px 12px;
       border-left: 1px solid rgba(180,237,217,.12); }
-    .syn-guide-track { background: #091d22;
-      border-bottom: 2px solid rgba(10,30,32,.9); }
+    .syn-guide-track { background: #091d22; border: 0; padding: 0;
+      box-shadow: inset 0 -1px rgba(10,30,32,.9); }
     .syn-guide-program { border: 1px solid rgba(9,31,40,.94);
-      border-radius: 9px; color: #fff; padding: 4px 5px;
-      margin: 0; }
+      border-radius: 9px; color: #fff; padding: 0; margin: 0; }
     .syn-guide-program:hover { border-color: #d4fff2; }
     .syn-guide-program-0 { background: #2b4c50; }
     .syn-guide-program-1 { background: #563f55; }
@@ -1568,6 +1566,181 @@ def run_gui(playlist):
     .syn-welcome-cta:hover { background: #e1e5ee; }
     """
 
+    # SYN_DVR_FOUR_THEMES_127: paletas aisladas para la pantalla DVR.
+    # Sistema no inventa colores: utiliza @window_* y @card_* de GTK/libadwaita.
+    # Los otros tres modos heredan las decisiones de color del resto de SYN.
+    DVR_PALETTES = {
+        'system': {
+            'bg':'@window_bg_color', 'fg':'@window_fg_color',
+            'card':'@card_bg_color', 'muted':'alpha(@window_fg_color, .70)',
+            'stroke':'alpha(@window_fg_color, .18)',
+            'button':'@card_bg_color', 'hover':'alpha(@window_fg_color, .12)',
+            'accent':'@accent_bg_color', 'accent_fg':'@accent_fg_color',
+            'selected':'alpha(@accent_bg_color, .20)',
+            'selected_fg':'@window_fg_color',
+            'scroll':'alpha(@window_fg_color, .36)',
+            'error':'#d04755',
+        },
+        'teal': {
+            'bg':'#0b2522', 'fg':'#f1faf6',
+            'card':'#173b35', 'muted':'#b2d1c6',
+            'stroke':'#3b7063', 'button':'#1d4a42',
+            'hover':'#286457', 'accent':'#f0a269',
+            'accent_fg':'#172a25', 'selected':'#31675a',
+            'selected_fg':'#fafffc', 'scroll':'#508d7c',
+            'error':'#ff9aa8',
+        },
+        'light': {
+            'bg':'#eff9f7', 'fg':'#194942',
+            'card':'#fafffc', 'muted':'#4a7069',
+            'stroke':'#b9ddd5', 'button':'#f6fffc',
+            'hover':'#d0eee7', 'accent':'#43a698',
+            'accent_fg':'#ffffff', 'selected':'#b8e7da',
+            'selected_fg':'#174b41', 'scroll':'#83bcaf',
+            'error':'#ae3649',
+        },
+        'dark': {
+            'bg':'#111316', 'fg':'#edf0f4',
+            'card':'#22262d', 'muted':'#bcc3ce',
+            'stroke':'#424956', 'button':'#292d35',
+            'hover':'#404652', 'accent':'#cdd4dd',
+            'accent_fg':'#171a20', 'selected':'#4d5869',
+            'selected_fg':'#ffffff', 'scroll':'#747f90',
+            'error':'#ff9eaa',
+        },
+    }
+
+    def dvr_palette_css(which):
+        """Genera CSS GTK4 a partir de la paleta, sin alterar estilos ajenos."""
+        p = DVR_PALETTES[which]
+        css = r"""
+        window.iptv-tv .syn-dvr-page {
+          background-color: %%BG%%; color: %%FG%%;
+        }
+        window.iptv-tv .syn-dvr-page label,
+        window.iptv-tv .syn-dvr-page .heading {
+          color: %%FG%%;
+        }
+        window.iptv-tv .syn-dvr-page .dim-label {
+          color: %%MUTED%%;
+        }
+        window.iptv-tv .syn-dvr-page .error {
+          color: %%ERROR%%;
+        }
+        /* Recuadro de grabaciones, listas GTK4 y scrollbar. */
+        window.iptv-tv .syn-dvr-page list.boxed-list {
+          background-color: %%CARD%%; color: %%FG%%;
+          border: 1px solid %%STROKE%%; border-radius: 11px;
+        }
+        window.iptv-tv .syn-dvr-page list.boxed-list > row {
+          background-color: transparent; color: %%FG%%;
+          border-bottom: 1px solid %%STROKE%%;
+        }
+        window.iptv-tv .syn-dvr-page list.boxed-list > row:last-child {
+          border-bottom: 0;
+        }
+        window.iptv-tv .syn-dvr-page list.boxed-list > row:hover {
+          background-color: %%HOVER%%;
+        }
+        window.iptv-tv .syn-dvr-page list.boxed-list > row label { color: %%FG%%; }
+        window.iptv-tv .syn-dvr-page list.boxed-list > row .dim-label { color: %%MUTED%%; }
+        window.iptv-tv .syn-dvr-page scrolledwindow,
+        window.iptv-tv .syn-dvr-page viewport {
+          color: %%FG%%; background-color: transparent;
+        }
+        window.iptv-tv .syn-dvr-page scrollbar slider {
+          background-color: %%SCROLL%%;
+        }
+        /* Acciones: botones, campos y selector de canal. */
+        window.iptv-tv .syn-dvr-page button,
+        window.iptv-tv .syn-dvr-page entry,
+        window.iptv-tv .syn-dvr-page dropdown > button {
+          background-color: %%BUTTON%%; color: %%FG%%;
+          border: 1px solid %%STROKE%%; border-radius: 9px;
+        }
+        window.iptv-tv .syn-dvr-page button:hover,
+        window.iptv-tv .syn-dvr-page dropdown > button:hover {
+          background-color: %%HOVER%%; color: %%FG%%;
+        }
+        window.iptv-tv .syn-dvr-page button label,
+        window.iptv-tv .syn-dvr-page dropdown > button label,
+        window.iptv-tv .syn-dvr-page entry text { color: %%FG%%; }
+        window.iptv-tv .syn-dvr-page entry selection {
+          background-color: %%ACCENT%%; color: %%ACCENT_FG%%;
+        }
+        /* Desplegable del canal: GTK puede crearlo en una superficie propia. */
+        dropdown.syn-dvr-channel-picker popover.background > contents {
+          background-color: %%CARD%%; color: %%FG%%;
+          border: 1px solid %%STROKE%%; border-radius: 10px;
+        }
+        dropdown.syn-dvr-channel-picker popover listview,
+        dropdown.syn-dvr-channel-picker popover scrolledwindow,
+        dropdown.syn-dvr-channel-picker popover listview row {
+          background-color: %%CARD%%; color: %%FG%%;
+        }
+        dropdown.syn-dvr-channel-picker popover listview row:hover,
+        dropdown.syn-dvr-channel-picker popover listview row:focus {
+          background-color: %%HOVER%%; color: %%FG%%;
+        }
+        dropdown.syn-dvr-channel-picker popover listview row:selected {
+          background-color: %%SELECTED%%; color: %%SELECTED_FG%%;
+        }
+        dropdown.syn-dvr-channel-picker popover listview row label {
+          color: %%FG%%;
+        }
+        dropdown.syn-dvr-channel-picker popover listview row:selected label {
+          color: %%SELECTED_FG%%;
+        }
+        window.iptv-tv .syn-dvr-page button:disabled,
+        window.iptv-tv .syn-dvr-page dropdown:disabled { opacity: .52; }
+        /* Calendario: GtkCalendar no hereda correctamente el primer plano
+           del GtkBox con algunos estilos de GTK4 instalados en el host. */
+        window.iptv-tv .syn-dvr-page calendar.view {
+          background-color: %%CARD%%; color: %%FG%%;
+          border: 1px solid %%STROKE%%; border-radius: 11px;
+        }
+        window.iptv-tv .syn-dvr-page calendar header,
+        window.iptv-tv .syn-dvr-page calendar grid {
+          background-color: transparent; color: %%FG%%;
+        }
+        window.iptv-tv .syn-dvr-page calendar header label,
+        window.iptv-tv .syn-dvr-page calendar grid label {
+          color: %%FG%%;
+        }
+        window.iptv-tv .syn-dvr-page calendar grid label.day-name,
+        window.iptv-tv .syn-dvr-page calendar grid label.other-month {
+          color: %%MUTED%%;
+        }
+        window.iptv-tv .syn-dvr-page calendar grid label.today:not(:selected) {
+          box-shadow: inset 0 0 0 1px %%ACCENT%%;
+          border-radius: 7px;
+        }
+        window.iptv-tv .syn-dvr-page calendar grid label:selected {
+          background-color: %%ACCENT%%; color: %%ACCENT_FG%%;
+          border-radius: 7px;
+        }
+        window.iptv-tv .syn-dvr-page calendar header button {
+          background-color: %%BUTTON%%; color: %%FG%%;
+          border-color: %%STROKE%%;
+        }
+        /* El botón de programar es la acción principal de esta pantalla. */
+        window.iptv-tv .syn-dvr-page button.syn-dvr-schedule-action {
+          background-color: %%ACCENT%%; color: %%ACCENT_FG%%;
+          border-color: %%ACCENT%%;
+        }
+        window.iptv-tv .syn-dvr-page button.syn-dvr-schedule-action label {
+          color: %%ACCENT_FG%%;
+        }
+        window.iptv-tv .syn-dvr-page button.syn-dvr-schedule-action:hover {
+          background-color: %%ACCENT%%; opacity: .88;
+        }
+        """
+        for key, value in p.items():
+            css = css.replace('%%' + key.upper() + '%%', value)
+        if '%%' in css:
+            raise ValueError('Marcador CSS DVR sin reemplazar: ' + which)
+        return css
+
     def brand_icon(size=36):
         """Icono local: funciona en Flatpak y en la instalación nativa."""
         pixel = 32 if size <= 40 else (128 if size <= 150 else 256)
@@ -1991,6 +2164,8 @@ def run_gui(playlist):
             self.main_stack.add_overlay(self.dvr_view)
             self.dvr_view.set_visible(False)
             GLib.timeout_add_seconds(3, self.dvr_refresh)
+            GLib.timeout_add_seconds(1, self._syn_follow_dvr)
+            GLib.idle_add(lambda: (self.dvr_refresh(force=True), False)[1])
             syn_dvr.ensure_worker()
             GLib.timeout_add_seconds(8, self.dvr_worker_check)
 
@@ -2066,6 +2241,7 @@ def run_gui(playlist):
             planner.append(self.dvr_calendar)
             planner.append(Gtk.Label(label='Canal', xalign=0))
             self.dvr_channel_dropdown = Gtk.DropDown.new_from_strings(['Cargando canales…'])
+            self.dvr_channel_dropdown.add_css_class('syn-dvr-channel-picker')
             self.dvr_channel_dropdown.set_enable_search(True)
             planner.append(self.dvr_channel_dropdown)
             planner.append(Gtk.Label(label='Horario (24 h)', xalign=0))
@@ -2088,6 +2264,7 @@ def run_gui(playlist):
             planner.append(times)
             planned = Gtk.Button(label='Programar grabación')
             planned.add_css_class('suggested-action')
+            planned.add_css_class('syn-dvr-schedule-action')
             planned.connect('clicked', self.dvr_schedule)
             planner.append(planned)
             instant = Gtk.Button(label='● Grabar canal seleccionado ahora')
@@ -2279,9 +2456,22 @@ def run_gui(playlist):
             return self.channels[index]
 
         def dvr_enqueue(self, channel, start=None, end=None, programme=None):
-            job = self.dvr_store.add(channel.name, channel.url,
-                                     time.time() if start is None else start,
-                                     end, syn_dvr.VLC_UA, programme=programme)
+            # A user recording the currently playing channel must not open TWO
+            # IPTV connections, even briefly. Pause live first, then wait for DVR.
+            player = self.area.player
+            paused = bool(player and self.current and self.current.url == channel.url
+                          and player.active_url == channel.url
+                          and (start is None or float(start) <= time.time() + 3))
+            if paused:
+                player.stop()
+            try:
+                job = self.dvr_store.add(channel.name, channel.url,
+                                         time.time() if start is None else start,
+                                         end, syn_dvr.VLC_UA, programme=programme)
+            except Exception:
+                if paused:
+                    player.play(channel)
+                raise
             syn_dvr.ensure_worker()
             self.dvr_refresh(force=True)
             return job
@@ -2350,10 +2540,39 @@ def run_gui(playlist):
             self.dvr_back_btn.set_visible(True)
             self.start_channel(Channel(path.stem, 'Grabaciones', path.resolve().as_uri()))
 
+        def _syn_reattach_rec_button(self, data):
+            """Recover the *UI*, never interrupt or launch the background DVR."""
+            if not hasattr(self, 'rec_button'):
+                return
+            active = [j for j in data.get('jobs', [])
+                      if isinstance(j, dict) and j.get('end') is None
+                      and j.get('status') in ('scheduled', 'running')
+                      and not j.get('stop_requested')]
+            tracked = next((j for j in active
+                            if self.current and j.get('url') == self.current.url
+                            and j.get('id') == self._instant_recording_id), None)
+            if tracked is None:
+                # If multiple recordings are active, do not let the REC button
+                # accidentally stop an arbitrary one. Show the library badge.
+                tracked = next((j for j in active
+                                if self.current and j.get('url') == self.current.url), None)
+                self._instant_recording_id = tracked.get('id') if tracked else None
+            if tracked:
+                self.rec_button.set_label('■')
+                self.rec_button.add_css_class('syn-dvr-recording')
+                self.rec_button.set_tooltip_text('Detener grabación')
+            else:
+                self.rec_button.set_label('●')
+                self.rec_button.remove_css_class('syn-dvr-recording')
+                self.rec_button.set_tooltip_text('Grabar ahora')
+
         def dvr_refresh(self, force=False):
             if not hasattr(self, 'dvr_recording_list'):
                 return True
             data = self.dvr_store.read()
+            # The recorder lives outside this GTK window. Reattach the GUI's
+            # REC button to a still-active, indefinite recording on reopen.
+            self._syn_reattach_rec_button(data)
             jobs = sorted(data.get('jobs', []), key=lambda j: j.get('created', 0), reverse=True)[:120]
             files = syn_dvr.recorded_files()
             sig = json.dumps([(j.get('id'), j.get('status'), j.get('stop_requested'),
@@ -2969,6 +3188,57 @@ def run_gui(playlist):
                 self.set_fs_osd(False)
             return False
 
+        def _syn_fade_fullscreen_osd(self, show):
+            """Symmetric 260 ms fade; never touch GLArea/libmpv."""
+            names = ('fs_dim', 'fs_scrim_top', 'fs_scrim_bottom',
+                     'fs_top', 'fs_bottom')
+            layers = tuple(getattr(self, name + '_fade', getattr(self, name))
+                           for name in names)
+            existing = getattr(self, '_syn_osd_fade_timer', 0)
+            if existing:
+                GLib.source_remove(existing)
+                self._syn_osd_fade_timer = 0
+            immediate = not self.fullscreen_mode and not show
+            starts = []
+            for layer in layers:
+                revealed = (layer.get_reveal_child() if
+                            hasattr(layer, 'get_reveal_child') else layer.get_visible())
+                alpha = (float(layer.get_opacity()) if layer.get_visible()
+                         and revealed else 0.0)
+                starts.append(max(0.0, min(1.0, alpha)))
+                if hasattr(layer, 'set_transition_duration'):
+                    layer.set_transition_duration(0)
+                if immediate:
+                    layer.set_opacity(0.0)
+                    if hasattr(layer, 'set_reveal_child'):
+                        layer.set_reveal_child(False)
+                    layer.set_visible(False)
+                else:
+                    # Set alpha BEFORE mapping; no first-frame flash.
+                    layer.set_opacity(starts[-1])
+                    layer.set_visible(True)
+                    if hasattr(layer, 'set_reveal_child'):
+                        layer.set_reveal_child(True)
+            if immediate:
+                return
+            target = 1.0 if show else 0.0
+            beginning = time.monotonic()
+            def tick():
+                t = min(1.0, (time.monotonic() - beginning) / 0.260)
+                eased = t * t * (3.0 - 2.0 * t)
+                for layer, initial in zip(layers, starts):
+                    layer.set_opacity(initial + (target - initial) * eased)
+                if t >= 1:
+                    self._syn_osd_fade_timer = 0
+                    if not show:
+                        for layer in layers:
+                            if hasattr(layer, 'set_reveal_child'):
+                                layer.set_reveal_child(False)
+                            layer.set_visible(False)
+                    return False
+                return True
+            self._syn_osd_fade_timer = GLib.timeout_add(16, tick)
+
         def set_fs_osd(self, visible):
             if self.fs_osd_timer:
                 GLib.source_remove(self.fs_osd_timer)
@@ -2978,9 +3248,7 @@ def run_gui(playlist):
                 self.set_fs_remote(False)
             self.fs_osd_visible = visible
             self.fs_remote_revealer.set_visible(self.fullscreen_mode)
-            for widget in (self.fs_dim, self.fs_scrim_top, self.fs_scrim_bottom,
-                           self.fs_top, self.fs_bottom):
-                widget.set_visible(visible)
+            self._syn_fade_fullscreen_osd(visible)
             if visible:
                 self.fs_channel_label.set_text(display_channel_name(self.current.name) if self.current else "SYN")
                 self.update_programme()
@@ -3732,6 +4000,55 @@ def run_gui(playlist):
             else:
                 self.status.set_text(tr("Selecciona un canal en la lista."))
 
+        # SYN_DVR_SHARED_124: no second IPTV session while viewing a recording.
+        def _syn_dvr_playback_target(self, channel):
+            """Return (local URL, waiting). Only trusted local DB drives routing."""
+            if not syn_dvr.allowed_stream_url(channel.url):
+                return None, False
+            jobs = self.dvr_store.read().get('jobs', [])
+            now = time.time()
+            same = [j for j in jobs if isinstance(j, dict)
+                    and j.get('url') == channel.url
+                    and j.get('status') in ('running', 'scheduled')
+                    and not j.get('stop_requested')]
+            same.sort(key=lambda j: j.get('created', 0), reverse=True)
+            # A running job wins even when other future jobs are scheduled.
+            for job in same:
+                if job.get('status') == 'running':
+                    return (job.get('relay_url') or syn_dvr.syn_relay_url(job['id'])), True
+            for job in same:
+                if float(job.get('start', 0)) <= now + 3:
+                    return None, True
+            return None, False
+
+        def _syn_follow_dvr(self):
+            """Switch current channel to/from local relay without modifying DVR."""
+            try:
+                channel = self.current
+                player = self.area.player
+                if (not channel or not player or not player.ctx.value
+                        or getattr(self, '_dvr_playing_file', False)
+                        or not syn_dvr.allowed_stream_url(channel.url)):
+                    return True
+                url, waiting = self._syn_dvr_playback_target(channel)
+                playing = player.active_url
+                if url:
+                    if playing != url:
+                        player.play(Channel(channel.name, channel.group, url, channel.logo))
+                        self.status.set_text('DVR: viendo la señal compartida, sin segunda conexión IPTV')
+                elif waiting:
+                    if playing == channel.url:
+                        player.stop()  # Never displace the recording session.
+                    if not playing or playing == channel.url:
+                        self.status.set_text('DVR: esperando al grabador o su reconexión…')
+                elif playing and playing.startswith('udp://127.0.0.1:'):
+                    player.play(channel)  # The DVR has stopped: return to live IPTV.
+                if hasattr(self, '_syn_reattach_rec_button'):
+                    self._syn_reattach_rec_button(self.dvr_store.read())
+            except (ValueError, OSError, RuntimeError, AttributeError) as exc:
+                self.status.set_text('DVR compartido: ' + str(exc)[:130])
+            return True
+
         def start_channel(self, channel):
             if syn_dvr.allowed_stream_url(channel.url):
                 self._dvr_playing_file = False
@@ -3751,9 +4068,19 @@ def run_gui(playlist):
                 return
             player.on_status = self.player_status
             try:
-                player.play(channel)
+                relay_url, wait_for_relay = self._syn_dvr_playback_target(channel)
+                if relay_url:
+                    player.play(Channel(channel.name, channel.group, relay_url, channel.logo))
+                    self.status.set_text('DVR: viendo la señal compartida')
+                elif wait_for_relay:
+                    player.stop()  # Never open a second IPTV session while DVR is active.
+                    self.status.set_text('DVR: esperando la señal compartida…')
+                else:
+                    player.play(channel)
             except Exception as exc:
                 self.status.set_text(tr("No se pudo abrir el canal: ") + str(exc))
+            if hasattr(self, '_syn_reattach_rec_button'):
+                self._syn_reattach_rec_button(self.dvr_store.read())
             self._update_pause_label()
             self.update_programme()
 
@@ -4022,6 +4349,8 @@ def run_gui(playlist):
             row_area.append(self.guide_tracks_scroll)
             self._guide_viewport_width = 0
             self._guide_resize_timer = 0
+            self._guide_scroll_timer = 0
+            self._guide_scroll_target = None
             # GTK4 no expone notify::width para GtkWidget. Un DrawingArea de
             # 1 px avisa con su señal resize sin interceptar interacción.
             self.guide_width_probe = Gtk.DrawingArea()
@@ -4175,24 +4504,52 @@ def run_gui(playlist):
             adj.set_value(limit if at_end else adj.get_lower())
             return False
 
+        # SYN_EPG_ALIGN_SMOOTH_126: animación vertical sobre el ajuste COMPARTIDO
+        # entre nombres y programación. No hay un segundo scroll desincronizado.
+        def _guide_smooth_scroll_tick(self):
+            if not self.guide_open:
+                self._guide_scroll_timer = 0
+                self._guide_scroll_target = None
+                return False
+            adj = self.guide_tracks_scroll.get_vadjustment()
+            end = max(adj.get_lower(), adj.get_upper() - adj.get_page_size())
+            target = self._guide_scroll_target
+            if target is None:
+                self._guide_scroll_timer = 0
+                return False
+            target = max(adj.get_lower(), min(end, target))
+            current = adj.get_value()
+            remaining = target - current
+            if abs(remaining) <= 0.65:
+                adj.set_value(target)
+                self._guide_scroll_timer = 0
+                self._guide_scroll_target = None
+                return False
+            adj.set_value(current + remaining * 0.27)
+            return True
+
         def _guide_wheel_scroll(self, _controller, _dx, dy):
-            """Rueda/trackpad desde nombres o parrilla; páginas al acabar 24."""
+            """Desplazamiento suave, misma posición exacta en ambas columnas."""
             if not self.guide_open or abs(dy) < 0.0001:
                 return False
             adj = self.guide_tracks_scroll.get_vadjustment()
             current = adj.get_value()
             lower = adj.get_lower()
             end = max(lower, adj.get_upper() - adj.get_page_size())
-            # GTK entrega unidades distintas según ratón o trackpad. Evitamos
-            # saltos enormes sin bloquear el desplazamiento suave.
-            amount = max(-2.5, min(2.5, dy)) * 65
-            next_value = min(end, max(lower, current + amount))
-            if dy > 0 and current >= end - 3:
+            if dy > 0 and current >= end - 1:
                 self.guide_page_step(1, wheel=True)
-            elif dy < 0 and current <= lower + 3:
+                return True
+            if dy < 0 and current <= lower + 1:
                 self.guide_page_step(-1, wheel=True)
-            else:
-                adj.set_value(next_value)
+                return True
+            # Acumulamos giros de rueda sin perder precisión del trackpad.
+            basis = self._guide_scroll_target
+            if basis is None:
+                basis = current
+            amount = max(-2.5, min(2.5, dy)) * 57
+            self._guide_scroll_target = max(lower, min(end, basis + amount))
+            if not self._guide_scroll_timer:
+                self._guide_scroll_timer = GLib.timeout_add(16, self._guide_smooth_scroll_tick)
             return True
 
         def guide_page_step(self, direction, wheel=False):
@@ -4219,6 +4576,10 @@ def run_gui(playlist):
         def guide_render_rows(self):
             """Máximo 24 filas por página para no congelar listas Xtream enormes."""
             if not self.guide_open: return
+            if getattr(self, '_guide_scroll_timer', 0):
+                GLib.source_remove(self._guide_scroll_timer)
+                self._guide_scroll_timer = 0
+            self._guide_scroll_target = None
             for box in (self.guide_names_box, self.guide_tracks_box):
                 while (child := box.get_first_child()) is not None:
                     box.remove(child)
@@ -4247,6 +4608,7 @@ def run_gui(playlist):
             for channel in subset:
                 channel_widget = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
                 channel_widget.set_size_request(GUIDE_CHANNEL_WIDTH, 70)
+                channel_widget.set_valign(Gtk.Align.START)
                 channel_widget.set_overflow(Gtk.Overflow.HIDDEN)
                 channel_widget.add_css_class('syn-guide-channel')
                 if self.current and self.current.favorite_id == channel.favorite_id:
@@ -4276,6 +4638,7 @@ def run_gui(playlist):
 
                 track = Gtk.Fixed()
                 track.set_size_request(total, 70)
+                track.set_valign(Gtk.Align.START)
                 track.set_overflow(Gtk.Overflow.HIDDEN)
                 track.add_css_class('syn-guide-track')
                 for x, width, a, b, title, description, available in epg_geometry(
@@ -4295,10 +4658,12 @@ def run_gui(playlist):
                         if width >= 45:
                             timestamp = Gtk.Label(label=format_time(a), xalign=0)
                             timestamp.add_css_class('syn-guide-time')
+                            timestamp.set_margin_start(5)
                             block.append(timestamp)
                         if width >= 85:
                             ttl = Gtk.Label(label=title, xalign=0)
                             ttl.add_css_class('syn-guide-program-name')
+                            ttl.set_margin_start(5)
                             ttl.set_ellipsize(Pango.EllipsizeMode.END)
                             ttl.set_max_width_chars(max(4, int((width - 16) / 9)))
                             block.append(ttl)
@@ -4344,6 +4709,15 @@ def run_gui(playlist):
                     self.set_fs_remote(False)
                 if self.fullscreen_mode:
                     self.set_fs_osd(False)
+                # Open the EPG in the same scope as the visible channel list.
+                # Favourites win over the category dropdown if that filter is active.
+                index = self.category.get_selected()
+                selected_category = (self.category_names[index] if
+                                     0 <= index < len(self.category_names) else
+                                     'Todas las categorías')
+                self.guide_category_name = ('★ Favoritos' if self.favs.get_active()
+                                            else selected_category)
+                self.guide_page = 0
                 # Mantener una franja de pasado; el eje y los programas usan idénticas X.
                 self.guide_start = epg_initial_start(dt.datetime.now().astimezone())
                 self.guide_render_categories()
@@ -4351,6 +4725,10 @@ def run_gui(playlist):
                 self.guide_render_rows()
                 self.guide_search.grab_focus()
             else:
+                if getattr(self, '_guide_scroll_timer', 0):
+                    GLib.source_remove(self._guide_scroll_timer)
+                    self._guide_scroll_timer = 0
+                self._guide_scroll_target = None
                 if self._guide_resize_timer:
                     GLib.source_remove(self._guide_resize_timer)
                     self._guide_resize_timer = 0
@@ -4777,14 +5155,14 @@ def run_gui(playlist):
                 if display and getattr(self, '_teal_provider_active', False):
                     Gtk.StyleContext.remove_provider_for_display(display, self.teal_theme_provider)
                     self._teal_provider_active = False
-                css = BASE_CSS + logo_pill_css(dark=manager.get_dark(), pastel=(theme == 'light'), teal=(theme == 'teal'))
+                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme == 'light'), teal=(theme == 'teal'))
                 self.theme_provider.load_from_data(css.encode('utf-8'))
                 # The accent CSS is loaded separately at higher priority so
                 # Adwaita and all bundled color schemes cannot override it.
                 self.accent_provider.load_from_data(
                     accent_css(getattr(self, '_accent_hex', '')).encode('utf-8'))
                 if theme in ('teal','light','dark') and display:
-                    palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme]
+                    palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
                     self.teal_theme_provider.load_from_data(palette_css.encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,

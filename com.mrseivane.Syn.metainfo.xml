@@ -36,6 +36,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3" date="2026-10-21">
+      <description>
+        <p>Independent DVR with shared live playback, a real desktop recording menu, smooth aligned EPG and four complete appearance themes.</p>
+      </description>
+    </release>
     <release version="1.0.2b" date="2026-10-20">
       <description>
         <p>First public release with a redesigned icon and improvements to the accent colour and last-view restoration.</p>

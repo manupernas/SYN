@@ -1,0 +1,5 @@
+#!/bin/sh
+# Menu real de SYN dentro de su propia aplicación Flatpak.
+set -eu
+export PYTHONPATH="/app/share/syn${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 /app/share/syn/syn_dvr_tray.py "$@"
