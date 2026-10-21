@@ -60,7 +60,7 @@ Click a screenshot to view it at full size.
 | **Debian / Ubuntu** | `.deb` | amd64, arm64 |
 | **Arch Linux / EndeavourOS** | `.pkg.tar.zst` | x86_64, aarch64 |
 
-These **six native packages** form the required release set. GitHub Actions builds them for both architectures. **Flatpak** (`.flatpak`) and **AppImage** (`.AppImage`) are experimental, architecture-specific additional downloads: they appear in a release **only when both architecture builds for that format succeed**. Check the actual release assets rather than assuming an optional format is available.
+SYN 1.3 ships **eight required packages**: RPM, DEB, Arch Linux/pacman and Flatpak for both x86_64 and ARM64. The Release is only published when every package has been built and verified. Each Flatpak is architecture-specific; these GitHub download bundles do **not** mean SYN is listed on Flathub.
 
 To install a downloaded native package, use the appropriate command:
 
@@ -77,12 +77,12 @@ sudo pacman -U ./syn-iptv-*.pkg.tar.zst
 
 Run **only the command for your distribution**, and download **only the package for your CPU architecture**. Native builds use your distribution's GTK4, PyGObject, libadwaita, libmpv and FFmpeg dependencies. Successful CI packaging does not substitute for testing every desktop and video driver.
 
-### Flatpak (when included in a release)
+### Flatpak release bundles
 
 Flatpak bundles are **not universal across CPU architectures**. Download the matching `x86_64` or `aarch64` file, then install it:
 
 ```bash
-flatpak --user install ./SYN-1.2.2-x86_64.flatpak
+flatpak --user install ./SYN-1.3.0-x86_64.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -134,11 +134,11 @@ This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SD
 
 ## Development & release notes
 
-The current DVR source version is **1.2.2**. It adds integrated recording, EPG scheduling, the independent worker and a separate User-Agent for Xtream/M3U source requests versus playback.
+The current source release is **SYN 1.3**: shared-stream DVR, EPG improvements, recording indicator and consistent themes. Eight packages are required to publish the release.
 
 - [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
-- [Release notes](docs/RELEASE_1.2.2.md)
-- [GitHub Actions](https://github.com/manupernas/SYN/actions) — native builds are required; experimental formats are optional
+- [SYN 1.3 release notes](docs/RELEASE_1.3.md)
+- [GitHub Actions](https://github.com/manupernas/SYN/actions) — all eight RPM/DEB/Arch/Flatpak builds are required
 
 Run automated tests with:
 

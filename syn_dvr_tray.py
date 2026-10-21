@@ -20,8 +20,11 @@ SNI_PATH = '/StatusNotifierItem'
 MENU_PATH = '/MenuBar'
 SNI = 'org.kde.StatusNotifierItem'
 DBMENU = 'com.canonical.dbusmenu'
-DB_PATH = Path.home() / '.var/app' / APP_ID / 'data/syn/dvr.json'
-ICON_PATH = Path('/app/share/icons/hicolor/48x48/apps/com.mrseivane.Syn.png')
+IS_NATIVE = os.environ.get('SYN_NATIVE_PACKAGE') == '1'
+DB_PATH = ((Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'syn/dvr.json')
+           if IS_NATIVE else (Path.home() / '.var/app' / APP_ID / 'data/syn/dvr.json'))
+ICON_PATH = Path('/usr/share/icons/hicolor/48x48/apps/com.mrseivane.Syn.png' if IS_NATIVE
+                 else '/app/share/icons/hicolor/48x48/apps/com.mrseivane.Syn.png')
 
 SNI_XML = '''<node>
 <interface name="org.kde.StatusNotifierItem">
@@ -252,7 +255,7 @@ class RecordingIndicator:
         v = self.GLib.Variant
         if iface == SNI:
             if method in ('Activate', 'SecondaryActivate'):
-                spawn(['flatpak-spawn', '--host', 'flatpak', 'run', '--user', APP_ID])
+                spawn(['syn'] if IS_NATIVE else ['flatpak-spawn', '--host', 'flatpak', 'run', '--user', APP_ID])
             # ContextMenu supplied by DBusMenu via the Menu property.
             invocation.return_value(None)
             return
@@ -287,11 +290,11 @@ class RecordingIndicator:
                 if ev != 'clicked':
                     continue
                 if ident == 40:
-                    spawn(['flatpak-spawn', '--host', 'flatpak', 'run', '--user', APP_ID])
+                    spawn(['syn'] if IS_NATIVE else ['flatpak-spawn', '--host', 'flatpak', 'run', '--user', APP_ID])
                 elif ident == 41:
                     folder = Path(self.folder or (Path.home() / 'Vídeos/SYN')).expanduser()
                     if folder.is_dir():
-                        spawn(['flatpak-spawn', '--host', 'xdg-open', str(folder)])
+                        spawn(['xdg-open', str(folder)] if IS_NATIVE else ['flatpak-spawn', '--host', 'xdg-open', str(folder)])
                 else:
                     unknown.append(ident)
             if method == 'Event':

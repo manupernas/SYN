@@ -5,7 +5,7 @@ DEST="${1:?Uso: packaging/stage-native.sh /ruta/raiz-paquete}"
 mkdir -p "$DEST/usr/share/syn" "$DEST/usr/bin" "$DEST/usr/share/applications" \
   "$DEST/usr/share/metainfo" "$DEST/usr/share/icons/hicolor" "$DEST/usr/lib/systemd/user"
 install -m755 syn.py "$DEST/usr/share/syn/syn.py"
-install -m644 syn_sources.py syn_i18n.py syn_dvr.py "$DEST/usr/share/syn/"
+install -m644 syn_sources.py syn_i18n.py syn_dvr.py syn_dvr_tray.py "$DEST/usr/share/syn/"
 for lang in en_US en_GB; do
   install -Dm644 "locale/$lang/LC_MESSAGES/syn.mo" "$DEST/usr/share/locale/$lang/LC_MESSAGES/syn.mo"
 done
@@ -27,7 +27,15 @@ export LC_NUMERIC=C
 export PYTHONPATH="/usr/share/syn${PYTHONPATH:+:$PYTHONPATH}"
 exec /usr/bin/python3 /usr/share/syn/syn_dvr.py "$@"
 EOS
-chmod 755 "$DEST/usr/bin/syn" "$DEST/usr/bin/syn-dvr-worker"
+cat > "$DEST/usr/bin/syn-dvr-tray" <<'EOS'
+#!/bin/sh
+set -eu
+export LC_NUMERIC=C
+export SYN_NATIVE_PACKAGE=1
+export PYTHONPATH="/usr/share/syn${PYTHONPATH:+:$PYTHONPATH}"
+exec /usr/bin/python3 /usr/share/syn/syn_dvr_tray.py "$@"
+EOS
+chmod 755 "$DEST/usr/bin/syn" "$DEST/usr/bin/syn-dvr-worker" "$DEST/usr/bin/syn-dvr-tray"
 cat > "$DEST/usr/lib/systemd/user/syn-dvr-worker.service" <<'EOS'
 [Unit]
 Description=SYN DVR - grabaciones programadas
@@ -40,6 +48,23 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOS
-# Nunca instalar claves, perfiles ni grabaciones. El servicio queda disponible
-# pero NO se habilita automáticamente al instalar el paquete.
+cat > "$DEST/usr/lib/systemd/user/syn-dvr-tray.service" <<'EOS'
+[Unit]
+Description=SYN DVR - recording status indicator
+After=graphical-session.target
+[Service]
+Type=exec
+ExecStart=/usr/bin/syn-dvr-tray
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=default.target
+EOS
+# Vendor-wide activation for user sessions: both user services start at login.
+# A user's existing ~/.config/systemd/user unit takes precedence over these.
+# This does NOT restart any running recording during package installation.
+mkdir -p "$DEST/usr/lib/systemd/user/default.target.wants"
+ln -s ../syn-dvr-worker.service "$DEST/usr/lib/systemd/user/default.target.wants/syn-dvr-worker.service"
+ln -s ../syn-dvr-tray.service "$DEST/usr/lib/systemd/user/default.target.wants/syn-dvr-tray.service"
+# No IPTV playlists, profiles, passwords or recordings are installed.
 find "$DEST" -type f | sort
