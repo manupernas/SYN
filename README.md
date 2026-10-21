@@ -88,35 +88,30 @@ flatpak run com.mrseivane.Syn
 
 Replace the example filename with the actual asset. These bundles use the GNOME runtime; **SYN is not listed on Flathub**. For a source build, see [Building from source](#building-from-source).
 
-## DVR in the background: systemd user service
+## DVR in the background: automatic user services
 
-SYN's GUI and its recording worker are separate. Playback uses **libmpv**, while the DVR worker records with **FFmpeg**; you can change channels or close the window without stopping an ongoing or scheduled recording **provided the background service is installed and running**.
+Starting in **SYN 1.3.1**, the two systemd user units (recording worker and
+recording indicator) are installed/activated **automatically on first GUI
+launch**. There is no need to run `systemctl --user enable --now` manually.
 
-After installing an **RPM, DEB or Pacman** package, enable the included user service:
+- **RPM, DEB and Pacman:** native packages ship both units, and the application
+  ensures both are enabled/started in the current user session.
+- **Flatpak:** the package format does not support installation hooks. The first
+  SYN launch configures host-level user units using `flatpak-spawn --host`,
+  then enables and starts them. No extra command is required.
+- **Safety:** SYN never restarts an active recording worker, and it does not
+  overwrite a custom or competing native/Flatpak recorder. With systemd
+  unavailable it reports the problem instead of stopping IPTV playback.
 
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now syn-dvr-worker.service
-systemctl --user is-active syn-dvr-worker.service
-```
-
-The last command should print `active`. For logs and troubleshooting:
-
-```bash
-systemctl --user status syn-dvr-worker.service
-journalctl --user -u syn-dvr-worker.service -n 50 --no-pager
-```
-
-For a **Flatpak installation**, use the helper included in this repository instead of the native service launcher:
+You can check status at any time with:
 
 ```bash
-bash instalar-servicio-dvr.sh
-systemctl --user is-active syn-dvr-worker.service
+systemctl --user status syn-dvr-worker.service syn-dvr-tray.service
 ```
 
-Run the helper from a checkout of this repository, after installing SYN as a **user Flatpak**.
-
-**Important:** the native and Flatpak installations use the same service name, `syn-dvr-worker.service`. Do not install or activate competing DVR workers. If you are switching package formats, inspect `systemctl --user cat syn-dvr-worker.service` and finish any ongoing recordings before changing the service. Background recording still requires the user service to be running and the computer to remain powered on and awake; it is not guaranteed across logout, suspend or shutdown.
+Recording across logout, suspend or power-off is not guaranteed: the host must
+remain running and the service must have a usable user session. This is a
+service-management feature, not a change in IPTV provider limits.
 
 ## Building from source
 
@@ -134,10 +129,10 @@ This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SD
 
 ## Development & release notes
 
-The current source release is **SYN 1.3**: shared-stream DVR, EPG improvements, recording indicator and consistent themes. Eight packages are required to publish the release.
+The current source release is **SYN 1.3.1**: shared-stream DVR, EPG improvements, recording indicator and consistent themes. Eight packages are required to publish the release.
 
 - [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
-- [SYN 1.3 release notes](docs/RELEASE_1.3.md)
+- [SYN 1.3.1 release notes](docs/RELEASE_1.3.1.md)
 - [GitHub Actions](https://github.com/manupernas/SYN/actions) — all eight RPM/DEB/Arch/Flatpak builds are required
 
 Run automated tests with:

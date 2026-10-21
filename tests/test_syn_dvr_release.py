@@ -39,7 +39,7 @@ class ReleaseSmokeTests(unittest.TestCase):
         s = (ROOT/'syn.py').read_text(encoding='utf-8')
         m = re.search(r'^SYN_VERSION\s*=\s*[\'\"]([^\'\"]+)',s,re.M)
         self.assertIsNotNone(m)
-        self.assertIn(m.group(1),('1.3','1.3.0'))
+        self.assertEqual(m.group(1),'1.3.1')
         manifest = (ROOT/'com.mrseivane.Syn.yml').read_text(encoding='utf-8')
         for required in ('id: com.mrseivane.Syn','syn-dvr-worker',
                          'syn_dvr_tray.py','syn-dvr-tray',
@@ -55,3 +55,12 @@ class ReleaseSmokeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ServiceSetupReleaseTests(unittest.TestCase):
+    def test_auto_service_installed_all_formats(self):
+        assert "syn_service_setup.py" in (ROOT/"packaging/stage-native.sh").read_text()
+        assert "syn_service_setup.py" in (ROOT/"com.mrseivane.Syn.yml").read_text()
+        src = (ROOT/"syn.py").read_text()
+        assert "syn_service_setup.ensure_services_async()" in src
+        assert src.index("if not syn_dvr.background_worker_confirmed():") < src.index("paused = bool(player")
