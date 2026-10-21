@@ -28,13 +28,14 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import syn_sources as sources
 import syn_dvr
+import syn_service_setup
 from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, locale_description
 from pathlib import Path
 from urllib.parse import urlsplit
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3"
+SYN_VERSION = "1.3.1"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -1747,6 +1748,7 @@ def run_gui(playlist):
         relative = f'icons/hicolor/{pixel}x{pixel}/apps/{APP_ID}.png'
         paths = [
             Path('/app/share') / relative,
+            Path('/usr/share/icons/hicolor') / f'{pixel}x{pixel}/apps/{APP_ID}.png',
             Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / relative,
             Path(__file__).resolve().parent / f'icons/{pixel}x{pixel}/apps/{APP_ID}.png',
         ]
@@ -1893,6 +1895,8 @@ def run_gui(playlist):
             self._dvr_playing_file = False
             self._dvr_return_channel = None
             self.dvr_store = syn_dvr.DVRStore()
+            # Enable worker + tray on first GUI launch (never block GTK).
+            syn_service_setup.ensure_services_async()
             self.fullscreen_mode = False
             self._fullscreen_target = None
             self._fullscreen_timeout_id = 0
@@ -2456,6 +2460,11 @@ def run_gui(playlist):
             return self.channels[index]
 
         def dvr_enqueue(self, channel, start=None, end=None, programme=None):
+            # Do not stop playback before the independent recorder is ready.
+            if not syn_dvr.background_worker_confirmed():
+                syn_service_setup.ensure_services_async()
+                raise OSError('El grabador DVR está iniciándose o no está disponible. '
+                              'Prueba REC de nuevo en unos segundos.')
             # A user recording the currently playing channel must not open TWO
             # IPTV connections, even briefly. Pause live first, then wait for DVR.
             player = self.area.player

@@ -61,19 +61,19 @@ def self_test():
         base = Path(tmp)
         assets = base / 'assets'
         assets.mkdir()
-        names = required_assets('1.3.0')
+        names = required_assets('1.3.1')
         for name in names:
             (assets / name).write_bytes(b'package-content' * 80)
         notes = base / 'notes.md'
         notes.write_text('# SYN 1.3\n', encoding='utf-8')
         output = base / 'release.md'
-        result = prepare(assets, notes, output, 'v1.3.0')
+        result = prepare(assets, notes, output, 'v1.3.1')
         assert len(result) == 8
         assert len((assets / 'SHA256SUMS.txt').read_text().splitlines()) == 8
         assert 'SYN 1.3' in output.read_text()
         (assets / names[-1]).unlink()
         try:
-            prepare(assets, notes, output, 'v1.3.0')
+            prepare(assets, notes, output, 'v1.3.1')
         except ValueError:
             pass
         else:
