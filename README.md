@@ -155,3 +155,18 @@ Your playlists, Xtream credentials, EPG data and DVR recordings are user-owned l
 Parts of the code, documentation, packaging and application icon were created with generative AI assistance; the project is maintained and tested by its developer.
 
 Licensed under the **MIT License** — see [LICENSE](LICENSE).
+
+## SYN 1.3 — DVR, EPG y temas
+
+- Grabación independiente con FFmpeg y **una sola conexión IPTV** para grabar y visualizar el mismo canal mediante una salida UDP local.
+- Reconexiones controladas, segmentos MKV conservados y reproducción con libmpv.
+- Indicador real de grabación con menú D-Bus para GNOME, sin «Loading…» permanente.
+- Dos servicios de usuario: `syn-dvr-worker.service` y `syn-dvr-tray.service`.
+- EPG con filas alineadas y desplazamiento vertical suave.
+- Pantalla DVR adaptada a **Sistema, Claro, Oscuro y Teal SYN**.
+
+Para crear el Flatpak en el equipo: `bash construir-flatpak.sh`.
+Tras instalar, el script habilita ambos servicios de usuario en sesiones systemd compatibles.
+Para configurar los servicios sin recompilar la aplicación: `bash instalar-servicios-syn.sh`.
+
+**Notas:** no se incluyen listas IPTV, credenciales ni canales. La salida UDP local se utiliza exclusivamente para compartir una grabación existente con el reproductor.

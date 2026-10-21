@@ -7,6 +7,9 @@ sdk: org.gnome.Sdk
 command: syn-flatpak
 finish-args:
   - --share=network
+  - --own-name=com.mrseivane.Syn.Tray
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.StatusNotifierWatcher
   - --talk-name=org.freedesktop.Flatpak
   - --share=ipc
   - --socket=wayland
@@ -83,7 +86,9 @@ modules:
       - install -Dm755 syn-flatpak /app/bin/syn-flatpak
       - install -Dm755 syn.py /app/share/syn/syn.py
       - install -Dm644 syn_dvr.py /app/share/syn/syn_dvr.py
+      - install -Dm644 syn_dvr_tray.py /app/share/syn/syn_dvr_tray.py
       - install -Dm755 syn-dvr-worker /app/bin/syn-dvr-worker
+      - install -Dm755 syn-dvr-tray /app/bin/syn-dvr-tray
       - install -Dm644 syn_sources.py /app/share/syn/syn_sources.py
       - install -Dm644 syn_i18n.py /app/share/syn/syn_i18n.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo

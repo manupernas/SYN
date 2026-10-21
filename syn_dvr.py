@@ -146,6 +146,19 @@ class DVRStore:
         self.change(lambda db: db.update(folder=str(path)))
 
 
+# SYN_DVR_SHARED_124: port is stable across worker reconnections.
+def syn_relay_port(job_id):
+    # Job identifiers are created as hexadecimal UUID fragments by SYN.
+    # 30000-59999: separate UDP receiver per simultaneous recording.
+    return 30000 + (int(str(job_id), 16) % 30000)
+
+
+def syn_relay_url(job_id):
+    # Never expose input IPTV URL to the player when a recording is active.
+    return ('udp://127.0.0.1:' + str(syn_relay_port(job_id)) +
+            '?fifo_size=16384&overrun_nonfatal=1')
+
+
 def ffmpeg_command(job, path):
     """Copy streams without transcoding. VLC UA is applied before the input URL."""
     if not allowed_stream_url(job['url']):
@@ -158,7 +171,20 @@ def ffmpeg_command(job, path):
     if job.get('end') is not None:
         duration = max(1, int(float(job['end']) - time.time()))
         cmd += ['-t', str(duration)]
-    return cmd + ['-f', 'matroska', str(path)]
+    # SYN_DVR_DUAL_125: FFmpeg's tee muxer can preserve incompatible MPEG-TS
+    # codec tags (for example H.264 tag 0x1b) when writing a Matroska slave.
+    # Separate normal output groups avoid this failure while keeping ONE input
+    # and ONE provider connection. Both outputs copy packets; no recoding.
+    # The first output is the MKV, so it remains the primary recording.
+    additional = ['-map', '0:v:0?', '-map', '0:a?', '-c', 'copy']
+    if job.get('end') is not None:
+        # The initial cmd already includes the duration for the first output.
+        # Replicate it for the second output to avoid unbounded retransmission.
+        duration = max(1, int(float(job['end']) - time.time()))
+        additional.extend(['-t', str(duration)])
+    return (cmd + ['-f', 'matroska', str(path)] + additional +
+            ['-f', 'mpegts', 'udp://127.0.0.1:' +
+             str(syn_relay_port(job['id'])) + '?pkt_size=1316'])
 
 
 def notify_transient(message):
@@ -256,14 +282,37 @@ def run_worker(poll_seconds=2):
                         except OSError:
                             diagnostics = ''
                         log_handle.close()
-                        if done == 0 or (stopping and output.exists() and output.stat().st_size > 0):
-                            status, error = 'completed', ''
+                        # SYN_DVR_RETRY_V123: An unrequested EOF is NOT a completed live recording.
+                        # Never overwrite earlier MKV parts. The next attempt starts in a new file.
+                        db_now = store.read()
+                        latest = next((j for j in db_now.get('jobs', []) if j.get('id') == key), job)
+                        requested = bool(latest.get('stop_requested'))
+                        expired = bool(latest.get('end') and time.time() >= float(latest['end']))
+                        if requested or expired:
+                            store.change(lambda d, k=key: _set_job(
+                                d, k, status='completed', error='', finished=time.time(),
+                                stop_requested=requested))
+                            notify_recording_worker('Grabación terminada: ' + job['channel'])
                         else:
-                            status, error = 'failed', ('FFmpeg terminó con error: ' + diagnostics[-500:]).strip()
-                        store.change(lambda d, k=key, s=status, e=error:
-                                     _set_job(d, k, status=s, error=e, finished=time.time()))
-                        notify_recording_worker(('Grabación terminada: ' if status == 'completed' else
-                                                 'Error en la grabación: ') + job['channel'])
+                            attempt = int(latest.get('reconnect_count', 0)) + 1
+                            # Throttle persistent 403/expired-URL errors; no CPU/HTTP storm.
+                            delay = min(60, 5 * 2 ** min(attempt - 1, 4))
+                            message = 'FFmpeg terminó inesperadamente (código ' + str(done) + '). Reintento ' + str(attempt) + ' en ' + str(delay) + 's.'
+                            # Do not persist the raw FFmpeg log: it can contain IPTV credentials.
+                            def retry_update(db, k=key, a=attempt, d=delay, msg=message):
+                                for row in db.get('jobs', []):
+                                    if row.get('id') == k:
+                                        if row.get('stop_requested'):
+                                            row.update(status='completed', finished=time.time())
+                                            return
+                                        segments = row.setdefault('segments', [])
+                                        if row.get('path') and row['path'] not in segments:
+                                            segments.append(row['path'])
+                                        row.update(status='scheduled', start=time.time() + d,
+                                                   reconnect_count=a, last_disconnect=msg,
+                                                   error='', finished=None)
+                                        return
+                            store.change(retry_update)
                         del active[key]
                     continue
                 if job.get('status') != 'scheduled' or float(job.get('start', 0)) > now:
@@ -274,7 +323,10 @@ def run_worker(poll_seconds=2):
                 try:
                     folder = Path(data.get('folder') or video_directory()).expanduser()
                     folder.mkdir(parents=True, exist_ok=True)
-                    outname = filename_safe(job['channel']) + ' - ' + datetime.fromtimestamp(now).strftime('%Y-%m-%d %H-%M-%S') + ' - ' + key[:6] + '.mkv'
+                    part = int(job.get('reconnect_count', 0)) + 1
+                    outname = (filename_safe(job['channel']) + ' - ' +
+                               datetime.fromtimestamp(job.get('created', now)).strftime('%Y-%m-%d %H-%M-%S') +
+                               ' - ' + key[:6] + ' - parte-' + f'{part:03d}' + '.mkv')
                     output = folder / outname
                     logname = DATA / ('dvr-' + key + '.log')
                     log_handle = open(logname, 'ab')
@@ -282,7 +334,8 @@ def run_worker(poll_seconds=2):
                                             stdout=subprocess.DEVNULL, stderr=log_handle)
                     active[key] = (proc, output, log_handle, None)
                     store.change(lambda d, k=key, p=str(output):
-                                 _set_job(d, k, status='running', path=p, error='', stop_requested=False))
+                                 _set_job(d, k, status='running', path=p, error='', stop_requested=False,
+                                          relay_url=syn_relay_url(k)))
                     notify_recording_worker('● Grabación en curso: ' + job['channel'] +
                                             ' · continuará al cerrar la ventana de SYN.')
                 except (OSError, ValueError) as exc:
