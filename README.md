@@ -178,4 +178,8 @@ Fedora host dependency: `sudo dnf install python3-chromecast`; other distributio
 
 ### SYN Cast 6.5 — 1.3.3 final
 
-The app includes Chromecast relay sharing, stable channel rejoining, a light-theme-safe orange Cast icon and a saved quality slider with 720p or 1080p. 720p is recommended for virtualized systems; see [Cast 6.5 notes](docs/CAST_6_5_FINAL.md). A separate host-side Cast service is required.
+The app includes Chromecast relay sharing, stable channel rejoining, a light-theme-safe orange Cast icon and a saved quality slider with 720p or 1080p. 720p is recommended for virtualized systems; see [Cast 6.5 notes](docs/CAST_6_5_FINAL.md). Cast is ready automatically after installation.
+
+### Chromecast plug-and-play
+
+Cast is bundled and auto-started by SYN. Native RPM/DEB/Pacman packages resolve runtime libraries during installation; Flatpak contains the encoder and Python Cast dependencies. No manual `syn-cast-setup` or Python/pip installation is needed. Device discovery still requires a reachable local network.

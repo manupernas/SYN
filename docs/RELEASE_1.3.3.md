@@ -11,15 +11,18 @@
 - Connection-aware casting with exclusive colourbars or parallel local viewing, respecting DVR reservations.
 - Live timeshift, screenshots and reconnection improvements included from the approved local build.
 
-## Important: Chromecast setup on fresh installations
+## Chromecast works automatically on installation
 
-**Casting requires a separate host service.** Install host Python PyChromecast and FFmpeg with `libx264` / `aac`, then run `bash instalar-servicio-cast.sh` as your normal user. Native packages also install the helper as `syn-cast-setup`. It refuses to replace an existing Cast service. It does not touch recordings. The Chromecast must reach the host on TCP 18977; a VM may require bridged networking or firewall configuration.
+**No terminal commands and no manual Cast-service setup.** Native RPM, DEB and
+Pacman packages declare PyChromecast and FFmpeg as package-manager dependencies
+and include an automatically activated systemd user service. Flatpak bundles
+PyChromecast, x264 and FFmpeg internally and starts its own bridge using the
+user's session on first app launch; it does not require host Python or ffmpeg.
 
-- Fedora: `sudo dnf install python3-chromecast` and then `syn-cast-setup` for the native package, or run the helper from this repository for Flatpak.
-- On other distributions install an equivalent PyChromecast host package.
-- The app includes **no** channels, subscription, streaming URLs, user profiles, credentials or DVR recordings.
-
-Chromecast was user-tested successfully on Fedora ARM64 using the Beta 6.2 transcoding mode. Other distros and receivers still need testing. The package build matrix runs offline verification; it does not constitute hardware compatibility testing.
+Chromecast and the machine running SYN still require LAN discovery (mDNS) and
+a network path for the receiver to reach TCP 18977; restrictive networks and
+virtual-machine NAT can prevent discovery. This is a network prerequisite, not
+an application installation step. No IPTV playlists or passwords are included.
 
 ## Cast 6.5 validated improvements
 

@@ -30,10 +30,20 @@ finish-args:
   - --filesystem=xdg-cache/syn:create
   - --env=LC_NUMERIC=C
 modules:
+  - name: syn-x264
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=/app --enable-shared --disable-cli --disable-opencl
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/x264.git
+        commit: a8b68ebfaa68621b5ac8907610d3335971839d52
   - name: syn-ffmpeg
     buildsystem: simple
     build-commands:
-      - ./configure --prefix=/app --enable-shared --disable-static --enable-ffmpeg --disable-ffplay --disable-ffprobe --disable-doc --enable-gnutls --enable-pic
+      - ./configure --prefix=/app --enable-shared --disable-static --enable-ffmpeg --disable-ffplay --disable-ffprobe --disable-doc --enable-gnutls --enable-pic --enable-gpl --enable-libx264
       - make -j${FLATPAK_BUILDER_N_JOBS}
       - make install
     sources:
@@ -101,6 +111,11 @@ modules:
       - install -Dm644 syn_reconnect.py /app/share/syn/syn_reconnect.py
       - install -Dm644 syn_timeshift.py /app/share/syn/syn_timeshift.py
       - install -Dm644 syn_cast_host.py /app/share/syn/syn_cast_host.py
+      - install -Dm644 syn_cast_autostart.py /app/share/syn/syn_cast_autostart.py
+      - install -Dm755 syn-cast-bridge /app/bin/syn-cast-bridge
+      # Wheels for the native SDK Python are fetched BEFORE flatpak-builder.
+      # Neither the build sandbox nor a user's host needs network/pip installs.
+      - python3 -m pip install --no-index --disable-pip-version-check --find-links=packaging/flatpak-cast-wheels --target=/app/share/syn/vendor pychromecast==14.0.10
       - install -Dm644 syn_idle_screen.png /app/share/syn/syn_idle_screen.png
       - install -Dm755 instalar-servicio-cast.sh /app/share/syn/instalar-servicio-cast.sh
       - install -Dm644 syn_settings_rev3.py /app/share/syn/syn_settings_rev3.py

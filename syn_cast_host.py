@@ -534,6 +534,8 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__=='__main__':
     import pychromecast  # fail fast when dependency is missing
+    from syn_cast_autostart import ensure_token
+    ensure_token()
     TOKEN=TOKEN_FILE.read_text('utf-8').strip()
     if len(TOKEN)<32: raise SystemExit('Falta token seguro de SYN Cast')
     server=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)

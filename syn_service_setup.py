@@ -123,6 +123,12 @@ def _run_flatpak():
 
 
 def _setup():
+    # SYN_CAST_PLUG_AND_PLAY: zero-click Chromecast bootstrap; no host pip/ffmpeg.
+    try:
+        import syn_cast_autostart
+        syn_cast_autostart.start_once()
+    except Exception as exc:
+        print('SYN Cast auto-start unavailable: ' + type(exc).__name__, file=sys.stderr)
     if Path('/.flatpak-info').exists():
         _run_flatpak()
     elif Path('/usr/share/syn/syn_service_setup.py').is_file():

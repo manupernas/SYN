@@ -1,0 +1,6 @@
+#!/bin/sh
+# Flatpak Cast bridge launcher: all runtime components bundled under /app.
+set -eu
+export PYTHONPATH="/app/share/syn/vendor:/app/share/syn${PYTHONPATH:+:$PYTHONPATH}"
+export PATH="/app/bin:${PATH}"
+exec /usr/bin/python3 /app/share/syn/syn_cast_host.py "$@"

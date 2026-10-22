@@ -17,17 +17,17 @@ case "$FORMAT" in
   rpm)
     case "$ARCH" in x86_64) pkgarch=x86_64;; aarch64) pkgarch=aarch64;; esac
     outfile="dist/syn-iptv-${VERSION}-1.${pkgarch}.rpm"
-    deps=(python3 python3-gobject gtk4 libadwaita mpv-libs ffmpeg)
+    deps=(python3 python3-gobject gtk4 libadwaita mpv-libs ffmpeg python3-chromecast)
     ;;
   deb)
     case "$ARCH" in x86_64) pkgarch=amd64;; aarch64) pkgarch=arm64;; esac
     outfile="dist/syn-iptv_${VERSION}-1_${pkgarch}.deb"
-    deps=(python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libmpv2 ffmpeg)
+    deps=(python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libmpv2 ffmpeg python3-pychromecast)
     ;;
   pacman)
     pkgarch="$ARCH"
     outfile="dist/syn-iptv-${VERSION}-1-${pkgarch}.pkg.tar.zst"
-    deps=(python python-gobject gtk4 libadwaita mpv ffmpeg)
+    deps=(python python-gobject gtk4 libadwaita mpv ffmpeg python-pychromecast)
     ;;
 esac
 args=(-s dir -t "$FORMAT" -n syn-iptv -v "$VERSION" --iteration 1 -a "$pkgarch"
