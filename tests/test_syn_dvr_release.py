@@ -27,13 +27,9 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertTrue(cmd.count('copy') >= 2)
         self.assertEqual(cmd.count('-c'),2)
 
-    def test_tray_status_menu(self):
-        import syn_dvr_tray
-        rows = syn_dvr_tray.menu_rows(['Test Channel'], True)
-        self.assertTrue(any(row[0] == 40 and row[2] for row in rows))
-        self.assertTrue(any(row[0] == 41 and row[2] for row in rows))
-        self.assertTrue(any('Test Channel' in row[1] for row in rows))
-        self.assertEqual(syn_dvr_tray.read_state('/does/not/exist/dvr.json'), (False, [], None))
+    def test_no_obsolete_tray_process(self):
+        self.assertFalse((ROOT / 'syn_dvr_tray.py').exists())
+        self.assertFalse((ROOT / 'syn-dvr-tray').exists())
 
     def test_app_version_and_flatpak_manifest(self):
         s = (ROOT/'syn.py').read_text(encoding='utf-8')
@@ -42,15 +38,15 @@ class ReleaseSmokeTests(unittest.TestCase):
         self.assertRegex(m.group(1),r'^\d+\.\d+(?:\.\d+)?$')
         manifest = (ROOT/'com.mrseivane.Syn.yml').read_text(encoding='utf-8')
         for required in ('id: com.mrseivane.Syn','syn-dvr-worker',
-                         'syn_dvr_tray.py','syn-dvr-tray',
-                         '--own-name=com.mrseivane.Syn.Tray'):
+                         'syn_catalog.py','syn_poster.py','branding'):
             self.assertIn(required,manifest)
 
-    def test_native_package_contains_two_user_services(self):
+    def test_native_package_only_has_worker_and_cast(self):
         path = (ROOT/'packaging/stage-native.sh').read_text(encoding='utf-8')
-        for name in ('syn-dvr-worker.service','syn-dvr-tray.service',
-                     'syn_dvr_tray.py','syn-dvr-tray'):
+        for name in ('syn-dvr-worker.service','syn-cast-bridge.service',
+                     'syn_catalog.py','syn_poster.py'):
             self.assertIn(name,path)
+        self.assertNotIn('syn-dvr-tray', path)
 
 
 if __name__ == '__main__':

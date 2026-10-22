@@ -8,9 +8,4 @@ flatpak-builder --user --install --force-clean --install-deps-from=flathub \
   "$HOME/.cache/syn-flatpak-build" com.mrseivane.Syn.yml
 echo 'SYN GTK actualizado. Abre: flatpak run com.mrseivane.Syn'
 
-# SYN 1.3: instalar/habilitar servicios de usuario solo en sesión interactiva.
-if systemctl --user show-environment >/dev/null 2>&1; then
-  bash ./instalar-servicios-syn.sh
-else
-  echo 'Sin sesión systemd --user: instala servicios en una sesión gráfica con bash instalar-servicios-syn.sh'
-fi
+# DVR and Cast are configured on first GUI launch. No manual service scripts.

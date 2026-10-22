@@ -27,6 +27,8 @@ from collections import deque
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import syn_sources as sources
+import syn_catalog
+import syn_poster
 import syn_dvr
 import syn_reconnect
 import syn_multistream
@@ -45,7 +47,8 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.4"
+SYN_VERSION = "1.3.5"
+SYN_PORTAL_BUILD = "1.3.5"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -930,6 +933,24 @@ def run_gui(playlist):
         return 1
 
     TEAL_CSS = """
+    /* TEAL: petróleo profundo / mandarina, heredando la identidad SYN. */
+    window.iptv-tv .syn-portal-root {background:#091f20; color:#f1faf6;}
+    window.iptv-tv .syn-portal-top {background:#10332f; border-bottom:1px solid #285650;}
+    window.iptv-tv .syn-portal-title,window.iptv-tv .syn-portal-hero,
+    window.iptv-tv .syn-portal-tile-title {color:#f7fffb;}
+    window.iptv-tv .syn-portal-kicker {color:#f0af78;}
+    window.iptv-tv button.syn-portal-tile {background-image:linear-gradient(145deg,#183c3a,#102728); background-color:#123633; border:1px solid #315c55; color:#effbf6;}
+    window.iptv-tv button.syn-portal-tile:hover {background-color:#24534b; border-color:#ffc38b;}
+    window.iptv-tv .syn-portal-orb {background:#205b51;border-color:#75c9b4;}
+    window.iptv-tv .syn-portal-orb-icon {color:#b6f8e3;}
+    window.iptv-tv .syn-portal-orb-series {background:#533c2e;border-color:#eeb17b;}
+    window.iptv-tv .syn-portal-orb-series .syn-portal-orb-icon {color:#ffc391;}
+    window.iptv-tv .syn-portal-orb-movies {background:#333451;border-color:#b9a5e2;}
+    window.iptv-tv .syn-portal-orb-movies .syn-portal-orb-icon {color:#d7c8ff;}
+    window.iptv-tv .syn-portal-counter {color:#ffb57c;}
+    window.iptv-tv button.syn-portal-poster-card {background:#143331; border-color:#31584f; color:#f6fffb;}
+    window.iptv-tv button.syn-portal-poster-card:hover {background:#1c4742;border-color:#eab07b;}
+    window.iptv-tv .syn-portal-poster {background:#1a4442;}
     window.iptv-tv, .iptv-surface { background: #0a201d; color: #f1faf5; }
     .iptv-header { background: #10332e; border-bottom: 1px solid #24544a; }
     .iptv-heading { font-size: 19px; font-weight: 800; color: #f6fbf8; }
@@ -967,12 +988,99 @@ def run_gui(playlist):
       background: #f0a269; color: #182824; border-color: #f0a269;
     }
     window.iptv-tv scale highlight { background-color: #f0a269; }
-    """
+
+/* SYN Teal/Petróleo: saturated teal surface, orange accents, legible type. */
+window.iptv-tv .syn-portal-root { background: #112e30; color: #f4fdfa; }
+window.iptv-tv .syn-portal-top {background: #163639; border-bottom: 1px solid #386261;}
+window.iptv-tv .syn-portal-kicker {color:#83d8cd;}
+window.iptv-tv .syn-portal-title {color:#fff;}
+window.iptv-tv button.syn-portal-poster-card {background:#18383a; border-color:#3d6060; color:#f4fdfa;}
+window.iptv-tv button.syn-portal-poster-card:hover {background:#24504d; border-color:#ffb67f;}
+window.iptv-tv .syn-portal-poster-name {color:#f7fffc;}
+window.iptv-tv .syn-portal-poster-group {color:#c2dbd7;}
+
+/* SYN 1.3.5c: poster grid fixes; preserve host GTK theme in Sistema. */
+window.iptv-tv .syn-portal-void { font-size: 44px; font-weight: 900; opacity: .45; margin-bottom: 6px; }
+window.iptv-tv flowbox.syn-portal-gallery { padding: 12px 0; }
+window.iptv-tv button.syn-portal-poster-card { min-width: 170px; min-height: 290px; transition: border-color 180ms ease, background-color 180ms ease; }
+window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
+
+"""
 
     # Por defecto usamos CSS nativo de GTK/libadwaita. Solo el tema teal
     # aplica los colores de marca. Esta base es necesaria para que el OSD
     # del televisor sea legible independientemente del tema de GNOME/KDE.
     BASE_CSS = """
+    /* SYN 1.3.5b — portada y cartelera: sistema hereda GTK/libadwaita. */
+    window.iptv-tv .syn-portal-root {
+      background-color: @window_bg_color;
+      color: @window_fg_color;
+    }
+    window.iptv-tv .syn-portal-top {
+      background-color: alpha(@card_bg_color, 0.55);
+      border-bottom: 1px solid alpha(@window_fg_color, 0.12);
+      padding: 17px 25px;
+    }
+    window.iptv-tv .syn-portal-kicker {
+      font-size: 10px; letter-spacing: 2px; font-weight: 850;
+      color: @accent_color;
+    }
+    window.iptv-tv .syn-portal-title {
+      font-weight: 850; font-size: 26px; color: @window_fg_color;
+    }
+    window.iptv-tv .syn-portal-hero {
+      font-size: 32px; font-weight: 900; color: @window_fg_color;
+    }
+    window.iptv-tv .syn-portal-subtitle,
+    window.iptv-tv .syn-portal-muted {font-size: 12px; opacity: 0.66;}
+    window.iptv-tv button.syn-portal-tile {
+      background-image: linear-gradient(145deg, alpha(@accent_color,.13), alpha(@card_bg_color,.72));
+      background-color: @card_bg_color;
+      border-radius: 25px;
+      border: 1px solid alpha(@window_fg_color,.14);
+      color: @window_fg_color;
+      padding: 21px 13px;
+      box-shadow: 0 4px 16px alpha(black,.12);
+    }
+    window.iptv-tv button.syn-portal-tile:hover {
+      background-color: alpha(@accent_color,.2);
+      border-color: alpha(@accent_color,.64);
+      box-shadow: 0 9px 24px alpha(black,.17);
+    }
+    window.iptv-tv .syn-portal-orb {
+      border-radius: 100px;
+      border: 2px solid alpha(@accent_color,.35);
+      background: alpha(@accent_color,.12);
+    }
+    window.iptv-tv .syn-portal-orb-series { background: alpha(#dd955a,.15); border-color: alpha(#dd955a,.54); }
+    window.iptv-tv .syn-portal-orb-movies { background: alpha(#8f83d0,.15); border-color: alpha(#8f83d0,.50); }
+    window.iptv-tv .syn-portal-orb-icon { font-size: 49px; font-weight: 650; color: @accent_color; }
+    window.iptv-tv .syn-portal-orb-series .syn-portal-orb-icon { color: #cb8c42; }
+    window.iptv-tv .syn-portal-orb-movies .syn-portal-orb-icon { color: #9d8bd9; }
+    window.iptv-tv .syn-portal-tile-title { font-size: 23px; font-weight: 900; color: @window_fg_color; }
+    window.iptv-tv .syn-portal-counter { font-size: 17px; font-weight: 800; color: @accent_color; }
+    window.iptv-tv .syn-portal-tile-foot { font-size: 11px; opacity: .70; }
+    window.iptv-tv button.syn-portal-poster-card {
+      border: 1px solid alpha(@window_fg_color,.12);
+      background-color: alpha(@card_bg_color,.68);
+      border-radius: 17px; padding: 8px;
+      color: @window_fg_color;
+      box-shadow: 0 4px 12px alpha(black,.13);
+    }
+    window.iptv-tv button.syn-portal-poster-card:hover {
+      border-color: alpha(@accent_color,.65);
+      background-color: alpha(@accent_color,.13);
+    }
+    window.iptv-tv .syn-portal-poster {
+      border-radius: 12px; background-color: alpha(@window_fg_color,.07);
+      border: 1px solid alpha(@window_fg_color,.12);
+    }
+    window.iptv-tv .syn-portal-poster-fallback { opacity: .30; }
+    window.iptv-tv .syn-portal-poster-name { font-size: 12px; font-weight: 780; }
+    window.iptv-tv .syn-portal-poster-group { font-size: 10px; opacity: .64; }
+    window.iptv-tv .syn-portal-empty { font-size: 20px; font-weight: 730; }
+    window.iptv-tv button.syn-portal-back {border-radius: 12px;}
+    window.iptv-tv .syn-portal-search {border-radius: 12px;}
     /* Colores de interfaz heredados de GTK4/libadwaita, no de una paleta fija. */
     .syn-dvr-page { background-color: @window_bg_color; padding: 14px 18px; }
     .syn-dvr-rec { min-height: 27px; min-width: 27px; padding: 0 4px;
@@ -1160,7 +1268,39 @@ def run_gui(playlist):
     .syn-favorite-display-name { font-size: 11px; font-weight: 600; opacity: .78; }
     .syn-row-heart { padding: 2px; min-width: 28px; min-height: 28px; }
 
-    """
+
+/* SYN 1.3.5c / CARTELERA C – system theme follows GTK4/libadwaita. */
+window.iptv-tv .syn-portal-root { background-color: @window_bg_color; color: @window_fg_color; }
+window.iptv-tv .syn-portal-top {
+  background-color: alpha(@card_bg_color, .80);
+  border-bottom: 1px solid alpha(@window_fg_color, .12);
+  padding: 18px 26px;
+}
+window.iptv-tv .syn-portal-kicker { color: @accent_color; font-weight: 900; letter-spacing: 2px; }
+window.iptv-tv .syn-portal-title { font-weight: 900; font-size: 28px; }
+window.iptv-tv button.syn-portal-poster-card {
+  background-color: alpha(@card_bg_color, .87);
+  border: 1px solid alpha(@window_fg_color, .13);
+  border-radius: 16px; padding: 7px;
+  box-shadow: 0 3px 12px alpha(black,.13);
+}
+window.iptv-tv button.syn-portal-poster-card:hover {
+  border-color: @accent_color; background-color: alpha(@accent_color,.12);
+  box-shadow: 0 9px 20px alpha(black,.20);
+}
+window.iptv-tv .syn-portal-poster {border-radius: 11px; border: none;}
+window.iptv-tv .syn-portal-art-kicker { color: rgba(255,255,255,.94); font-size: 10px; letter-spacing: 1.4px; font-weight: 850; }
+window.iptv-tv .syn-portal-art-name { color: #fff; font-weight: 900; font-size: 17px; text-shadow: 0 2px 7px rgba(0,0,0,.47); }
+window.iptv-tv .syn-portal-art-line { background-color: #ffab69; border-radius: 4px; }
+window.iptv-tv button.syn-portal-more { border-radius: 32px; min-height: 42px; padding: 8px 24px; }
+
+/* SYN 1.3.5c: poster grid fixes; preserve host GTK theme in Sistema. */
+window.iptv-tv .syn-portal-void { font-size: 44px; font-weight: 900; opacity: .45; margin-bottom: 6px; }
+window.iptv-tv flowbox.syn-portal-gallery { padding: 12px 0; }
+window.iptv-tv button.syn-portal-poster-card { min-width: 170px; min-height: 290px; transition: border-color 180ms ease, background-color 180ms ease; }
+window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
+
+"""
 
     # Paletas exclusivas: no depender de un CSS oscuro ya cargado por el host.
     # El fondo del vídeo y los scrims de fullscreen permanecen cinematográficos.
@@ -1231,6 +1371,24 @@ def run_gui(playlist):
     """
 
     LIGHT_CSS = """
+    /* CLARO: fondo crema-teal y alto contraste, sin tarjetas oscuras. */
+    window.iptv-tv .syn-portal-root {background:#eff9f6;color:#184d45;}
+    window.iptv-tv .syn-portal-top {background:#daf3ec;border-color:#b7dcd1;}
+    window.iptv-tv .syn-portal-title,window.iptv-tv .syn-portal-hero,
+    window.iptv-tv .syn-portal-tile-title {color:#163f39;}
+    window.iptv-tv .syn-portal-kicker {color:#197f70;}
+    window.iptv-tv button.syn-portal-tile {background-image:linear-gradient(145deg,#ffffff,#e1f4ee);background-color:#f9fffd;border-color:#beded5;color:#184940;box-shadow:0 5px 14px alpha(#38685b,.12);}
+    window.iptv-tv button.syn-portal-tile:hover {background-color:#d9f2e8;border-color:#4ea592;}
+    window.iptv-tv .syn-portal-orb {background:#d8f3e8;border-color:#52b6a2;}
+    window.iptv-tv .syn-portal-orb-icon {color:#238778;}
+    window.iptv-tv .syn-portal-orb-series {background:#fff0e2;border-color:#d78b58;}
+    window.iptv-tv .syn-portal-orb-series .syn-portal-orb-icon {color:#be7238;}
+    window.iptv-tv .syn-portal-orb-movies {background:#eeeaff;border-color:#9b8ac9;}
+    window.iptv-tv .syn-portal-orb-movies .syn-portal-orb-icon {color:#7869b4;}
+    window.iptv-tv .syn-portal-counter {color:#237c6b;}
+    window.iptv-tv button.syn-portal-poster-card {background:#ffffff;color:#17453c;border-color:#d0e8e0;}
+    window.iptv-tv button.syn-portal-poster-card:hover {background:#def4ed;border-color:#479b87;}
+    window.iptv-tv .syn-portal-poster {background:#dcefe8;}
     window.iptv-tv, window.syn-settings-window, .iptv-surface { background: #eff9f7; color: #194942; }
     .iptv-header { background: #d9f3ed; border-bottom: 1px solid #afdad0; }
     .iptv-heading { color: #124f47; font-weight: 800; }
@@ -1449,8 +1607,43 @@ def run_gui(playlist):
     popover.background entry text,
     popover.background searchentry text { color: #154a40; }
 
-    """
+
+/* SYN Light: porcelain/soft teal with proper dark contrast. */
+window.iptv-tv .syn-portal-root {background:#eaf7f3; color:#173e37;}
+window.iptv-tv .syn-portal-top {background:#d8eee7; border-bottom:1px solid #a6d2c5;}
+window.iptv-tv .syn-portal-kicker {color:#247d70;}
+window.iptv-tv .syn-portal-title {color:#17443c;}
+window.iptv-tv button.syn-portal-poster-card {background:#ffffff; border-color:#bddfd3; color:#19473d;}
+window.iptv-tv button.syn-portal-poster-card:hover {background:#f3fffb; border-color:#299b84;}
+window.iptv-tv .syn-portal-poster-name {color:#153d35;}
+window.iptv-tv .syn-portal-poster-group {color:#527f73;}
+
+/* SYN 1.3.5c: poster grid fixes; preserve host GTK theme in Sistema. */
+window.iptv-tv .syn-portal-void { font-size: 44px; font-weight: 900; opacity: .45; margin-bottom: 6px; }
+window.iptv-tv flowbox.syn-portal-gallery { padding: 12px 0; }
+window.iptv-tv button.syn-portal-poster-card { min-width: 170px; min-height: 290px; transition: border-color 180ms ease, background-color 180ms ease; }
+window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
+
+"""
     DARK_CSS = """
+    /* OSCURO: gris antracita neutro, sin forzar la paleta petróleo. */
+    window.iptv-tv .syn-portal-root {background:#17191d;color:#f5f5f6;}
+    window.iptv-tv .syn-portal-top {background:#22252a;border-color:#373b41;}
+    window.iptv-tv .syn-portal-title,window.iptv-tv .syn-portal-hero,
+    window.iptv-tv .syn-portal-tile-title {color:#f5f5f6;}
+    window.iptv-tv .syn-portal-kicker {color:#f2ab73;}
+    window.iptv-tv button.syn-portal-tile {background-image:linear-gradient(145deg,#2d3035,#1d2024);background-color:#25272c;border-color:#42454b;color:#f4f4f6;}
+    window.iptv-tv button.syn-portal-tile:hover {background-color:#32363c;border-color:#f2b177;}
+    window.iptv-tv .syn-portal-orb {background:#273e40;border-color:#5aaba5;}
+    window.iptv-tv .syn-portal-orb-icon {color:#8bd8cd;}
+    window.iptv-tv .syn-portal-orb-series {background:#4a352d;border-color:#df9a6f;}
+    window.iptv-tv .syn-portal-orb-series .syn-portal-orb-icon {color:#efb285;}
+    window.iptv-tv .syn-portal-orb-movies {background:#333044;border-color:#9383c3;}
+    window.iptv-tv .syn-portal-orb-movies .syn-portal-orb-icon {color:#c5b7ef;}
+    window.iptv-tv .syn-portal-counter {color:#e6a66f;}
+    window.iptv-tv button.syn-portal-poster-card {background:#26282d;color:#f6f6f7;border-color:#414349;}
+    window.iptv-tv button.syn-portal-poster-card:hover {background:#35383d;border-color:#efb078;}
+    window.iptv-tv .syn-portal-poster {background:#33363b;}
     /* SYN 1.0: paleta grafito coherente; nunca heredar contraste del tema GTK anfitrión.
        Este proveedor SOLO se carga en el modo dark, no en Sistema, Claro o Teal. */
     window.iptv-tv, window.syn-settings-window, window.iptv-tv .iptv-surface {
@@ -1641,7 +1834,24 @@ def run_gui(playlist):
     }
     .syn-welcome-cta { background: #cbd4df; color: #171b21; }
     .syn-welcome-cta:hover { background: #e1e5ee; }
-    """
+
+/* SYN Dark: graphite, no forced teal wash. */
+window.iptv-tv .syn-portal-root {background:#191b21; color:#f7f7fa;}
+window.iptv-tv .syn-portal-top {background:#22252b; border-bottom:1px solid #44464c;}
+window.iptv-tv .syn-portal-kicker {color:#e7ae80;}
+window.iptv-tv .syn-portal-title {color:#f7f7fa;}
+window.iptv-tv button.syn-portal-poster-card {background:#292c31; border-color:#4b4d54; color:#f7f7fa;}
+window.iptv-tv button.syn-portal-poster-card:hover {background:#34373f; border-color:#efb47e;}
+window.iptv-tv .syn-portal-poster-name {color:#f5f5f7;}
+window.iptv-tv .syn-portal-poster-group {color:#bdc0ca;}
+
+/* SYN 1.3.5c: poster grid fixes; preserve host GTK theme in Sistema. */
+window.iptv-tv .syn-portal-void { font-size: 44px; font-weight: 900; opacity: .45; margin-bottom: 6px; }
+window.iptv-tv flowbox.syn-portal-gallery { padding: 12px 0; }
+window.iptv-tv button.syn-portal-poster-card { min-width: 170px; min-height: 290px; transition: border-color 180ms ease, background-color 180ms ease; }
+window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
+
+"""
 
     # SYN_DVR_FOUR_THEMES_127: paletas aisladas para la pantalla DVR.
     # Sistema no inventa colores: utiliza @window_* y @card_* de GTK/libadwaita.
@@ -2025,7 +2235,13 @@ def run_gui(playlist):
             self.header = Adw.HeaderBar()
             self.header.add_css_class("iptv-header")
             brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
-            brand.append(brand_icon(35))
+            # SYN_135D_APP_ICON: icono_3 in the actual header.
+            # SYN_135D_R3: bounded 40x28 PNG, Gtk.Picture preserves real rendered size.
+            syn_brand_icon = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'icono_3.png'))
+            syn_brand_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
+            syn_brand_icon.set_can_shrink(True)
+            syn_brand_icon.set_size_request(40, 28)
+            brand.append(syn_brand_icon)
             title = Gtk.Label(xalign=0)
             title.set_markup('<b>SYN</b>')
             title.add_css_class("iptv-heading")
@@ -2041,6 +2257,11 @@ def run_gui(playlist):
             self.profile_picker.set_selected(self.cfg['profiles'].index(self.profile))
             self.profile_picker.connect('notify::selected', self.change_profile)
             self.header.pack_start(self.profile_picker)
+            self.syn_profile_button = Gtk.Button(label='◎  PERFIL')
+            self.syn_profile_button.add_css_class('syn-portal-launcher')
+            self.syn_profile_button.set_tooltip_text('Tu perfil · TV, SERIES y CINE')
+            self.syn_profile_button.connect('clicked', lambda *_: self._syn_portal_show('home'))
+            self.header.pack_start(self.syn_profile_button)
             welcome_btn = Gtk.Button.new_from_icon_name('list-add-symbolic')
             welcome_btn.set_tooltip_text(tr('Añadir una fuente IPTV (M3U o Xtream)'))
             welcome_btn.connect('clicked', self.show_welcome)
@@ -2095,6 +2316,7 @@ def run_gui(playlist):
             self.main_stack.set_vexpand(True)
             self.main_stack.set_child(self.paned)
             base.append(self.main_stack)
+            self._syn_portal_build()
 
             self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
             self.sidebar.add_css_class("iptv-sidebar")
@@ -2102,6 +2324,22 @@ def run_gui(playlist):
             self.sidebar.set_margin_start(0)
             self.sidebar.set_margin_bottom(0)
             self.paned.set_start_child(self.sidebar)
+
+            # SYN_135D_WORDMARK: branding above the channel search.
+            # SYN_135D_R3: bounded 180x65 PNG shown at real size, not 16px icon size.
+            self.syn_wordmark = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'logo_dark.png'))
+            self.syn_wordmark.set_content_fit(Gtk.ContentFit.CONTAIN)
+            self.syn_wordmark.set_can_shrink(True)
+            self.syn_wordmark.set_size_request(180, 65)
+            self.syn_wordmark.set_halign(Gtk.Align.START)
+            self.syn_wordmark.set_valign(Gtk.Align.CENTER)
+            self.syn_wordmark.set_margin_start(16)
+            self.syn_wordmark.set_margin_top(12)
+            self.syn_wordmark.set_margin_bottom(2)
+            self.sidebar.append(self.syn_wordmark)
+            Adw.StyleManager.get_default().connect(
+                'notify::dark', lambda *_: self._syn_135d_refresh_wordmark())
+            self._syn_135d_refresh_wordmark()
 
             self.search = Gtk.SearchEntry(placeholder_text=tr("Buscar canales…"))
             self.search.set_margin_start(12)
@@ -2307,6 +2545,570 @@ def run_gui(playlist):
                 GLib.idle_add(self.show_welcome)
             else:
                 self.load_channels()
+
+        # SYN_135D_BRANDING: select the right logo for the actual GTK4 color scheme.
+        def _syn_135d_refresh_wordmark(self):
+            # The GTK theme manager drives system/light/dark/teal and changes live.
+            dark = Adw.StyleManager.get_default().get_dark()
+            name = 'logo_light.png' if dark else 'logo_dark.png'
+            self.syn_wordmark.set_filename(str(Path(__file__).resolve().parent / 'branding' / name))
+
+        # SYN_135B_PORTAL: independent navigation surface; video GLArea stays realized.
+        def _syn_portal_build(self):
+            self._syn_movies = []
+            self._syn_series = []
+            self._syn_catalog_busy = False
+            self._syn_catalog_errors = []
+            # Movie covers cannot starve live-TV channel-logo downloads.
+            self._syn_poster_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix='syn-poster')
+            self._syn_portal_mode = 'home'
+            self._syn_portal_pending_search = 0
+            self._syn_portal_items = []
+            self._syn_portal_back_to = 'home'
+            self._syn_portal_loading_episodes = False
+            self._syn_portal = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            self._syn_portal.add_css_class('syn-portal-root')
+            self._syn_portal.set_hexpand(True)
+            self._syn_portal.set_vexpand(True)
+            self._syn_portal.set_halign(Gtk.Align.FILL)
+            self._syn_portal.set_valign(Gtk.Align.FILL)
+            self.main_stack.add_overlay(self._syn_portal)
+            self.main_stack.set_clip_overlay(self._syn_portal, True)
+
+            top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+            top.add_css_class('syn-portal-top')
+            self._syn_portal_back = Gtk.Button(label='←  TV')
+            self._syn_portal_back.add_css_class('syn-portal-back')
+            self._syn_portal_back.connect('clicked', self._syn_portal_go_back)
+            top.append(self._syn_portal_back)
+            heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            heading.set_hexpand(True)
+            kicker = Gtk.Label(label='SYN  /  TU BIBLIOTECA', xalign=0)
+            kicker.add_css_class('syn-portal-kicker')
+            heading.append(kicker)
+            self._syn_portal_title = Gtk.Label(label='Tu entretenimiento', xalign=0)
+            self._syn_portal_title.add_css_class('syn-portal-title')
+            self._syn_portal_title.set_ellipsize(Pango.EllipsizeMode.END)
+            heading.append(self._syn_portal_title)
+            top.append(heading)
+            self._syn_portal_search = Gtk.SearchEntry(placeholder_text='Buscar títulos…')
+            self._syn_portal_search.set_size_request(220, -1)
+            self._syn_portal_search.add_css_class('syn-portal-search')
+            self._syn_portal_search.connect('search-changed', self._syn_portal_search_changed)
+            self._syn_portal_search.set_visible(False)
+            top.append(self._syn_portal_search)
+            self._syn_portal.append(top)
+
+            self._syn_portal_stack = Gtk.Stack()
+            self._syn_portal_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+            self._syn_portal_stack.set_transition_duration(230)
+            self._syn_portal_stack.set_hexpand(True)
+            self._syn_portal_stack.set_vexpand(True)
+            self._syn_portal.append(self._syn_portal_stack)
+
+            home_scroll = Gtk.ScrolledWindow()
+            home_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            home = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=25)
+            home.set_valign(Gtk.Align.CENTER)
+            home.set_halign(Gtk.Align.CENTER)
+            home.set_hexpand(True)
+            home.set_margin_start(22)
+            home.set_margin_end(22)
+            home.set_margin_top(35)
+            home.set_margin_bottom(36)
+            label = Gtk.Label(label='¿Qué te apetece ver?')
+            label.add_css_class('syn-portal-hero')
+            home.append(label)
+            subtitle = Gtk.Label(label='Todo tu contenido, en un solo lugar')
+            subtitle.add_css_class('syn-portal-subtitle')
+            home.append(subtitle)
+            tiles = Gtk.FlowBox()
+            tiles.set_halign(Gtk.Align.CENTER)
+            tiles.set_selection_mode(Gtk.SelectionMode.NONE)
+            tiles.set_homogeneous(True)
+            tiles.set_max_children_per_line(3)
+            tiles.set_min_children_per_line(1)
+            tiles.set_column_spacing(20)
+            tiles.set_row_spacing(20)
+            home.append(tiles)
+            self._syn_portal_counters = {}
+            for kind, title, icon, text in (
+                    ('tv', 'TV', '▣', 'Canales en directo'),
+                    ('series', 'SERIES', '▥', 'Tus historias favoritas'),
+                    ('movies', 'CINE', '◉', 'Una película para cada momento')):
+                button = Gtk.Button()
+                button.add_css_class('syn-portal-tile')
+                button.add_css_class('syn-portal-tile-' + kind)
+                button.set_size_request(210, 275)
+                content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+                content.set_halign(Gtk.Align.CENTER)
+                content.set_valign(Gtk.Align.CENTER)
+                circle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+                circle.add_css_class('syn-portal-orb')
+                circle.add_css_class('syn-portal-orb-' + kind)
+                circle.set_halign(Gtk.Align.CENTER)
+                circle.set_valign(Gtk.Align.CENTER)
+                circle.set_size_request(102, 102)
+                symbol = Gtk.DrawingArea()
+                symbol.set_content_width(68)
+                symbol.set_content_height(68)
+                symbol.set_halign(Gtk.Align.CENTER)
+                symbol.set_valign(Gtk.Align.CENTER)
+                symbol.set_vexpand(True)
+                symbol.set_draw_func(lambda area, cr, width, height, item=kind:
+                                     self._syn_portal_draw_icon(cr, width, height, item))
+                circle.append(symbol)
+                content.append(circle)
+                main_label = Gtk.Label(label=title)
+                main_label.add_css_class('syn-portal-tile-title')
+                content.append(main_label)
+                counter = Gtk.Label(label='—')
+                counter.add_css_class('syn-portal-counter')
+                content.append(counter)
+                self._syn_portal_counters[kind] = counter
+                foot = Gtk.Label(label=text)
+                foot.add_css_class('syn-portal-tile-foot')
+                content.append(foot)
+                button.set_child(content)
+                button.connect('clicked', lambda _btn, target=kind: self._syn_portal_open(target))
+                tiles.append(button)
+            note = Gtk.Label(label='Selecciona una categoría para explorar tu contenido')
+            note.add_css_class('syn-portal-subtitle')
+            home.append(note)
+            home_scroll.set_child(home)
+            self._syn_portal_stack.add_named(home_scroll, 'home')
+
+            gallery_scroll = Gtk.ScrolledWindow()
+            gallery_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            self._syn_portal_gallery = Gtk.FlowBox()
+            self._syn_portal_gallery.set_selection_mode(Gtk.SelectionMode.NONE)
+            self._syn_portal_gallery.set_homogeneous(True)
+            self._syn_portal_gallery.set_halign(Gtk.Align.CENTER)
+            self._syn_portal_gallery.set_valign(Gtk.Align.START)
+            self._syn_portal_gallery.set_max_children_per_line(7)
+            self._syn_portal_gallery.set_min_children_per_line(1)
+            self._syn_portal_gallery.set_column_spacing(20)
+            self._syn_portal_gallery.set_row_spacing(20)
+            self._syn_portal_gallery.set_margin_top(24)
+            self._syn_portal_gallery.set_margin_bottom(24)
+            self._syn_portal_gallery.set_margin_start(18)
+            self._syn_portal_gallery.set_margin_end(18)
+            # The footer is OUTSIDE FlowBox: it cannot stretch a single column.
+            self._syn_portal_gallery_scroll = gallery_scroll
+            self._syn_portal_visible_limit = 48
+            gallery_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            gallery_container.set_hexpand(True)
+            gallery_container.append(self._syn_portal_gallery)
+            self._syn_portal_more = Gtk.Button(label='Ver más títulos')
+            self._syn_portal_more.add_css_class('syn-portal-more')
+            self._syn_portal_more.set_halign(Gtk.Align.CENTER)
+            self._syn_portal_more.set_margin_top(8)
+            self._syn_portal_more.set_margin_bottom(24)
+            self._syn_portal_more.connect('clicked', self._syn_portal_load_more)
+            gallery_container.append(self._syn_portal_more)
+            gallery_scroll.set_child(gallery_container)
+            self._syn_portal_stack.add_named(gallery_scroll, 'gallery')
+            self._syn_portal_update_counters()
+            self._syn_portal.set_visible(False)
+
+        def _syn_portal_draw_icon(self, cr, width, height, kind):
+            # Three original vector emblems, crisp under any GTK/Wayland scale.
+            theme = self.cfg.get('theme', 'system')
+            light = theme == 'light' or (theme == 'system' and not Adw.StyleManager.get_default().get_dark())
+            colors = {'tv': (0.12, 0.53, 0.46) if light else (0.61, 0.96, 0.85),
+                      'series': (0.68, 0.35, 0.18) if light else (1.0, 0.72, 0.46),
+                      'movies': (0.40, 0.32, 0.68) if light else (0.77, 0.71, 1.0)}
+            r, g, b = colors.get(kind, colors['tv'])
+            cr.save()
+            cr.scale(max(1, width) / 100.0, max(1, height) / 100.0)
+            cr.set_source_rgb(r, g, b)
+            cr.set_line_width(4.2)
+            cr.set_line_join(1)
+            cr.set_line_cap(1)
+            if kind == 'tv':
+                cr.rectangle(13, 26, 74, 48); cr.stroke()
+                cr.move_to(41, 75); cr.line_to(41, 84); cr.line_to(59, 84); cr.line_to(59, 75); cr.stroke()
+                cr.move_to(23, 18); cr.line_to(34, 25); cr.move_to(77, 18); cr.line_to(66, 25); cr.stroke()
+                cr.arc(75, 62, 3, 0, 6.283); cr.fill()
+            elif kind == 'series':
+                cr.rectangle(26, 18, 57, 60); cr.stroke()
+                cr.rectangle(16, 27, 57, 58); cr.stroke()
+                cr.move_to(30, 41); cr.line_to(61, 41); cr.move_to(30, 52); cr.line_to(56, 52); cr.stroke()
+                cr.move_to(34, 66); cr.line_to(44, 60); cr.line_to(44, 73); cr.close_path(); cr.fill()
+            else:
+                cr.arc(50, 50, 33, 0, 6.283); cr.stroke()
+                cr.arc(50, 50, 7, 0, 6.283); cr.stroke()
+                import math
+                for i in range(5):
+                    angle = i * (2 * math.pi / 5) - math.pi / 2
+                    cr.arc(50 + 20 * math.cos(angle), 50 + 20 * math.sin(angle), 5, 0, 6.283)
+                    cr.fill()
+                cr.move_to(75, 73); cr.line_to(89, 85); cr.stroke()
+            cr.restore()
+
+        def _syn_portal_update_counters(self):
+            if not hasattr(self, '_syn_portal_counters'):
+                return
+            self._syn_portal_counters['tv'].set_text(f'{len(self.channels):,}'.replace(',', '.') + ' canales')
+            if self._syn_catalog_busy:
+                self._syn_portal_counters['movies'].set_text('Cargando…')
+                self._syn_portal_counters['series'].set_text('Cargando…')
+            else:
+                self._syn_portal_counters['movies'].set_text(
+                    'No disponible' if 'movies' in self._syn_catalog_errors else
+                    f'{len(self._syn_movies):,}'.replace(',', '.') + ' películas')
+                self._syn_portal_counters['series'].set_text(
+                    'No disponible' if 'series' in self._syn_catalog_errors else
+                    f'{len(self._syn_series):,}'.replace(',', '.') + ' series')
+
+        def _syn_portal_show(self, mode='home'):
+            if self.fullscreen_mode or self.is_fullscreen():
+                self.unfullscreen()
+            if self.guide_open:
+                self.set_guide_open(False)
+            if getattr(self, 'dvr_view', None) is not None and self.dvr_view.get_visible():
+                self.dvr_view.set_visible(False)
+                self.dvr_nav_button.set_label('DVR')
+            self._syn_portal.set_visible(True)
+            self._syn_portal_open(mode)
+
+        def _syn_portal_hide(self):
+            if self._syn_portal.get_visible():
+                self._syn_portal.set_visible(False)
+                self._syn_portal_search.set_text('')
+
+        def _syn_portal_open(self, mode='home'):
+            if mode == 'tv':
+                self._syn_portal_hide()
+                return
+            self._syn_portal_mode = mode
+            self._syn_portal_search.set_visible(mode != 'home')
+            self._syn_portal_visible_limit = 48
+            self._syn_portal_search.set_text('')
+            self._syn_portal_title.set_text({'home': 'Tu entretenimiento',
+                                             'movies': 'Cine', 'series': 'Series',
+                                             'episodes': getattr(self, '_syn_portal_series_name', 'Episodios')}.get(mode, 'Biblioteca'))
+            self._syn_portal_back.set_label('←  TV' if mode == 'home' else '←  PERFIL' if mode != 'episodes' else '←  SERIES')
+            self._syn_portal_stack.set_visible_child_name('home' if mode == 'home' else 'gallery')
+            if mode != 'home':
+                self._syn_portal_render_gallery()
+
+        def _syn_portal_go_back(self, *_):
+            if self._syn_portal_mode == 'episodes':
+                self._syn_portal_open('series')
+            elif self._syn_portal_mode == 'home':
+                self._syn_portal_hide()
+            else:
+                self._syn_portal_open('home')
+
+        def _syn_portal_search_changed(self, *_):
+            if self._syn_portal_mode != 'home':
+                self._syn_portal_visible_limit = 48
+                self._syn_portal_render_gallery()
+
+        def _syn_portal_render_gallery(self):
+            gallery = self._syn_portal_gallery
+            while (child := gallery.get_first_child()) is not None:
+                gallery.remove(child)
+            mode = self._syn_portal_mode
+            if mode == 'movies':
+                items = self._syn_movies
+            elif mode == 'series':
+                items = self._syn_series
+            else:
+                items = getattr(self, '_syn_portal_episodes', [])
+            query = self._syn_portal_search.get_text().strip().casefold()
+            if query:
+                items = [item for item in items if query in (item['name'] + ' ' + item.get('group', '')).casefold()]
+            self._syn_portal_items = items
+            if not items:
+                self._syn_portal_more.set_visible(False)
+                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                box.set_valign(Gtk.Align.CENTER)
+                box.set_halign(Gtk.Align.CENTER)
+                box.set_margin_top(80)
+                emblem = Gtk.Label(label='SYN  /  ∅')
+                emblem.add_css_class('syn-portal-void')
+                box.append(emblem)
+                text = ('Cargando episodios…' if mode == 'episodes' and self._syn_portal_loading_episodes else
+                        'Buscando en Xtream…' if self._syn_catalog_busy else
+                        'No hay títulos en esta categoría' if not query else 'Sin coincidencias')
+                label = Gtk.Label(label=text)
+                label.add_css_class('syn-portal-empty')
+                box.append(label)
+                if mode in self._syn_catalog_errors:
+                    msg = Gtk.Label(label='No se pudo consultar el catálogo del servidor. Revisa tu fuente Xtream.')
+                    msg.add_css_class('syn-portal-muted')
+                    box.append(msg)
+                gallery.append(box)
+                return
+            # 48 covers are built initially; scroll + "Ver más" load the next batch.
+            # Every child is homogeneous, so a title cannot widen one column.
+            count = min(len(items), getattr(self, '_syn_portal_visible_limit', 48))
+            self._syn_portal_more.set_visible(count < len(items))
+            if count < len(items):
+                self._syn_portal_more.set_label(f'Ver más títulos  ·  {count} de {len(items)}')
+            import hashlib
+            for item in items[:count]:
+                button = Gtk.Button()
+                button.add_css_class('syn-portal-poster-card')
+                button.set_size_request(170, 290)
+                button.set_hexpand(False)
+                button.set_halign(Gtk.Align.CENTER)
+                button.set_valign(Gtk.Align.START)
+                layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+                layout.set_size_request(148, -1)
+                layout.set_hexpand(False)
+                layout.set_halign(Gtk.Align.CENTER)
+                picframe = Gtk.Overlay()
+                picframe.set_size_request(148, 211)
+                picframe.set_overflow(Gtk.Overflow.HIDDEN)
+                picframe.add_css_class('syn-portal-poster')
+                art = Gtk.DrawingArea()
+                art.set_size_request(148, 211)
+                art.set_content_width(148)
+                art.set_content_height(211)
+                color_id = hashlib.sha256((item['name'] + '|' + item.get('group', '')).encode('utf-8')).digest()
+                art.set_draw_func(lambda _area, cr, w, h, seed=color_id:
+                                  self._syn_portal_draw_poster_art(cr, w, h, seed))
+                picframe.set_child(art)
+
+                # Designed typographic movie poster. It remains visible when the
+                # IPTV provider has no cover, serves >1MiB, or rejects downloads.
+                fallback = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+                fallback.set_halign(Gtk.Align.FILL)
+                fallback.set_valign(Gtk.Align.FILL)
+                fallback.set_vexpand(True)
+                fallback.set_margin_start(12)
+                fallback.set_margin_end(12)
+                fallback.set_margin_top(12)
+                fallback.set_margin_bottom(16)
+                fallback.set_can_target(False)
+                caption = Gtk.Label(label='SYN  /  ' + ('SERIES' if mode == 'series' else 'EPISODIO' if mode == 'episodes' else 'CINE'))
+                caption.add_css_class('syn-portal-art-kicker')
+                caption.set_halign(Gtk.Align.START)
+                fallback.append(caption)
+                spacer = Gtk.Box()
+                spacer.set_vexpand(True)
+                fallback.append(spacer)
+                # Keep the poster copy brief: unbounded line count is safe
+                # inside the fixed frame; Gtk.Label:lines could widen a column.
+                art_title = item['name']
+                if len(art_title) > 52:
+                    art_title = art_title[:51].rstrip() + '…'
+                headline = Gtk.Label(label=art_title)
+                headline.set_wrap(True)
+                headline.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+                headline.set_justify(Gtk.Justification.CENTER)
+                headline.set_ellipsize(Pango.EllipsizeMode.END)
+                headline.set_width_chars(9)
+                headline.set_max_width_chars(13)
+                headline.set_size_request(122, -1)
+                headline.add_css_class('syn-portal-art-name')
+                fallback.append(headline)
+                separator = Gtk.Box()
+                separator.add_css_class('syn-portal-art-line')
+                separator.set_halign(Gtk.Align.CENTER)
+                separator.set_size_request(28, 3)
+                separator.set_margin_top(12)
+                fallback.append(separator)
+                picframe.add_overlay(fallback)
+
+                image = Gtk.Picture()
+                image.set_content_fit(Gtk.ContentFit.COVER)
+                image.set_size_request(148, 211)
+                image.set_hexpand(True)
+                image.set_vexpand(True)
+                image.set_halign(Gtk.Align.FILL)
+                image.set_valign(Gtk.Align.FILL)
+                image.set_visible(False)
+                picframe.add_overlay(image)
+                layout.append(picframe)
+                name = Gtk.Label(label=item['name'])
+                name.set_width_chars(1)
+                name.set_max_width_chars(17)
+                name.set_size_request(148, -1)
+                name.set_ellipsize(Pango.EllipsizeMode.END)
+                name.set_xalign(0)
+                name.set_tooltip_text(item['name'])
+                name.add_css_class('syn-portal-poster-name')
+                layout.append(name)
+                genre = item.get('group', '')
+                year = item.get('year', '')
+                desc = (year + '  ·  ' if year and year.isdecimal() else '') + genre
+                category = Gtk.Label(label=desc)
+                category.set_width_chars(1)
+                category.set_max_width_chars(17)
+                category.set_size_request(148, -1)
+                category.set_ellipsize(Pango.EllipsizeMode.END)
+                category.set_xalign(0)
+                category.add_css_class('syn-portal-poster-group')
+                layout.append(category)
+                button.set_child(layout)
+                button.connect('clicked', lambda _btn, selected=item: self._syn_portal_select(selected))
+                gallery.append(button)
+                options = item.get('poster_options') or ([item['poster']] if item.get('poster') else [])
+                if options:
+                    self._syn_portal_load_poster(options, image)
+
+        def _syn_portal_draw_poster_art(self, cr, width, height, seed):
+            """Locally drawn cinematic cover when remote art is missing.
+
+            Six tonal moods, each with item-specific position/geometry. No web
+            metadata, stock image or fake official movie cover is required.
+            """
+            palettes = [
+                ((.055, .18, .20), (.21, .51, .50), (.94, .60, .35)),
+                ((.13, .12, .23), (.45, .30, .62), (.98, .66, .48)),
+                ((.12, .20, .26), (.35, .49, .65), (.98, .76, .46)),
+                ((.17, .12, .16), (.57, .30, .38), (.97, .66, .45)),
+                ((.08, .21, .17), (.25, .46, .37), (.88, .68, .41)),
+                ((.16, .17, .26), (.32, .36, .58), (.83, .68, .90)),
+            ]
+            base, middle, flare = palettes[seed[0] % len(palettes)]
+            cr.save()
+            cr.scale(max(1, width) / 148.0, max(1, height) / 211.0)
+            cr.set_source_rgb(*base)
+            cr.paint()
+            cr.set_source_rgba(*middle, .48)
+            cr.move_to(0, 28)
+            cr.line_to(148, 0)
+            cr.line_to(148, 102)
+            cr.line_to(0, 139)
+            cr.close_path()
+            cr.fill()
+            cx, cy = 42 + seed[1] % 60, 42 + seed[2] % 42
+            cr.set_source_rgba(*flare, .31)
+            cr.arc(cx, cy, 38 + seed[3] % 30, 0, 6.283185)
+            cr.fill()
+            cr.set_source_rgba(*flare, .42)
+            cr.arc(cx, cy, 22 + seed[4] % 14, 0, 6.283185)
+            cr.fill()
+            cr.set_source_rgba(1, 1, 1, .17)
+            for i in range(12):
+                x = 8 + (seed[(i % 20) + 5] * 13 + i * 31) % 134
+                y = 11 + (seed[(i % 20) + 7] * 7 + i * 19) % 120
+                cr.arc(x, y, .6 + (i % 3) * .3, 0, 6.283185)
+                cr.fill()
+            # Abstract cut-paper landscape and a small cinematic horizon.
+            cr.set_source_rgba(.025, .075, .10, .44)
+            cr.move_to(0, 118)
+            for i, y in ((26, 110), (59, 125), (93, 98), (123, 113), (148, 105)):
+                cr.line_to(i, y + seed[9] % 18)
+            cr.line_to(148, 211)
+            cr.line_to(0, 211)
+            cr.close_path()
+            cr.fill()
+            cr.set_source_rgba(.015, .045, .08, .50)
+            cr.rectangle(0, 143, 148, 68)
+            cr.fill()
+            cr.set_source_rgba(*flare, .63)
+            cr.rectangle(14, 184, 38 + seed[6] % 45, 2)
+            cr.fill()
+            cr.restore()
+
+        def _syn_portal_load_poster(self, options, picture):
+            """Poster-specific 6 MiB loader, nonblocking and quietly cached."""
+            ua = sources.metadata_user_agent(self.player_options)
+            def worker():
+                try:
+                    file = syn_poster.get_poster(options, user_agent=ua)
+                    if file is None:
+                        return
+                    def complete():
+                        if picture.get_parent() is None:
+                            return False
+                        try:
+                            # GTK4 decodes JPEG/PNG/WebP using the loader available in Flatpak.
+                            picture.set_filename(str(file))
+                            picture.set_visible(True)
+                        except (GLib.Error, OSError, ValueError):
+                            pass
+                        return False
+                    GLib.idle_add(complete)
+                except (OSError, ValueError, RuntimeError):
+                    pass
+            self._syn_poster_pool.submit(worker)
+
+        def _syn_portal_load_more(self, *_):
+            self._syn_portal_visible_limit += 48
+            scroll = self._syn_portal_gallery_scroll
+            old_y = scroll.get_vadjustment().get_value()
+            self._syn_portal_render_gallery()
+            GLib.idle_add(lambda: (scroll.get_vadjustment().set_value(old_y), False)[1])
+
+        def _syn_portal_select(self, item):
+            if item.get('kind') == 'series':
+                self._syn_portal_series_name = item['name']
+                if 'children' in item:
+                    self._syn_portal_episodes = item['children']
+                    self._syn_portal_open('episodes')
+                    return
+                profile = dict(self.profile)
+                token = self._source_generation
+                target = item.get('id')
+                self._syn_portal_episodes = []
+                self._syn_portal_loading_episodes = True
+                self._syn_portal_open('episodes')
+                def worker():
+                    try:
+                        episodes = syn_catalog.episodes_for_xtream(
+                            profile, target, sources.metadata_user_agent(self.player_options))
+                        GLib.idle_add(self._syn_portal_episodes_loaded, token, episodes, False)
+                    except (OSError, ValueError, KeyError, TypeError):
+                        GLib.idle_add(self._syn_portal_episodes_loaded, token, [], True)
+                threading.Thread(target=worker, daemon=True, name='syn-episodes').start()
+                return
+            url = item.get('url')
+            if not url:
+                return
+            ch = Channel(item['name'], item.get('group', 'Cine'), url, item.get('poster', ''))
+            self._syn_portal_hide()
+            self.start_channel(ch)
+
+        def _syn_portal_episodes_loaded(self, token, episodes, failed):
+            if token != self._source_generation:
+                return False
+            self._syn_portal_episodes = episodes
+            self._syn_portal_loading_episodes = False
+            if failed:
+                self._syn_catalog_errors = list(set(self._syn_catalog_errors + ['episodes']))
+            if self._syn_portal_mode == 'episodes' and self._syn_portal.get_visible():
+                self._syn_portal_render_gallery()
+            return False
+
+        def _syn_portal_catalog_refresh(self):
+            self._syn_movies = list(getattr(self, '_syn_local_movies', []))
+            self._syn_series = list(getattr(self, '_syn_local_series', []))
+            self._syn_catalog_errors = []
+            self._syn_catalog_busy = self.profile.get('type') == 'xtream'
+            self._syn_portal_update_counters()
+            if not self._syn_catalog_busy:
+                if self._syn_portal.get_visible() and self._syn_portal_mode != 'home':
+                    self._syn_portal_render_gallery()
+                return
+            token = self._source_generation
+            profile = dict(self.profile)
+            ua = sources.metadata_user_agent(self.player_options)
+            def worker():
+                try:
+                    movies, series, errs = syn_catalog.load_xtream_catalog(profile, ua)
+                except (OSError, ValueError, KeyError, TypeError):
+                    movies, series, errs = [], [], ['movies', 'series']
+                GLib.idle_add(self._syn_portal_catalog_loaded, token, movies, series, errs)
+            threading.Thread(target=worker, daemon=True, name='syn-vod-catalog').start()
+
+        def _syn_portal_catalog_loaded(self, token, movies, series, errs):
+            if token != self._source_generation:
+                return False
+            self._syn_movies = movies
+            self._syn_series = series
+            self._syn_catalog_errors = errs
+            self._syn_catalog_busy = False
+            self._syn_portal_update_counters()
+            if self._syn_portal.get_visible() and self._syn_portal_mode in ('movies', 'series'):
+                self._syn_portal_render_gallery()
+            return False
 
         def build_dvr_page(self):
             """Embedded DVR screen: no modal/pop-up, and no mpv reparenting."""
@@ -2552,6 +3354,7 @@ def run_gui(playlist):
                 syn_dvr.notify_transient(f'{scheduled} grabación(es) programadas · servicio DVR activo.')
 
         def toggle_dvr_view(self, *_):
+            self._syn_portal_hide()
             show_dvr = not self.dvr_view.get_visible()
             self.dvr_view.set_visible(show_dvr)
             self.dvr_nav_button.set_label('← TV' if show_dvr else 'DVR')
@@ -4652,10 +5455,15 @@ def run_gui(playlist):
 
         def load_channels(self):
             self._source_generation += 1
+            self._syn_movies = []
+            self._syn_series = []
+            self._syn_catalog_busy = self.profile.get('type') == 'xtream'
+            self._syn_portal_update_counters()
             token = self._source_generation
             self.status.set_text(tr('Loading profile') + ' «' + self.profile['name'] + '»…')
             self.channels = []
             self._refresh_categories()
+            self._syn_portal_update_counters()
             # Network and XMLTV must never block GTK, even for a file source.
             profile = dict(self.profile)
             def worker():
@@ -4674,10 +5482,22 @@ def run_gui(playlist):
                     message = str(error) if 'http' not in str(error).lower() else tr('Comprueba los datos de la fuente.')
                 else: message = type(error).__name__ + tr(' al cargar la fuente (revisa URL o credenciales).')
                 self.status.set_text(tr('No se pudo cargar el perfil: ') + message)
+                self._syn_catalog_busy = False
+                self._syn_catalog_errors = ['movies', 'series']
+                self._syn_portal_update_counters()
                 return False
-            self.channels = channels
+            if self.profile.get('type') == 'xtream':
+                self.channels = channels
+                self._syn_local_movies = []
+                self._syn_local_series = []
+            else:
+                tv, movies, series = syn_catalog.partition_channels(channels)
+                self.channels = tv
+                self._syn_local_movies = syn_catalog.local_entries(movies, 'movies')
+                self._syn_local_series = syn_catalog.local_series_catalog(series)
             self.dvr_update_channels()
             self._refresh_categories()
+            self._syn_portal_catalog_refresh()
             self.status.set_text(f"SYN · {len(channels)} {tr('channels loaded')} · {tr('profile')}: {self.profile['name']}")
             self.load_guide()
             return False
@@ -5436,6 +6256,7 @@ def run_gui(playlist):
             return True
 
         def start_channel(self, channel):
+            self._syn_portal_hide()
             if getattr(self,'_syn_cast_busy',False):
                 self.status.set_text('Cast: espera a que se conecte el televisor.')
                 return
@@ -5622,6 +6443,18 @@ def run_gui(playlist):
 
         def key_press(self, _controller, key, _code, mods):
             ctrl = bool(mods & Gdk.ModifierType.CONTROL_MASK)
+            if self._syn_portal.get_visible():
+                if key == Gdk.KEY_Escape:
+                    self._syn_portal_go_back()
+                    return True
+                if ctrl and key in (Gdk.KEY_p, Gdk.KEY_P):
+                    self._syn_portal_hide()
+                    return True
+                # Prevent TV shortcuts when the catalogue has keyboard focus.
+                return False
+            if ctrl and key in (Gdk.KEY_p, Gdk.KEY_P):
+                self._syn_portal_show('home')
+                return True
             focused = self.get_focus()
             typing = isinstance(focused, (Gtk.Entry, Gtk.SearchEntry))
             if key == Gdk.KEY_Escape and self.guide_open:

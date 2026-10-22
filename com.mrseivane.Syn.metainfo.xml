@@ -36,6 +36,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.5" date="2026-10-23">
+      <description>
+        <p>New film and series libraries, searchable poster grids, Xtream/M3U VOD discovery, episode browser, adaptive SYN branding, updated application icon, and plug-and-play DVR/Chromecast without the system tray service.</p>
+        <p xml:lang="es">Nuevas carteleras de cine y series, búsqueda, catálogo Xtream/M3U, episodios, identidad SYN adaptable, icono renovado y DVR/Chromecast sin servicio de bandeja.</p>
+      </description>
+    </release>
     <release version="1.3.4" date="2026-10-22">
       <description>
         <p>Plug-and-play Chromecast improvements: recover interrupted media LOADs on Android TV, quicker 1080p HLS start, and balanced Full HD AVC Main/CABAC quality without changing the 720p preset. The bundled Cast bridge starts automatically.</p>

@@ -1,185 +1,196 @@
-# SYN - iptv & dvr
+# SYN · IPTV, Cinema & DVR for Linux
 
 <p align="center">
-  <img src="icons/256x256/apps/com.mrseivane.Syn.png" alt="SYN application icon" width="160">
+  <img src="docs/brand/syn-readme-banner.png" alt="SYN — colour-bars app icon and white wordmark on a petroleum background" width="640">
 </p>
 
 <p align="center">
-  <strong>Live television, a proper programme guide, and recordings — in one native Linux app.</strong>
+  <strong>Your TV, films, series, programme guide and recordings — in one GTK4 desktop app.</strong><br>
+  <em>Tu televisión, películas, series, guía y grabaciones — en una sola aplicación para Linux.</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/manupernas/SYN/releases">Download releases</a> ·
-  <a href="https://github.com/manupernas/SYN/actions">Build status</a> ·
-  <a href="https://github.com/manupernas/SYN/issues">Report an issue</a>
+  <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
+  <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
+  <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
+  <a href="docs/RELEASE_1.3.5.md">What's new in 1.3.5</a>
 </p>
 
-**SYN** is a modern IPTV and DVR application built with **Python, GTK4, libadwaita and libmpv**. It supports your own M3U playlists and Xtream-compatible services, XMLTV programme guides, and recording live television using FFmpeg without re-encoding.
+**SYN 1.3.5** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
 
-Designed for the Linux desktop, including GNOME and KDE Plasma. The interface supports Spanish, US English and British English, with light, dark and system appearance options.
+The new interface includes the original SYN colour-bars icon and light/dark-aware wordmark. It offers **System, Light, Dark and SYN Teal** themes, with optional custom accent colours. SYN starts on **live TV**, not the library landing page.
 
-> [!NOTE]
-> SYN does **not** include television channels, IPTV subscriptions, playlists, or access credentials. Bring your own authorised sources. SYN is **not currently available on Flathub**.
+> [!IMPORTANT]
+> **Bring your own legal IPTV sources.** SYN does not include playlists, credentials, channels or media. Films, series, artwork and EPG depend on what **your provider actually supplies**. SYN is distributed through GitHub Releases and **is not currently listed on Flathub**.
+
+## At a glance
+
+| TV & EPG | Films & Series | Recordings & Cast |
+| --- | --- | --- |
+| Live channel browser, per-profile favourites, category search, guide timeline and fullscreen playback | Dedicated **PERFIL → CINE / SERIES** library, searchable cover grids, series/season/episode navigation | Instant and scheduled **DVR** recordings, background worker, timeshift, PNG captures and Chromecast |
+
+### Television
+
+- **Live TV with libmpv:** embedded player, fullscreen, zapping and channel information without launching another application.
+- **Multiple profiles:** switch between M3U files, remote M3U playlists and Xtream-compatible accounts.
+- **Channels and favourites:** categories, search, channel logos, heart toggles and drag-and-drop favourite ordering, including the EPG and fullscreen channel selector.
+- **Interactive EPG:** XMLTV/XMLTV.gz sources, programme details, timeline scrolling and navigation. Schedule a recording directly from a programme's context menu where EPG information is available.
+- **Stream controls:** source/API User-Agent separate from playback, automatic reconnection, volume, screenshots and timeshift on compatible streams.
+
+### New in 1.3.5: films, series and your library
+
+Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup still opens TV.
+
+- **Cinema:** dedicated searchable film grid with poster art, titles and provider categories.
+- **Series:** dedicated series grid and an episode browser with seasons/episodes for compatible Xtream catalogues.
+- **Xtream catalogues:** SYN requests the provider's VOD and series APIs (`get_vod_streams`, `get_series`, `get_series_info`) **only when supported**.
+- **M3U discovery:** entries clearly labelled as films or series by their groups/paths can appear in the corresponding library. Recognisable episode labels (for example `S01E01` or `1x02`) may be grouped under the same series. Other entries remain in TV to avoid misclassifying channels.
+- **Resilient covers:** uses images supplied by the provider, caches them independently of TV logos, and displays original typographic/abstract artwork when no poster is available.
+- **Designed for large libraries:** initial batches of cards, search and **Show more** help keep the interface responsive.
+
+> **Provider compatibility:** VOD/series features are conditional; a TV-only M3U or Xtream subscription will not magically gain a film or series catalogue. Not all playlist naming conventions can be classified automatically.
+
+### DVR, Chromecast and desktop integration
+
+- **Record now:** the red REC button starts a separate FFmpeg capture, generally stream-copying (`-c copy`) without video re-encoding when possible.
+- **Scheduled recording:** use the DVR planner (date/time/channel) or an available EPG programme; view and open recorded files from within SYN.
+- **Background DVR:** the independent `syn-dvr-worker` is started/configured automatically on compatible `systemd --user` sessions and can continue after closing the window. It is **not** tied to the system tray.
+- **Chromecast:** discover reachable devices and send streams using SYN's bundled Cast bridge, with 720p/1080p transcoding profiles where needed. The Flatpak bundles its Cast Python dependencies and FFmpeg encoder; native packages declare required dependencies.
+- **No system tray icon:** `syn-dvr-tray` was removed in 1.3.5. The REC status remains inside the application.
+- **Custom appearance:** adaptive System/Light/Dark/Teal themes, user accent colour, original icon, light/dark wordmark, channel logos, English (US/UK) and Spanish locale handling.
+
+**Plug & play means:** install **one** matching package, launch SYN, add your source and use it. No separate Cast or DVR installation scripts are required on supported desktops. A working internet/LAN connection, provider account/playlist, compatible codecs and (for persistent background jobs) an active systemd user session are still needed. Some distributions, firewalls, VMs or Chromecast devices may require normal network configuration.
 
 ## Screenshots
 
 <table>
   <tr>
-    <th>Live TV &amp; channels</th>
-    <th>Programme guide</th>
-    <th>Appearance &amp; settings</th>
+    <th>TV and channels</th><th>EPG</th><th>Settings</th>
   </tr>
   <tr>
-    <td><a href="docs/screenshots/01-player-en.png"><img src="docs/screenshots/01-player-en.png" alt="SYN live TV and channel browser" width="310"></a></td>
-    <td><a href="docs/screenshots/02-guide-en.png"><img src="docs/screenshots/02-guide-en.png" alt="SYN electronic programme guide" width="310"></a></td>
-    <td><a href="docs/screenshots/03-settings-en.png"><img src="docs/screenshots/03-settings-en.png" alt="SYN settings window" width="310"></a></td>
+    <td><a href="docs/screenshots/01-player-en.png"><img src="docs/screenshots/01-player-en.png" width="285" alt="TV view"></a></td>
+    <td><a href="docs/screenshots/02-guide-en.png"><img src="docs/screenshots/02-guide-en.png" width="285" alt="Programme guide"></a></td>
+    <td><a href="docs/screenshots/03-settings-en.png"><img src="docs/screenshots/03-settings-en.png" width="285" alt="Settings"></a></td>
   </tr>
 </table>
 
-Click a screenshot to view it at full size.
+*Screenshots may show an earlier UI. The film and series libraries are new in 1.3.5.*
 
-## Features
+## Download: choose the right package
 
-- **Integrated live TV:** video playback through libmpv, with channel browsing, categories and favourites.
-- **M3U & Xtream:** local M3U files, remote playlists and Xtream-compatible profiles.
-- **XMLTV EPG:** an interactive timeline, programme information and channel navigation.
-- **Record now:** a compact red REC button starts an independent FFmpeg recording (`-c copy`, without transcoding).
-- **Schedule recordings:** choose a channel, date and time, or **right-click a programme in the EPG** to schedule its actual broadcast time.
-- **Recording library:** browse and play recordings inside SYN, locate their files and choose where new recordings are saved.
-- **Background DVR:** a separate `systemd --user` service can continue recording after the SYN window closes.
-- **Separate User-Agents:** configure the source/API User-Agent independently of video playback; recording uses the VLC User-Agent.
-- **Drag-and-drop favourites:** reorder channels visually with persistent, profile-specific ordering, including EPG and fullscreen zapper.
-- **Chromecast:** retransmit IPTV to a LAN Chromecast with the independent H.264/AAC 720p HLS host bridge. **Host setup and PyChromecast required**; see below.
-- **Time-shift and screenshots:** rewind supported live streams and capture PNG frames.
-- **Desktop integration:** configurable appearance, channel logos and multilingual interface.
+Get the **1.3.5** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
 
-## Download & install
+| Your Linux system | File extension | Architecture label | Installer |
+| --- | --- | --- | --- |
+| Fedora | `.rpm` | `x86_64` or `aarch64` | DNF |
+| Ubuntu / Debian | `.deb` | `amd64` (Intel/AMD) or `arm64` (ARM) | APT |
+| Arch / EndeavourOS | `.pkg.tar.zst` | `x86_64` or `aarch64` | Pacman |
+| Other distributions / sandboxed | `.flatpak` | `x86_64` or `aarch64` | Flatpak |
 
-**Get the packages from [GitHub Releases](https://github.com/manupernas/SYN/releases).** Choose the file matching both your Linux distribution and CPU architecture.
+**Architecture check:** run `uname -m`. `x86_64` means Intel/AMD 64-bit. `aarch64` means ARM64; Debian package names call that `arm64` and Intel/AMD `amd64`. **Never install an ARM package on x86_64 or vice versa.**
 
-| Linux distribution | Native package | CPU architectures |
-| --- | --- | --- |
-| **Fedora** | `.rpm` | x86_64, aarch64 (ARM64) |
-| **Debian / Ubuntu** | `.deb` | amd64, arm64 |
-| **Arch Linux / EndeavourOS** | `.pkg.tar.zst` | x86_64, aarch64 |
+### Fedora (RPM)
 
-SYN 1.3 ships **eight required packages**: RPM, DEB, Arch Linux/pacman and Flatpak for both x86_64 and ARM64. The Release is only published when every package has been built and verified. Each Flatpak is architecture-specific; these GitHub download bundles do **not** mean SYN is listed on Flathub.
-
-To install a downloaded native package, use the appropriate command:
+Download the file matching your architecture, e.g. `syn-iptv-1.3.5-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
 
 ```bash
-# Fedora — run from the directory containing your downloaded RPM
-sudo dnf install ./syn-iptv-*.rpm
-
-# Debian / Ubuntu — use the downloaded DEB instead
-sudo apt install ./syn-iptv_*.deb
-
-# Arch Linux — use the downloaded Pacman package instead
-sudo pacman -U ./syn-iptv-*.pkg.tar.zst
+sudo dnf install ./syn-iptv-1.3.5-1.*.rpm
 ```
 
-Run **only the command for your distribution**, and download **only the package for your CPU architecture**. Native builds use your distribution's GTK4, PyGObject, libadwaita, libmpv and FFmpeg dependencies. Successful CI packaging does not substitute for testing every desktop and video driver.
+DNF resolves package dependencies. Start **SYN** from the app launcher or run `syn`.
 
-### Flatpak release bundles
+### Debian / Ubuntu (DEB)
 
-Flatpak bundles are **not universal across CPU architectures**. Download the matching `x86_64` or `aarch64` file, then install it:
+Download the matching `amd64` or `arm64` DEB, then:
 
 ```bash
-flatpak --user install ./SYN-1.3.3-x86_64.flatpak
+sudo apt install ./syn-iptv_1.3.5-1_*.deb
+```
+
+APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Required runtime libraries must be available in your distribution's repositories.
+
+### Arch Linux / EndeavourOS (Pacman)
+
+Download the matching `x86_64` or `aarch64` package, then:
+
+```bash
+sudo pacman -U ./syn-iptv-1.3.5-1-*.pkg.tar.zst
+```
+
+Pacman resolves packages available in your configured repositories. Start **SYN** from the app launcher or run `syn`. Some ARM-specific distributions may need equivalent dependencies in their own repositories.
+
+### Flatpak (Fedora, Debian, Arch and others)
+
+1. Install **Flatpak** from your distribution's package manager if you don't already have it.
+2. Download `SYN-1.3.5-x86_64.flatpak` or `SYN-1.3.5-aarch64.flatpak`, matching `uname -m`.
+3. Install the bundle and start SYN:
+
+```bash
+flatpak install --user ./SYN-1.3.5-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
-Replace the example filename with the actual asset. These bundles use the GNOME runtime; **SYN is not listed on Flathub**. For a source build, see [Building from source](#building-from-source).
+If the GNOME runtime is missing, Flatpak can offer to install it (an internet connection and a configured runtime remote may be required). **This is a GitHub bundle, not a Flathub listing.** Flatpak app ID: `com.mrseivane.Syn`.
 
-## DVR in the background: automatic user services
-
-Starting in **SYN 1.3.1**, the two systemd user units (recording worker and
-recording indicator) are installed/activated **automatically on first GUI
-launch**. There is no need to run `systemctl --user enable --now` manually.
-
-- **RPM, DEB and Pacman:** native packages ship both units, and the application
-  ensures both are enabled/started in the current user session.
-- **Flatpak:** the package format does not support installation hooks. The first
-  SYN launch configures host-level user units using `flatpak-spawn --host`,
-  then enables and starts them. No extra command is required.
-- **Safety:** SYN never restarts an active recording worker, and it does not
-  overwrite a custom or competing native/Flatpak recorder. With systemd
-  unavailable it reports the problem instead of stopping IPTV playback.
-
-You can check status at any time with:
+**Already installed system-wide?** To update that installation instead of creating a second user copy, use:
 
 ```bash
-systemctl --user status syn-dvr-worker.service syn-dvr-tray.service
+sudo flatpak install --system --reinstall ./SYN-1.3.5-*.flatpak
+flatpak run --system --branch=master com.mrseivane.Syn
 ```
 
-Recording across logout, suspend or power-off is not guaranteed: the host must
-remain running and the service must have a usable user session. This is a
-service-management feature, not a change in IPTV provider limits.
+**Avoid duplicate installations:** do not install both `--user` and `--system` unless you intentionally need separate copies; the default launcher may otherwise select the wrong one. Check using `flatpak list --app --columns=application,branch,installation`.
 
-## Building from source
+<details>
+<summary><strong>Instalación rápida en español</strong></summary>
 
-Clone the repository and use the included development Flatpak manifest:
+Descarga el archivo de **SYN 1.3.5** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
+
+```bash
+# Fedora
+sudo dnf install ./syn-iptv-1.3.5-1.*.rpm
+
+# Debian / Ubuntu
+sudo apt install ./syn-iptv_1.3.5-1_*.deb
+
+# Arch / EndeavourOS
+sudo pacman -U ./syn-iptv-1.3.5-1-*.pkg.tar.zst
+
+# Flatpak — instalación de usuario
+flatpak install --user ./SYN-1.3.5-*.flatpak
+flatpak run com.mrseivane.Syn
+```
+
+**Plug & play:** al abrir SYN, añade tu perfil M3U o Xtream. No hace falta ejecutar ningún script adicional para el DVR ni para Chromecast; los servicios se preparan automáticamente en escritorios compatibles. Los catálogos CINE y SERIES aparecen únicamente si tu proveedor los ofrece. Las grabaciones en segundo plano requieren que el sistema siga encendido y una sesión de usuario adecuada.
+
+</details>
+
+## Services, recording safety and limitations
+
+The independent background services are **`syn-dvr-worker.service`** (recordings) and **`syn-cast-bridge.service`** (Chromecast). There is **no `syn-dvr-tray.service`** in 1.3.5. SYN prepares/manages the needed services when it starts, without restarting an already active recording.
+
+```bash
+systemctl --user status syn-dvr-worker.service syn-cast-bridge.service
+```
+
+On Linux systems without `systemd --user` or with restricted Flatpak portals, the background service may be unavailable; TV playback can still work. Closing a window is not the same as logging out: logout, suspend, shutdown, unstable network connections and IPTV provider connection limits can interrupt a capture. Chromecast discovery usually needs direct LAN access; bridged/isolated VMs can block multicast discovery.
+
+## Build from source (developers)
 
 ```bash
 git clone https://github.com/manupernas/SYN.git
 cd SYN
+python3 -m pytest -q
 bash construir-flatpak.sh
-bash instalar-servicio-dvr.sh
 flatpak run com.mrseivane.Syn
 ```
 
-This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SDK. The manifest uses local source files and is **not a ready-to-submit Flathub manifest**. You can also find a native development installer in `instalar.sh`.
+The source build requires Git, `flatpak-builder`, the GNOME runtime/SDK and network access to dependencies. **You do not need to run the old `instalar-servicios-syn.sh` or `instalar-servicio-cast.sh` after installation.** These are not end-user installation steps.
 
-## Development & release notes
+The GitHub Actions release workflow produces RPM, DEB, Pacman and Flatpak binaries independently for **x86_64** and **aarch64**. A GitHub Release is published only after all eight build jobs succeed. See [the release notes](docs/RELEASE_1.3.5.md).
 
-The current source release is **SYN 1.3.4**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
+## Privacy, legal use and licence
 
-- [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
-- [SYN 1.3.2 release notes](docs/RELEASE_1.3.2.md)
-- [SYN 1.3.1 release notes](docs/RELEASE_1.3.1.md)
-- [GitHub Actions](https://github.com/manupernas/SYN/actions) — all eight RPM/DEB/Arch/Flatpak builds are required
+SYN stores profiles, playlist configuration, local favourites and recordings on your own machine. Do not commit private provider URLs, login credentials, `profiles.json`, `dvr.json`, playlist files or recordings. Stream only content that you are authorised to access and record.
 
-Run automated tests with:
-
-```bash
-python3 -m pytest -q
-```
-
-Automated tests and package builds do not guarantee that video playback works on every combination of Linux distribution, graphics driver and display server.
-
-## Privacy, legal notice & license
-
-Your playlists, Xtream credentials, EPG data and DVR recordings are user-owned local data. **Never commit account credentials, private stream URLs, recordings or `profiles.json` / `dvr.json` to Git.** Use only content you are authorised to access and record.
-
-Parts of the code, documentation, packaging and application icon were created with generative AI assistance; the project is maintained and tested by its developer.
-
-Licensed under the **MIT License** — see [LICENSE](LICENSE).
-
-## SYN 1.3 — DVR, EPG y temas
-
-- Grabación independiente con FFmpeg y **una sola conexión IPTV** para grabar y visualizar el mismo canal mediante una salida UDP local.
-- Reconexiones controladas, segmentos MKV conservados y reproducción con libmpv.
-- Indicador real de grabación con menú D-Bus para GNOME, sin «Loading…» permanente.
-- Dos servicios de usuario: `syn-dvr-worker.service` y `syn-dvr-tray.service`.
-- EPG con filas alineadas y desplazamiento vertical suave.
-- Pantalla DVR adaptada a **Sistema, Claro, Oscuro y Teal SYN**.
-
-Para crear el Flatpak en el equipo: `bash construir-flatpak.sh`.
-Tras instalar, el script habilita ambos servicios de usuario en sesiones systemd compatibles.
-Para configurar los servicios sin recompilar la aplicación: `bash instalar-servicios-syn.sh`.
-
-**Notas:** no se incluyen listas IPTV, credenciales ni canales. La salida UDP local se utiliza exclusivamente para compartir una grabación existente con el reproductor.
-
-## Chromecast host bridge (optional setup)
-
-Casting requires **Python PyChromecast and FFmpeg with libx264/AAC on the Linux host**. The Flatpak cannot run a host-level service by itself. After installing SYN, download `instalar-servicio-cast.sh` from this release's source and run `bash instalar-servicio-cast.sh` as your normal user, **without sudo**. This installs a separate `syn-cast-bridge.service` under `systemd --user` and stores only a random access token locally. It does not overwrite an existing SYN Cast service or touch DVR.
-
-Fedora host dependency: `sudo dnf install python3-chromecast`; other distributions need an equivalent host Python package. Casting uses TCP 18977 on the local network and requires a reachable Chromecast; the host's firewall or VM networking may require explicit configuration. No IPTV credentials are included.
-
-### SYN Cast 6.5 — 1.3.3 final
-
-The app includes Chromecast relay sharing, stable channel rejoining, a light-theme-safe orange Cast icon and a saved quality slider with 720p or 1080p. 720p is recommended for virtualized systems; see [Cast 6.5 notes](docs/CAST_6_5_FINAL.md). Cast is ready automatically after installation.
-
-### Chromecast plug-and-play
-
-Cast is bundled and auto-started by SYN. Native RPM/DEB/Pacman packages resolve runtime libraries during installation; Flatpak contains the encoder and Python Cast dependencies. No manual `syn-cast-setup` or Python/pip installation is needed. Device discovery still requires a reachable local network.
+Project code, documentation, packaging and artwork have included AI assistance; the project is maintained and tested by its developer. Licensed under the **[MIT License](LICENSE)**.
