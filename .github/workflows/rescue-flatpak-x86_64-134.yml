@@ -1,0 +1,133 @@
+name: 'SYN 1.3.4 - Rescue Intel Flatpak and publish eight packages'
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: syn-134-rescue
+  cancel-in-progress: false
+
+jobs:
+  flatpak-intel:
+    name: 'Flatpak x86_64 - prebuilt Flathub GNOME 49 SDK'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    steps:
+      - name: Checkout release 1.3.4 source code
+        uses: actions/checkout@v4
+        with:
+          ref: v1.3.4
+
+      - name: Confirm native Intel architecture and preinstalled SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          flatpak --version
+          flatpak-builder --version
+          flatpak info org.gnome.Sdk//49
+          flatpak info org.gnome.Platform//49
+
+      - name: Provide Python 3.13 with pip (no apt)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Download PyChromecast wheels for GNOME SDK 49
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packaging/flatpak-cast-wheels
+          python3 -m pip download --disable-pip-version-check \
+            --only-binary=:all: --python-version 3.13 \
+            --implementation cp --abi cp313 \
+            --platform manylinux2014_x86_64 --platform any \
+            --dest packaging/flatpak-cast-wheels 'pychromecast==14.0.10'
+
+      - name: Build Flatpak in preconfigured Flathub SDK (with cache)
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: com.mrseivane.Syn.yml
+          bundle: SYN-1.3.4-x86_64.flatpak
+          arch: x86_64
+          branch: master
+          cache: true
+          build-bundle: true
+          upload-artifact: false
+
+      - name: Validate new Intel bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s SYN-1.3.4-x86_64.flatpak
+          test "$(stat -c %s SYN-1.3.4-x86_64.flatpak)" -gt 1024
+          ls -lh SYN-1.3.4-x86_64.flatpak
+
+      - name: Save Intel Flatpak as eighth artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syn-flatpak-x86_64
+          path: SYN-1.3.4-x86_64.flatpak
+          if-no-files-found: error
+          retention-days: 14
+
+  release-eight:
+    name: 'Recover seven existing packages and publish v1.3.4'
+    needs: flatpak-intel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout exact v1.3.4 source, release checks and notes
+        uses: actions/checkout@v4
+        with:
+          ref: v1.3.4
+
+      - name: Recover seven completed packages from cancelled release workflow
+        uses: actions/download-artifact@v4
+        with:
+          run-id: '39803301195'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          pattern: syn-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Add newly compiled Intel Flatpak
+        uses: actions/download-artifact@v4
+        with:
+          name: syn-flatpak-x86_64
+          path: release-assets
+
+      - name: Require exactly eight artifacts and produce SHA256SUMS
+        shell: bash
+        env:
+          SYN_RELEASE_VERSION: v1.3.4
+        run: |
+          set -euo pipefail
+          ls -lh release-assets
+          NOTES=docs/RELEASE_1.3.4.md
+          if [[ ! -f "$NOTES" ]]; then
+            NOTES=release-notes-generated.md
+            printf '# SYN 1.3.4 - Linux release\n\nEight packages for Intel x86_64 and ARM64.\n' > "$NOTES"
+          fi
+          python3 packaging/prepare-release.py release-assets "$NOTES" release-body.md
+
+      - name: Publish GitHub Release 1.3.4 with eight packages and checksums
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.3.4
+          name: 'SYN 1.3.4 - Linux (x86_64 and ARM64)'
+          body_path: release-body.md
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          generate_release_notes: false
