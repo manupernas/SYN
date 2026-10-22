@@ -132,7 +132,7 @@ This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SD
 
 ## Development & release notes
 
-The current source release is **SYN 1.3.3**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
+The current source release is **SYN 1.3.4**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
 
 - [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
 - [SYN 1.3.2 release notes](docs/RELEASE_1.3.2.md)

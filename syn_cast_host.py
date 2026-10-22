@@ -21,7 +21,7 @@ QUALITY_FILE = Path.home() / '.config/syn/cast-quality'
 QUALITY_PROFILES = {
     # SYN_CAST_SHARED_RELAY_BETA6_4: H264/AAC settings unchanged.
     # SYN_CAST_FHD1080_OPTIONAL_BETA6_5: opt-in 1080p at up to 7 Mbps.
-    'alta': {'height': 1080, 'bitrate': '5500k', 'maxrate': '7000k', 'bufsize': '9000k'},
+    'alta': {'height': 1080, 'bitrate': '6300k', 'maxrate': '7500k', 'bufsize': '14000k'},
     'compatible': {'height': 720, 'bitrate': '2500k', 'maxrate': '3000k', 'bufsize': '4000k'},
     'ligero': {'height': 480, 'bitrate': '1200k', 'maxrate': '1600k', 'bufsize': '2000k'},
     'solo-audio': {'height': 0, 'bitrate': '', 'maxrate': '', 'bufsize': ''},
@@ -63,23 +63,33 @@ def cast_hls_command(ffmpeg, url, ua, folder, playlist, quality):
         # Preserve aspect ratio; never upscale; frame-rate and keyframes predictable.
         if quality=='alta':
             # Limit to Full HD. Do not upscale 720p/SD sources to 1080p.
-            scale=("scale=w='min(iw,1920)':h='min(ih,1080)':"
+            scale=("fps=25,scale=w='min(iw,1920)':h='min(ih,1080)':"
                    'force_original_aspect_ratio=decrease:force_divisible_by=2,'
-                   'setsar=1,fps=25,format=yuv420p')
+                   'setsar=1,format=yuv420p')
         else:
             scale=(f'scale=w={1280 if h==720 else 854}:h={h}:'
                    'force_original_aspect_ratio=decrease:force_divisible_by=2,'
                    'setsar=1,fps=25,format=yuv420p')
+        # SYN_CAST_1080_BALANCE_V1: CABAC + deblock improve compression at
+        # low CPU cost. Preserve ultrafast and the proven Mi Box handshake.
+        if quality=='alta':
+            cmd+=['-coder','ac','-deblock','0:0']
         cmd+=['-vf',scale,'-c:v','libx264','-preset','ultrafast',
-              '-tune','zerolatency','-profile:v','baseline',
+              '-tune','zerolatency','-profile:v',('main' if quality=='alta' else 'baseline'),
               '-level',('4.0' if quality=='alta' else '3.1'),
-              '-r','25','-g','50','-keyint_min','50','-sc_threshold','0',
-              '-force_key_frames','expr:gte(t,n_forced*2)',
+              '-r','25','-g',('25' if quality=='alta' else '50'),
+              '-keyint_min',('25' if quality=='alta' else '50'),'-sc_threshold','0',
+              '-force_key_frames',('expr:gte(t,n_forced*1)' if quality=='alta'
+                                   else 'expr:gte(t,n_forced*2)'),
               '-b:v',preset['bitrate'],'-maxrate',preset['maxrate'],
               '-bufsize',preset['bufsize'],'-pix_fmt','yuv420p']
     cmd+=['-c:a','aac','-b:a','128k','-ac','2','-ar','48000',
           '-af','aresample=async=1:first_pts=0',
-          '-f','hls','-hls_time','2', '-hls_list_size','10',
+          '-f','hls']
+    # Full HD: segmentos iniciales cortos; luego conservar objetivo de 2 s.
+    if quality=='alta':
+        cmd+=['-hls_init_time','1']
+    cmd+=['-hls_time','2', '-hls_list_size','10',
           '-hls_delete_threshold','5',
           '-hls_flags', ('delete_segments+omit_endlist+independent_segments' if quality!='solo-audio'
                          else 'delete_segments+omit_endlist'),
@@ -115,7 +125,7 @@ CURRENT = {'device': None, 'name': None, 'cast': None, 'browser': None,
 LAST_DIAG = {'status':'Aún no se ha probado Cast', 'media_ip':'',
              'manifest_requests':0,'segment_requests':0, 'cast_state':'IDLE',
              'detail':'', 'http_errors':0, 'encoding':'compatible',
-             'encoder_speed':None}
+             'encoder_speed':None,'quality_patch':'SYN_CAST_1080_BALANCE_V1'}
 
 
 def scan():
@@ -360,9 +370,23 @@ def start_cast(device_id,url,title,ua,relay=True,capacity=1,exclusive=True):
             if relay_resources:
                 (CURRENT['tempdir'],CURRENT['media_server'],CURRENT['media_thread'],
                  CURRENT['ffmpeg'],CURRENT['errfile'])=relay_resources
+            # SYN_CAST_MIBOX_RECOVERY_1: if Android TV refuses the media LOAD
+            # before fetching the manifest, reset the receiver and retry
+            # without reopening the upstream IPTV connection or FFmpeg.
+            class _CastLoadObserver:
+                failed_code = None
+                def new_media_status(self, status):
+                    pass
+                def load_media_failed(self, queue_item_id, error_code):
+                    self.failed_code = error_code
+            cast_probe = _CastLoadObserver()
+            cast.media_controller.register_status_listener(cast_probe)
             cast.media_controller.play_media(play_url,'application/vnd.apple.mpegurl',
                                              stream_type='LIVE',title=title)
+            retry_index = 0
+            retry_time = time.monotonic()+8
             deadline=time.monotonic()+36
+            start_wait=time.monotonic()
             state='UNKNOWN'
             reason=''
             while time.monotonic()<deadline:
@@ -379,13 +403,54 @@ def start_cast(device_id,url,title,ua,relay=True,capacity=1,exclusive=True):
                             'local_shared':CURRENT['shared_local']}
                 if CURRENT['ffmpeg'] and CURRENT['ffmpeg'].poll() is not None:
                     raise RuntimeError(_ffmpeg_hint(CURRENT['errfile']))
+                # La rueda de carga no debe esconder una codificación < tiempo real.
+                metrics=CURRENT.get('encoder_metrics',{})
+                speed=metrics.get('speed')
+                if (CURRENT.get('encoding')=='alta' and
+                    time.monotonic()-start_wait>16 and
+                    metrics.get('output_seconds',0)>=3 and
+                    speed is not None and speed<0.80):
+                    raise RuntimeError(
+                        'La codificación 1080p no alcanza tiempo real ('+str(speed)+'x). '
+                        'No se puede sostener el búfer Chromecast: prueba 720p '
+                        'o revisa aceleración y consumo CPU.')
+                # If the Mi Box didn't GET the manifest, the LOAD may be stuck.
+                # Keep existing FFmpeg, HTTP relay, and IPTV connection running.
+                if (CURRENT['media_hits']['m3u8']==0 and
+                    retry_index < 2 and time.monotonic()>=retry_time):
+                    retry_index += 1
+                    if retry_index == 1:
+                        try:
+                            cast.quit_app()  # reset stale Default Media Receiver
+                        except Exception:
+                            pass
+                        cast.media_controller.play_media(
+                            play_url,'application/vnd.apple.mpegurl',
+                            stream_type='BUFFERED',title=title)
+                    else:
+                        cast.media_controller.play_media(
+                            play_url,'application/x-mpegURL',
+                            stream_type='LIVE',title=title)
+                    retry_time = time.monotonic()+8
                 # Ignore an old IDLE from previous session during initial handshake.
-                if state=='IDLE' and reason in ('ERROR','CANCELLED') and time.monotonic()<deadline-3:
+                if (state=='IDLE' and reason in ('ERROR','CANCELLED') and
+                    CURRENT['media_hits']['m3u8']>0 and
+                    time.monotonic()<deadline-3):
+                    # Receiver tried to fetch HLS and actually reported error.
+                    # Without any manifest GET, wait for media LOAD recovery.
                     break
                 time.sleep(.3)
             if CURRENT['ffmpeg']:
                 hint=_failure_hint(state,reason,CURRENT['ffmpeg'],CURRENT['media_hits'],CURRENT['errfile'])
             else:hint='El Chromecast no confirmó reproducción.'
+            if CURRENT['media_hits']['m3u8']==0:
+                code = cast_probe.failed_code
+                app_id = str(getattr(cast.status,'app_id',None) or 'desconocida')
+                extra = ('LOAD_FAILED='+str(code) if code is not None
+                         else 'sin código LOAD_FAILED')
+                hint = ('La Mi Box rechazó/no cargó el HLS antes de pedirlo. '
+                        'Estado='+str(state)+'; motivo='+str(reason or 'ninguno')+
+                        '; '+extra+'; app='+app_id+'.')
             LAST_DIAG.update(status='Error de reproducción',detail=hint)
             raise RuntimeError(hint)
         except Exception:

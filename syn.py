@@ -45,7 +45,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.3"
+SYN_VERSION = "1.3.4"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"

@@ -53,7 +53,6 @@ modules:
   - name: syn-libplacebo
     buildsystem: meson
     config-opts:
-      - -Dlibdir=lib
       - -Dopengl=enabled
       - -Dvulkan=disabled
       - -Dshaderc=disabled
@@ -67,7 +66,6 @@ modules:
   - name: syn-libass
     buildsystem: meson
     config-opts:
-      - -Dlibdir=lib
       - -Dfontconfig=enabled
       - -Dlibunibreak=disabled
     sources:
@@ -77,7 +75,6 @@ modules:
   - name: syn-libmpv
     buildsystem: meson
     config-opts:
-      - -Dlibdir=lib
       - -Dlibmpv=true
       - -Dcplayer=false
       - -Dlua=disabled

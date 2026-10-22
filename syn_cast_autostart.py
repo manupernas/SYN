@@ -101,6 +101,59 @@ def _spawn_from_package():
     return True
 
 
+# SYN 1.3.4: retire only the exact known temporary Mi Box V2 override.
+# Existing custom/non-SYN overrides must remain untouched.
+_LEGACY_CAST_MIGRATION = r'''set -eu
+unit=syn-cast-bridge.service
+drop="$HOME/.config/systemd/user/${unit}.d/50-syn-mibox-recovery.conf"
+[ -f "$drop" ] || exit 0
+grep -Fq 'syn-cast-mibox-recovery/current/syn_cast_host.py' "$drop" || exit 0
+# Never replace another vendor/user unit.
+systemctl --user cat "$unit" | grep -Fq 'SYN-CAST-FLATPAK-MANAGED' || exit 0
+backup="$HOME/.local/share/syn/legacy-cast-backups"
+mkdir -p "$backup"
+mv -- "$drop" "$backup/50-syn-mibox-recovery.$(date +%Y%m%d%H%M%S).conf"
+systemctl --user daemon-reload
+systemctl --user stop "$unit" || true
+# The old Flatpak launcher occasionally left an orphan occupying 18976.
+# Kill only this identified SYN bridge, never an unrelated process.
+if command -v ss >/dev/null 2>&1; then
+  for pid in $(ss -H -ltnp '( sport = :18976 )' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true); do
+    cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    case "$cmd" in *'/app/share/syn/syn_cast_host.py'*) kill "$pid" 2>/dev/null || true;; esac
+  done
+fi
+systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+systemctl --user start "$unit"
+'''
+
+
+def _retire_known_local_cast_patch():
+    if not Path('/.flatpak-info').exists() or not shutil.which('flatpak-spawn'):
+        return
+    # Probe live bridge. If a Cast stream is active, let it finish untouched.
+    try:
+        token = TOKEN.read_text('utf-8').strip()
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{CAST_PORT}',
+            data=b'{"action":"status"}', method='POST',
+            headers={'Content-Type':'application/json','X-Syn-Token':token})
+        with urllib.request.urlopen(req,timeout=1.5) as response:
+            if json.load(response).get('active'):
+                return
+    except (OSError, ValueError, TimeoutError):
+        pass  # The old bridge may already be stopped or crash-looping.
+    try:
+        result=subprocess.run(
+            ['flatpak-spawn','--host','sh','-c',_LEGACY_CAST_MIGRATION],
+            capture_output=True, timeout=12, check=False)
+        if result.returncode:
+            print('SYN Cast: temporary override migration needs attention '
+                  f'({result.returncode}).',file=sys.stderr)
+    except (OSError, subprocess.TimeoutExpired):
+        print('SYN Cast: temporary override migration timed out.',file=sys.stderr)
+
+
 def start_once():
     """Intended to run in the existing asynchronous service-setup thread."""
     global _STARTED
@@ -112,6 +165,7 @@ def start_once():
         _STARTED = True
     try:
         ensure_token()
+        _retire_known_local_cast_patch()
         if bridge_is_ready():
             return  # The user may still be streaming with the previous working beta.
         if Path('/.flatpak-info').exists():

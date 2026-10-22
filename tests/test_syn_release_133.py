@@ -7,7 +7,7 @@ ROOT=Path(__file__).resolve().parent.parent
 class Release133Tests(unittest.TestCase):
     def test_features(self):
         s=(ROOT/'syn.py').read_text('utf-8')
-        self.assertIn('SYN_VERSION = "1.3.3"',s)
+        self.assertIn('SYN_VERSION = "1.3.4"',s)
         for marker in ('SYN_CAST_BETA6','SYN_CAST_ORANGE_VISUAL_6_2',
                        'SYN_FAVORITOS_DRAG_BETA7','SYN_FAVORITOS_VISUAL_BETA7_1',
                        'Gtk.WidgetPaintable.new(row)','SYN_TIMESHIFT_BETA2_HTTP_SNAPSHOT'):
@@ -15,7 +15,7 @@ class Release133Tests(unittest.TestCase):
     def test_host_fidelity(self):
         s=(ROOT/'syn_cast_host.py').read_text('utf-8')
         self.assertIn('libx264',s);self.assertIn("'-c:a','aac'",s)
-        self.assertIn("'-profile:v','baseline'",s)
+        self.assertIn("'-profile:v',('main' if quality=='alta' else 'baseline')",s)
     def test_all_packages_ship_code(self):
         a=(ROOT/'packaging/stage-native.sh').read_text()
         b=(ROOT/'com.mrseivane.Syn.yml').read_text()

@@ -36,6 +36,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.4" date="2026-10-22">
+      <description>
+        <p>Plug-and-play Chromecast improvements: recover interrupted media LOADs on Android TV, quicker 1080p HLS start, and balanced Full HD AVC Main/CABAC quality without changing the 720p preset. The bundled Cast bridge starts automatically.</p>
+        <p xml:lang="es">Mejoras Chromecast listas para usar: recuperación del inicio de reproducción en Android TV, arranque HLS Full HD más rápido, calidad 1080p equilibrada con H.264 Main/CABAC, sin cambiar el perfil 720p. El puente integrado se activa automáticamente.</p>
+      </description>
+    </release>
     <release version="1.3.3" date="2026-10-22">
       <description>
         <p>Visual drag-and-drop favourite ordering, Chromecast HLS transcoding bridge (host setup required), time-shift, connection-aware casting, channel screenshots and playback improvements.</p>
