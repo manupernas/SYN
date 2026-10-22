@@ -48,6 +48,9 @@ Click a screenshot to view it at full size.
 - **Recording library:** browse and play recordings inside SYN, locate their files and choose where new recordings are saved.
 - **Background DVR:** a separate `systemd --user` service can continue recording after the SYN window closes.
 - **Separate User-Agents:** configure the source/API User-Agent independently of video playback; recording uses the VLC User-Agent.
+- **Drag-and-drop favourites:** reorder channels visually with persistent, profile-specific ordering, including EPG and fullscreen zapper.
+- **Chromecast:** retransmit IPTV to a LAN Chromecast with the independent H.264/AAC 720p HLS host bridge. **Host setup and PyChromecast required**; see below.
+- **Time-shift and screenshots:** rewind supported live streams and capture PNG frames.
 - **Desktop integration:** configurable appearance, channel logos and multilingual interface.
 
 ## Download & install
@@ -82,7 +85,7 @@ Run **only the command for your distribution**, and download **only the package 
 Flatpak bundles are **not universal across CPU architectures**. Download the matching `x86_64` or `aarch64` file, then install it:
 
 ```bash
-flatpak --user install ./SYN-1.3.2-x86_64.flatpak
+flatpak --user install ./SYN-1.3.3-x86_64.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -129,7 +132,7 @@ This requires Flatpak, `flatpak-builder`, Git and the necessary GNOME runtime/SD
 
 ## Development & release notes
 
-The current source release is **SYN 1.3.2**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
+The current source release is **SYN 1.3.3**: continuous GTK4 EPG scrolling, draggable timeline, heart-based favourites, redesigned settings, locale fixes and independent DVR. All eight Linux packages are required.
 
 - [DVR 1.2.2 technical notes](docs/NOTAS_DVR_1.2.2.md)
 - [SYN 1.3.2 release notes](docs/RELEASE_1.3.2.md)
@@ -166,3 +169,9 @@ Tras instalar, el script habilita ambos servicios de usuario en sesiones systemd
 Para configurar los servicios sin recompilar la aplicación: `bash instalar-servicios-syn.sh`.
 
 **Notas:** no se incluyen listas IPTV, credenciales ni canales. La salida UDP local se utiliza exclusivamente para compartir una grabación existente con el reproductor.
+
+## Chromecast host bridge (optional setup)
+
+Casting requires **Python PyChromecast and FFmpeg with libx264/AAC on the Linux host**. The Flatpak cannot run a host-level service by itself. After installing SYN, download `instalar-servicio-cast.sh` from this release's source and run `bash instalar-servicio-cast.sh` as your normal user, **without sudo**. This installs a separate `syn-cast-bridge.service` under `systemd --user` and stores only a random access token locally. It does not overwrite an existing SYN Cast service or touch DVR.
+
+Fedora host dependency: `sudo dnf install python3-chromecast`; other distributions need an equivalent host Python package. Casting uses TCP 18977 on the local network and requires a reachable Chromecast; the host's firewall or VM networking may require explicit configuration. No IPTV credentials are included.

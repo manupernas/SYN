@@ -6,6 +6,9 @@ mkdir -p "$DEST/usr/share/syn" "$DEST/usr/bin" "$DEST/usr/share/applications" \
   "$DEST/usr/share/metainfo" "$DEST/usr/share/icons/hicolor" "$DEST/usr/lib/systemd/user"
 install -m755 syn.py "$DEST/usr/share/syn/syn.py"
 install -m644 syn_sources.py syn_i18n.py syn_dvr.py syn_dvr_tray.py syn_service_setup.py syn_favoritos.py syn_settings_rev3.py syn_locale_rev3.py "$DEST/usr/share/syn/"
+install -m644 syn_reconnect.py syn_multistream.py syn_timeshift.py syn_fav_sort.py syn_cast_host.py "$DEST/usr/share/syn/"
+install -m644 syn_idle_screen.png "$DEST/usr/share/syn/syn_idle_screen.png"
+install -m755 instalar-servicio-cast.sh "$DEST/usr/bin/syn-cast-setup"
 for lang in en_US en_GB; do
   install -Dm644 "locale/$lang/LC_MESSAGES/syn.mo" "$DEST/usr/share/locale/$lang/LC_MESSAGES/syn.mo"
 done

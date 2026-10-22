@@ -7,11 +7,18 @@ worker, stream, FFmpeg, or user configuration files are touched until Save.
 from __future__ import annotations
 import syn_sources as sources
 from syn_i18n import LANGUAGE
+from syn_multistream import profile_limit
 
 # Source strings in Spanish are intentionally separate from programmatic choices.
 # No provider channel or XMLTV programme text ever flows through this dictionary.
 EN = {
  'Ajustes': ('Settings','Settings'), 'Perfil': ('Profile','Profile'),
+ 'Capturas de pantalla': ('Screenshots','Screenshots'),
+ 'Carpeta de capturas': ('Screenshot folder','Screenshot folder'),
+ 'Elegir carpeta…': ('Choose folder…','Choose folder…'),
+ 'Elige dónde guardar capturas PNG del vídeo.': ('Choose where PNG video frames are saved.','Choose where PNG video frames are saved.'),
+ 'Timeshift automático': ('Automatic timeshift','Automatic timeshift'),
+ 'Activar el búfer al reproducir un canal': ('Enable timeshift when a channel starts','Enable timeshift when a channel starts'),
  'Reproducción': ('Playback','Playback'), 'Apariencia': ('Appearance','Appearance'),
  'Fuentes y credenciales': ('Sources and credentials','Sources and credentials'),
  'Configura tus listas y conexiones.': ('Configure your playlists and connections.','Configure your playlists and connections.'),
@@ -21,6 +28,10 @@ EN = {
  'Ruta o URL M3U': ('M3U path or URL','M3U path or URL'),
  'Servidor Xtream': ('Xtream server','Xtream server'), 'Usuario': ('Username','Username'),
  'Contraseña': ('Password','Password'), 'Formato': ('Format','Format'),
+ 'Conexiones simultáneas del proveedor': ('Provider connections', 'Provider connections'),
+ 'Incluye la reproducción y el timeshift (máx. 4).':
+     ('Includes live playback and timeshift (max. 4).',
+      'Includes live playback and timeshift (max. 4).'),
  'EPG XMLTV': ('XMLTV EPG','XMLTV EPG'),
  'URL o archivo .xml / .xml.gz': ('URL or .xml / .xml.gz file','URL or .xml / .xml.gz file'),
  'Elegir archivo EPG…': ('Choose EPG file…','Choose EPG file…'),
@@ -222,6 +233,10 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
     passwd = field(profile_group, 'Contraseña', entry(source.get('password'), password=True))
     fmt, fmts = combo([('m3u8','m3u8'),('ts','ts')], source.get('format','m3u8'))
     field(profile_group, 'Formato', fmt)
+    connections, conn_codes = combo([(i, str(i)) for i in range(1,5)],
+                                    profile_limit(source))
+    field(profile_group, 'Conexiones simultáneas del proveedor', connections,
+          'Incluye la reproducción y el timeshift (máx. 4).')
     epg = field(profile_group, 'EPG XMLTV', entry(source.get('epg_url')),
                 'URL o archivo .xml / .xml.gz')
     browse = Gtk.Button(label=t('Elegir archivo EPG…'))
@@ -286,6 +301,36 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
     scale.connect('value-changed', scale_changed)
     scale_changed(scale)
     field(gp, 'Búfer de demultiplexación', mb_box)
+
+    # SYN_CAPTURE_DIR_BETA5: folder picker through the GTK document portal.
+    auto_group = group(playback_page, 'Timeshift automático')
+    ts_auto = Gtk.Switch()
+    ts_auto.set_active(bool(opts.get('timeshift_auto', True)))
+    ts_auto.set_valign(Gtk.Align.CENTER)
+    field(auto_group, 'Activar el búfer al reproducir un canal', ts_auto)
+    capture_group = group(playback_page, 'Capturas de pantalla')
+    pictures_dir = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+    default_capture = str((__import__('pathlib').Path(pictures_dir) if pictures_dir else
+                          __import__('pathlib').Path.home() / 'Imágenes') / 'SYN')
+    capture_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    capture_entry = Gtk.Entry()
+    capture_entry.set_text(str(opts.get('screenshot_dir', '') or default_capture))
+    capture_entry.set_hexpand(True)
+    capture_entry.set_width_chars(28)
+    capture_box.append(capture_entry)
+    capture_choose = Gtk.Button(label=t('Elegir carpeta…'))
+    capture_box.append(capture_choose)
+    def capture_folder_done(dialog, result):
+        try:
+            file = dialog.select_folder_finish(result)
+            if file and file.get_path():
+                capture_entry.set_text(file.get_path())
+        except GLib.Error:
+            pass
+    capture_choose.connect('clicked', lambda *_: Gtk.FileDialog(
+        title=t('Carpeta de capturas')).select_folder(win, None, capture_folder_done))
+    field(capture_group, 'Carpeta de capturas', capture_box,
+          'Elige dónde guardar capturas PNG del vídeo.')
 
     gp = group(appearance_page, 'Tema de la aplicación')
     theme_codes = ['system','light','dark','teal']
@@ -392,6 +437,7 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
         kind = p.get('type','file')
         source_type.set_selected(kinds.index(kind) if kind in kinds else 0)
         fmt.set_selected(1 if p.get('format') == 'ts' else 0)
+        connections.set_selected(conn_codes.index(profile_limit(p)))
         source_changed()
     picker.connect('notify::selected', picker_changed)
     source_changed()
@@ -420,7 +466,8 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
                    type=kinds[source_type.get_selected()], source=src.get_text().strip(),
                    server=server.get_text().strip(), username=user.get_text().strip(),
                    password=passwd.get_text(), format=fmts[fmt.get_selected()],
-                   epg_url=epg.get_text().strip())
+                   epg_url=epg.get_text().strip(),
+                   max_connections=conn_codes[connections.get_selected()])
         # Validate everything before changing persistent config, including theme.
         try:
             if not obj['name']:
@@ -448,6 +495,8 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
             'cache': ccodes[cache.get_selected()],
             'video_sync': scodes[sync.get_selected()],
             'demuxer_mb': int(round(scale.get_value() / 16) * 16),
+            'screenshot_dir': capture_entry.get_text().strip(),
+            'timeshift_auto': bool(ts_auto.get_active()),
         }
         sources.save_config(app.cfg)
         app.get_application().apply_theme(app.cfg['theme'],app.cfg['accent_hex'])

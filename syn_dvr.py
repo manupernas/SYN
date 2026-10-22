@@ -22,6 +22,7 @@ import tempfile
 import threading
 import time
 import uuid
+import syn_multistream
 
 APP_ID = 'com.mrseivane.Syn'
 VLC_UA = 'VLC/3.0.21 LibVLC/3.0.21'
@@ -102,7 +103,9 @@ class DVRStore:
                     os.unlink(tmp)
             return result
 
-    def add(self, name, url, start, end=None, user_agent=VLC_UA, programme=None):
+    def add(self, name, url, start, end=None, user_agent=VLC_UA, programme=None,
+            profile_id=None, max_connections=1):
+        # SYN_DUAL_TIMESHIFT_BETA_132: admit bookings under an atomic lock.
         if not allowed_stream_url(url):
             raise ValueError('La URL del canal debe ser HTTP o HTTPS.')
         start = float(start)
@@ -117,8 +120,29 @@ class DVRStore:
                'user_agent': str(user_agent or VLC_UA),
                'status': 'scheduled', 'path': '', 'error': '',
                'stop_requested': False, 'created': now,
-               'programme': str(programme or '')[:250]}
-        self.change(lambda db: db.setdefault('jobs', []).append(job))
+               'programme': str(programme or '')[:250],
+               'profile_id': str(profile_id or ''),
+               'max_connections': syn_multistream.profile_limit({'max_connections': max_connections})}
+        def admit(db):
+            # Avoid accidental duplicate recordings and UDP relay-port collisions.
+            for other in syn_multistream.admitted_jobs(db, job['profile_id']):
+                if (other.get('url') == job['url'] and
+                        syn_multistream.intervals_overlap(
+                            start, end, other.get('start', 0), other.get('end'))):
+                    raise ValueError('Este canal ya tiene una grabación coincidente.')
+            used_ports = {syn_relay_port(j['id']) for j in db.get('jobs', [])
+                          if isinstance(j, dict) and j.get('id') and
+                          j.get('status') in ('running','scheduled')}
+            for _attempt in range(64):
+                if syn_relay_port(job['id']) not in used_ports: break
+                job['id'] = uuid.uuid4().hex[:14]
+            else: raise ValueError('Sin puertos libres para relay DVR.')
+            if not syn_multistream.can_schedule(db, job['profile_id'], start, end,
+                                                job['max_connections']):
+                raise ValueError('Límite de conexiones simultáneas del perfil. '
+                                 'Modifica el límite en Ajustes > Perfil.')
+            db.setdefault('jobs', []).append(job)
+        self.change(admit)
         return job
 
     def stop(self, job_id):
@@ -322,6 +346,13 @@ def run_worker(poll_seconds=2):
                     continue
                 if job.get('end') and float(job['end']) <= now:
                     store.change(lambda d, k=key: _set_job(d, k, status='missed', error='El horario programado ya terminó.'))
+                    continue
+                # Admission races are checked again in the single worker.
+                # The worker never starts an extra IPTV connection.
+                busy = sum(1 for j in data.get('jobs', [])
+                           if j.get('id') in active and
+                           syn_multistream.same_profile(j, job.get('profile_id')))
+                if not syn_multistream.can_start_now(data, job, busy):
                     continue
                 try:
                     folder = Path(data.get('folder') or video_directory()).expanduser()

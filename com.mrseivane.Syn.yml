@@ -96,6 +96,13 @@ modules:
       - install -Dm644 syn_sources.py /app/share/syn/syn_sources.py
       - install -Dm644 syn_i18n.py /app/share/syn/syn_i18n.py
       - install -Dm644 syn_favoritos.py /app/share/syn/syn_favoritos.py
+      - install -Dm644 syn_fav_sort.py /app/share/syn/syn_fav_sort.py
+      - install -Dm644 syn_multistream.py /app/share/syn/syn_multistream.py
+      - install -Dm644 syn_reconnect.py /app/share/syn/syn_reconnect.py
+      - install -Dm644 syn_timeshift.py /app/share/syn/syn_timeshift.py
+      - install -Dm644 syn_cast_host.py /app/share/syn/syn_cast_host.py
+      - install -Dm644 syn_idle_screen.png /app/share/syn/syn_idle_screen.png
+      - install -Dm755 instalar-servicio-cast.sh /app/share/syn/instalar-servicio-cast.sh
       - install -Dm644 syn_settings_rev3.py /app/share/syn/syn_settings_rev3.py
       - install -Dm644 syn_locale_rev3.py /app/share/syn/syn_locale_rev3.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo

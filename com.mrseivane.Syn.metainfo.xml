@@ -36,6 +36,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.3" date="2026-10-22">
+      <description>
+        <p>Visual drag-and-drop favourite ordering, Chromecast HLS transcoding bridge (host setup required), time-shift, connection-aware casting, channel screenshots and playback improvements.</p>
+        <p xml:lang="es">Orden visual de favoritos mediante arrastre, Chromecast mediante servicio HLS (requiere instalación anfitriona), timeshift, capturas PNG y mejoras de reproducción.</p>
+      </description>
+    </release>
     <release version="1.3.2" date="2026-10-21">
       <description>
         <p>Continuous vertical programme guide with mouse-driven horizontal timeline, improved favourites and EPG recording, a reorganised settings window and Spanish/English locale fixes.</p>

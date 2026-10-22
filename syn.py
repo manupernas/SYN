@@ -28,15 +28,24 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import syn_sources as sources
 import syn_dvr
+import syn_reconnect
+import syn_multistream
+import syn_timeshift
 import syn_favoritos
+import syn_fav_sort
 import syn_service_setup
 from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, locale_description
 from pathlib import Path
 from urllib.parse import urlsplit
 
+# Clean video-only PNG filenames; never place channel URLs in paths.
+def syn_capture_filename(value):
+    return (re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', str(value or 'Canal'))
+            .strip(' ._') or 'Canal')[:75]
+
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.2"
+SYN_VERSION = "1.3.3"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -410,6 +419,9 @@ class NativeMpv:
         self._stop_controls = threading.Event()
         self._control_thread = None
         self._dimensions = None
+        self._syn_ts_playback_time = None
+        self._syn_reconnect_buffering = False
+        self._syn_reconnect_seeking = False
         self._awaiting_load = False
         self._is_paused = False
         self._last_frame_at = time.monotonic()
@@ -533,9 +545,22 @@ class NativeMpv:
                 w = self.lib.mpv_get_property(self.ptr, b"video-params/w", 4, C.byref(width))
                 h = self.lib.mpv_get_property(self.ptr, b"video-params/h", 4, C.byref(height))
                 self._dimensions = (width.value, height.value) if w >= 0 and h >= 0 and width.value > 0 and height.value > 0 else None
+                position = C.c_double(0)
+                result = self.lib.mpv_get_property(self.ptr, b'time-pos', 5, C.byref(position))
+                self._syn_ts_playback_time = float(position.value) if result >= 0 else None
+                # MPV_FORMAT_FLAG = 3. Snapshot consumed by GTK later.
+                flag = C.c_int(0)
+                res = self.lib.mpv_get_property(self.ptr, b'paused-for-cache', 3, C.byref(flag))
+                self._syn_reconnect_buffering = bool(flag.value) if res >= 0 else False
+                flag = C.c_int(0)
+                res = self.lib.mpv_get_property(self.ptr, b'seeking', 3, C.byref(flag))
+                self._syn_reconnect_seeking = bool(flag.value) if res >= 0 else False
                 next_poll = time.monotonic() + 0.8
             elif not self.active_url:
                 self._dimensions = None
+                self._syn_ts_playback_time = None
+                self._syn_reconnect_buffering = False
+                self._syn_reconnect_seeking = False
                 next_poll = time.monotonic() + 0.8
 
     def _watchdog_loop(self):
@@ -699,6 +724,9 @@ class NativeMpv:
         self.active_url = channel.url
         self.active_name = channel.name
         self._dimensions = None
+        self._syn_ts_playback_time = None
+        self._syn_reconnect_buffering = False
+        self._syn_reconnect_seeking = False
         self._is_paused = False
         self._render_count = 0
         self._last_frame_at = time.monotonic()
@@ -725,6 +753,10 @@ class NativeMpv:
     def volume(self, val):
         if not self.closed and self.ptr:
             self._control_queue.put(("volume", (val,)))
+
+    def playback_position(self):
+        # Snapshot del hilo de control de mpv, nunca una llamada GTK síncrona.
+        return self._syn_ts_playback_time
 
     def video_dimensions(self):
         # Snapshot actualizado por el hilo de control: no bloquea GTK.
@@ -1909,7 +1941,7 @@ def run_gui(playlist):
 
     class IPTVWindow(Adw.ApplicationWindow):
         def __init__(self, app):
-            super().__init__(application=app, title=APP_TITLE, default_width=1280, default_height=720)
+            super().__init__(application=app, title=APP_TITLE, default_width=1280, default_height=776)
             self.add_css_class("iptv-tv")
             self.playlist = playlist
             self.cfg = sources.load_config()
@@ -1939,6 +1971,16 @@ def run_gui(playlist):
             self._dvr_playing_file = False
             self._dvr_return_channel = None
             self.dvr_store = syn_dvr.DVRStore()
+            self._syn_ts_session = None
+            self._syn_ts_poll_id = 0
+            self._syn_ts_seek_debounce = 0
+            self._syn_ts_ready = False
+            self._syn_ts_loading = False
+            self._syn_ts_offset = 0.0
+            self._syn_ts_ui_guard = False
+            self._syn_ts_snapshot_mode = False
+            self._syn_ts_snapshot_length = 0.0
+            self._syn_ts_snapshot_started = 0.0
             # Enable worker + tray on first GUI launch (never block GTK).
             syn_service_setup.ensure_services_async()
             self.fullscreen_mode = False
@@ -1951,6 +1993,8 @@ def run_gui(playlist):
             self.compact_controls = False
             self._last_window_width = 0
             self._last_video_width = 0
+            # SYN_STARTUP_VIDEO_16_9_ONCE: una única petición de tamaño.
+            self._syn_startup_ratio_pending = True
             self._tiny_header = False
             self.fs_osd_visible = False
             self.fs_osd_timer = 0
@@ -1982,15 +2026,11 @@ def run_gui(playlist):
             self.header.add_css_class("iptv-header")
             brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
             brand.append(brand_icon(35))
-            heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-            title = Gtk.Label(label="SYN", xalign=0)
+            title = Gtk.Label(xalign=0)
+            title.set_markup('<b>SYN</b>')
             title.add_css_class("iptv-heading")
             self.header_title = title
-            heading.append(title)
-            self.subtitle = Gtk.Label(label=tr("Televisión · GTK4 · libmpv"), xalign=0)
-            self.subtitle.add_css_class("iptv-subtitle")
-            heading.append(self.subtitle)
-            brand.append(heading)
+            brand.append(title)
             self.header.set_title_widget(brand)
             open_list = Gtk.Button.new_from_icon_name("document-open-symbolic")
             open_list.set_tooltip_text(tr("Abrir una lista M3U"))
@@ -2122,8 +2162,11 @@ def run_gui(playlist):
             self.blank_label.set_valign(Gtk.Align.CENTER)
             self.blank_label.set_can_target(False)
             self.overlay.add_overlay(self.blank_label)
+            self._syn_idle_build()
+            self._syn_capture_setup()
             self.build_fullscreen_osd()
             self.build_epg_guide()
+            self._syn_reconnect_build()
             if self._restore_ui.get('guide') is True:
                 GLib.idle_add(self.set_guide_open, True)
             video_click = Gtk.GestureClick.new()
@@ -2188,6 +2231,9 @@ def run_gui(playlist):
             self.rec_button.set_size_request(27, 27)
             self.rec_button.set_tooltip_text(tr('Grabar canal actual'))
             self.rec_button.connect('clicked', self.toggle_instant_record)
+            self.shot_button = Gtk.Button.new_from_icon_name('camera-photo-symbolic')
+            self.shot_button.set_tooltip_text('Capturar fotograma PNG')
+            self.shot_button.connect('clicked', self._syn_capture_take)
             volume_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
             self.volume = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
             self.volume.set_value(100)
@@ -2201,8 +2247,20 @@ def run_gui(playlist):
             full.set_tooltip_text(tr("Pantalla completa · F"))
             full.connect("clicked", self.toggle_fullscreen)
             self.toolbar_widgets = (self.play_button, self.pause_button, stop,
-                                    self.rec_button, volume_icon, self.volume, info, full)
+                                    self.rec_button, self.shot_button, volume_icon,
+                                    self.volume, info, full)
             self._arrange_toolbar(compact=False)
+            self.cast_button = Gtk.Button.new_from_icon_name('chromecast-symbolic')
+            self.cast_button.add_css_class('syn-cast-button')
+            self._syn_cast_apply_orange_style()
+            self.cast_button.set_tooltip_text('Retransmitir por Chromecast')
+            self.cast_button.connect('clicked', self._syn_cast_menu)
+            self._syn_cast_target_uuid = None
+            self._syn_cast_device_name = ''
+            self._syn_cast_only = False
+            self._syn_cast_busy = False
+            self._arrange_toolbar(compact=False)
+            GLib.timeout_add(1600, self._syn_cast_restore)
 
             self.footer = Gtk.Label(label=tr("Doble clic en canal para reproducir · Espacio pausa · F pantalla completa · Esc salir de pantalla completa"), xalign=0)
             self.footer.add_css_class("iptv-details")
@@ -2533,12 +2591,17 @@ def run_gui(playlist):
             try:
                 job = self.dvr_store.add(channel.name, channel.url,
                                          time.time() if start is None else start,
-                                         end, syn_dvr.VLC_UA, programme=programme)
+                                         end, syn_dvr.VLC_UA, programme=programme,
+                                         profile_id=self.profile.get('id'),
+                                         max_connections=syn_multistream.profile_limit(self.profile))
             except Exception:
                 if paused:
                     player.play(channel)
                 raise
             syn_dvr.ensure_worker()
+            if getattr(self, '_syn_ts_session', None) and (start is None or float(start) <= time.time() + 3):
+                self._syn_ts_stop(restore=False)
+            self._syn_enforce_connection_limit()
             self.dvr_refresh(force=True)
             return job
 
@@ -2990,6 +3053,15 @@ def run_gui(playlist):
             self.fs_guide_btn.set_tooltip_text(tr('Ver la programación sin salir de pantalla completa'))
             self.fs_guide_btn.connect('clicked', self.show_guide)
             self.fs_top.append(self.fs_guide_btn)
+            self.fs_cast_button = Gtk.Button.new_from_icon_name('chromecast-symbolic')
+            self.fs_cast_button.add_css_class('syn-cast-button')
+            self.fs_cast_button.set_tooltip_text('Retransmitir por Chromecast')
+            self.fs_cast_button.connect('clicked', self._syn_cast_menu)
+            self.fs_top.append(self.fs_cast_button)
+            shot_full = Gtk.Button.new_from_icon_name('camera-photo-symbolic')
+            shot_full.set_tooltip_text('Capturar fotograma PNG')
+            shot_full.connect('clicked', self._syn_capture_take)
+            self.fs_top.append(shot_full)
             previous = Gtk.Button.new_from_icon_name("go-previous-symbolic")
             previous.set_tooltip_text(tr("Canal anterior"))
             previous.connect("clicked", lambda *_: self.zap(-1))
@@ -3103,7 +3175,8 @@ def run_gui(playlist):
             self.fs_bottom.set_valign(Gtk.Align.END)
             self.fs_bottom.set_hexpand(True)
             meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-            meta.set_hexpand(True)
+            meta.set_hexpand(False)
+            meta.set_size_request(240, -1)
             self.fs_channel_label = Gtk.Label(label=tr("Selecciona un canal"), xalign=0)
             self.fs_channel_label.add_css_class("syn-fs-channel")
             self.fs_channel_label.set_ellipsize(Pango.EllipsizeMode.END)
@@ -3117,6 +3190,38 @@ def run_gui(playlist):
             self.fs_next_label.set_ellipsize(Pango.EllipsizeMode.END)
             meta.append(self.fs_next_label)
             self.fs_bottom.append(meta)
+            # Discreet horizontal timeshift control between channel metadata and volume.
+            self.fs_ts_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            self.fs_ts_bar.add_css_class('syn-fs-volume')
+            self.fs_ts_bar.set_valign(Gtk.Align.END)
+            self.fs_ts_bar.set_hexpand(True)
+            self.fs_ts_bar.set_halign(Gtk.Align.FILL)
+            self.fs_ts_enable = Gtk.ToggleButton(label='⏱')
+            self.fs_ts_enable.set_tooltip_text('Toggle timeshift' if LANGUAGE.startswith('en') else 'Activar o desactivar timeshift')
+            self.fs_ts_enable.connect('toggled', self._syn_ts_toggle)
+            self.fs_ts_bar.append(self.fs_ts_enable)
+            self.fs_ts_shortcuts = []
+            for label, seconds in (('−30s',30), ('−1m',60), ('−1m30',90)):
+                btn = Gtk.Button(label=label)
+                btn.add_css_class('flat')
+                btn.set_tooltip_text(('Go back ' if LANGUAGE.startswith('en') else 'Retroceder ') + str(seconds) + (' seconds' if LANGUAGE.startswith('en') else ' segundos'))
+                btn.connect('clicked', lambda _b, amount=seconds: self._syn_ts_seek_to(amount))
+                self.fs_ts_bar.append(btn)
+                self.fs_ts_shortcuts.append(btn)
+            self.fs_ts_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL,-120,0,1)
+            self.fs_ts_slider.set_draw_value(False)
+            self.fs_ts_slider.set_size_request(260,-1)
+            self.fs_ts_slider.set_hexpand(True)
+            self.fs_ts_slider.connect('value-changed', self._syn_ts_slider_changed)
+            self.fs_ts_bar.append(self.fs_ts_slider)
+            self.fs_ts_readout = Gtk.Label(label='DIRECTO')
+            self.fs_ts_bar.append(self.fs_ts_readout)
+            self.fs_ts_live = Gtk.Button(label='●')
+            self.fs_ts_live.set_tooltip_text('Return to live' if LANGUAGE.startswith('en') else 'Volver al directo')
+            self.fs_ts_live.connect('clicked', self._syn_ts_go_live)
+            self.fs_ts_bar.append(self.fs_ts_live)
+            self.fs_bottom.append(self.fs_ts_bar)
+            self._syn_ts_render()
             volume_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
             volume_box.add_css_class("syn-fs-volume")
             volume_box.set_valign(Gtk.Align.END)
@@ -3130,6 +3235,553 @@ def run_gui(playlist):
             self.fs_bottom.append(volume_box)
             self.overlay.add_overlay(self.fs_bottom)
             self.fs_bottom.set_visible(False)
+
+        # SYN_DUAL_TIMESHIFT_BETA_132: optional 2-minute disk-backed live ring.
+        def _syn_ts_stop(self, restore=False):
+            session = getattr(self, '_syn_ts_session', None)
+            self._syn_ts_session = None
+            self._syn_ts_loading = False
+            self._syn_ts_ready = False
+            self._syn_ts_offset = 0.0
+            self._syn_ts_snapshot_mode = False
+            self._syn_ts_snapshot_length = 0.0
+            self._syn_ts_snapshot_started = 0.0
+            if getattr(self, '_syn_ts_poll_id', 0):
+                GLib.source_remove(self._syn_ts_poll_id)
+                self._syn_ts_poll_id = 0
+            if getattr(self, '_syn_ts_seek_debounce', 0):
+                GLib.source_remove(self._syn_ts_seek_debounce)
+                self._syn_ts_seek_debounce = 0
+            player = self.area.player if hasattr(self, 'area') else None
+            if player and session and (
+                    player.active_url == session.playlist.as_uri() or
+                    player.active_url.startswith(session._base_url() or 'syn://invalid')):
+                player.stop()
+            if session:
+                session.stop()
+            if hasattr(self, 'fs_ts_enable'):
+                self._syn_ts_ui_guard = True
+                self.fs_ts_enable.set_active(False)
+                self.fs_ts_slider.set_value(0)
+                self._syn_ts_ui_guard = False
+                self._syn_ts_render()
+            if restore and self.current:
+                self._syn_ts_auto_blocked_url = self.current.url
+                self.start_channel(self.current)
+
+        def _syn_ts_toggle(self, button):
+            if getattr(self, '_syn_ts_ui_guard', False):
+                return
+            if button.get_active():
+                self._syn_ts_start()
+            else:
+                self._syn_ts_stop(restore=True)
+
+        def _syn_ts_auto_enabled(self, channel):
+            if not syn_timeshift.stream_allowed(channel.url):
+                return False
+            if getattr(self, '_syn_ts_auto_blocked_url', None) == channel.url:
+                return False
+            return bool(self.cfg.get('player', {}).get('timeshift_auto', True))
+
+        def _syn_ts_start(self):
+            ch = self.current
+            if not ch or not syn_timeshift.stream_allowed(ch.url):
+                self.status.set_text('Timeshift: selecciona primero un canal IPTV.')
+                self._syn_ts_stop()
+                return
+            if getattr(self, '_syn_ts_session', None):
+                return
+            db = self.dvr_store.read()
+            # Don't make a second provider request to an already recorded channel.
+            if any(j.get('url') == ch.url for j in syn_multistream.active_jobs(db, self.profile.get('id'))):
+                self.status.set_text('Timeshift: no disponible durante una grabación de este canal.')
+                self._syn_ts_stop()
+                return
+            if syn_multistream.should_release_playback(db, self.profile.get('id'),
+                                                       syn_multistream.profile_limit(self.profile), ch.url):
+                self.status.set_text('Timeshift: todas las conexiones están ocupadas por el DVR.')
+                self._syn_ts_stop()
+                return
+            # Release the original provider connection before FFmpeg opens one.
+            player = self.area.player
+            if player:
+                player.stop()
+            try:
+                self._syn_ts_session = syn_timeshift.TimeshiftSession()
+                self._syn_ts_channel_url = ch.url
+                self._syn_ts_ready = False
+                self._syn_ts_loading = True
+                self._syn_ts_started_at = time.monotonic()
+                self._syn_ts_offset = 0.0
+                ua = syn_dvr.VLC_UA
+                if self.player_options.get('user_agent') == 'Personalizado':
+                    ua = self.player_options.get('custom_ua') or ua
+                self._syn_ts_session.start(ch.url, ua)
+            except (OSError, ValueError) as exc:
+                self.status.set_text('Timeshift: ' + str(exc)[:120])
+                self._syn_ts_stop(restore=True)
+                return
+            self.status.set_text('Timeshift: preparando búfer temporal…')
+            if self.fullscreen_mode: self.set_fs_osd(True)
+            self._syn_ts_poll_id = GLib.timeout_add(450, self._syn_ts_poll)
+            self._syn_ts_ui_guard = True
+            try:
+                self.fs_ts_enable.set_active(True)
+            finally:
+                self._syn_ts_ui_guard = False
+            self._syn_ts_render()
+
+        def _syn_ts_poll(self):
+            session = getattr(self, '_syn_ts_session', None)
+            if not session or not self.current or self.current.url != self._syn_ts_channel_url:
+                self._syn_ts_poll_id = 0
+                return False
+            error = session.error()
+            if error:
+                self._syn_ts_poll_id = 0
+                self.status.set_text('Timeshift: ' + error)
+                self._syn_ts_stop(restore=True)
+                return False
+            if (not self._syn_ts_ready and
+                    time.monotonic() - getattr(self, '_syn_ts_started_at', time.monotonic()) > 20):
+                self.status.set_text('Timeshift: sin señal inicial; regreso al directo.')
+                self._syn_ts_stop(restore=True)
+                return False
+            if not self._syn_ts_ready and session.ready():
+                self._syn_ts_ready = True
+                self._syn_ts_loading = False
+                if self.area.player:
+                    # SYN_TIMESHIFT_BETA2_HTTP_SNAPSHOT: serving a changing
+                    # local HLS playlist over loopback is more reliable than file://.
+                    self.area.player.play(Channel(self.current.name, self.current.group,
+                                                  session.live_url(), self.current.logo))
+                self.status.set_text('Timeshift activo · memoria circular de hasta 2 minutos')
+                if self.fullscreen_mode: self.set_fs_osd(True)
+            if self._syn_ts_ready:
+                self._syn_ts_render()
+                if session.disk_bytes() > syn_timeshift.MAX_DISK_BYTES:
+                    self.status.set_text('Timeshift: límite de almacenamiento; regresando al directo.')
+                    self._syn_ts_stop(restore=True)
+                    return False
+            return True
+
+        def _syn_ts_render(self):
+            if not hasattr(self, 'fs_ts_slider'):
+                return
+            session = getattr(self, '_syn_ts_session', None)
+            ready = bool(session and getattr(self, '_syn_ts_ready', False))
+            available = min(120.0, session.available_seconds()) if ready else 0.0
+            self._syn_ts_ui_guard = True
+            self.fs_ts_slider.set_range(-max(1,available), 0)
+            if not ready:
+                self.fs_ts_slider.set_value(0)
+            self._syn_ts_ui_guard = False
+            self.fs_ts_slider.set_sensitive(ready)
+            for button, threshold in zip(self.fs_ts_shortcuts, (30, 60, 90)):
+                button.set_sensitive(ready and available >= threshold - 2)
+            self.fs_ts_live.set_sensitive(ready)
+            # A VOD snapshot does not seek on a changing live HLS manifest.
+            # Behind-live is approximate: live edge keeps moving as VOD plays.
+            if ready and getattr(self, '_syn_ts_snapshot_mode', False):
+                pos = self.area.player.playback_position() if self.area.player else None
+                length = getattr(self, '_syn_ts_snapshot_length', 0.0)
+                if pos is not None:
+                    elapsed = max(0.0, time.monotonic() - self._syn_ts_snapshot_started)
+                    self._syn_ts_offset = -max(0.0, length + elapsed - pos)
+                if pos is not None and length > 1 and pos >= length - 1.2:
+                    self._syn_ts_go_live()
+                    return
+            lag = int(round(-self._syn_ts_offset)) if ready else 0
+            # Reflect playback, not just the user's last button press.
+            self._syn_ts_ui_guard = True
+            self.fs_ts_slider.set_value(-min(available, max(0.0, float(lag))))
+            self._syn_ts_ui_guard = False
+            self.fs_ts_readout.set_text('≈−%ds' % lag if lag else ('LIVE' if LANGUAGE.startswith('en') else 'DIRECTO'))
+
+        def _syn_ts_seek_to(self, seconds_back):
+            session = getattr(self, '_syn_ts_session', None)
+            if not session or not self._syn_ts_ready or not self.area.player:
+                return
+            available = max(0, session.available_seconds() - 1)
+            target = min(max(0.0, float(seconds_back)), available)
+            if target < 1:
+                self._syn_ts_go_live()
+                return
+            try:
+                url, duration = session.snapshot_back(target)
+            except (OSError, ValueError, RuntimeError) as exc:
+                self.status.set_text('Timeshift: ' + str(exc)[:125])
+                self.fs_ts_readout.set_text('ERROR')
+                return
+            self._syn_ts_snapshot_mode = True
+            self._syn_ts_snapshot_length = duration
+            self._syn_ts_snapshot_started = time.monotonic()
+            self._syn_ts_offset = -duration
+            self.area.player.play(Channel(self.current.name, self.current.group,
+                                          url, self.current.logo))
+            if self.fullscreen_mode: self.set_fs_osd(True)
+            self._syn_ts_ui_guard = True
+            self.fs_ts_slider.set_value(-min(available, duration))
+            self._syn_ts_ui_guard = False
+            self._syn_ts_render()
+
+        def _syn_ts_slider_changed(self, slider):
+            if not getattr(self, '_syn_ts_ui_guard', False):
+                if self.fullscreen_mode: self.set_fs_osd(True)
+                if getattr(self, '_syn_ts_seek_debounce', 0):
+                    GLib.source_remove(self._syn_ts_seek_debounce)
+                self._syn_ts_seek_debounce = GLib.timeout_add(170, self._syn_ts_slider_commit)
+
+        def _syn_ts_slider_commit(self):
+            self._syn_ts_seek_debounce = 0
+            self._syn_ts_seek_to(-self.fs_ts_slider.get_value())
+            return False
+
+        def _syn_ts_go_live(self, *_):
+            session = getattr(self, '_syn_ts_session', None)
+            if not session or not self._syn_ts_ready:
+                return
+            self._syn_ts_offset = 0
+            self._syn_ts_snapshot_mode = False
+            self._syn_ts_snapshot_length = 0.0
+            self._syn_ts_snapshot_started = 0.0
+            # Reopen the *local HTTP* live playlist. No extra provider login.
+            if self.area.player and self.current:
+                self.area.player.play(Channel(self.current.name, self.current.group,
+                                              session.live_url(), self.current.logo))
+            self._syn_ts_ui_guard = True
+            self.fs_ts_slider.set_value(0)
+            self._syn_ts_ui_guard = False
+            self._syn_ts_render()
+
+        # SYN_RECONNECT_COLOR_BARS_BETA3: never interfere with DVR or timeshift.
+        def _syn_reconnect_bars_draw(self, _area, cr, width, height):
+            # Colours and geometry follow SYN's approved colour-bar icon.
+            top = ((.42,.79,.99), (1.00,.87,.28), (.31,.88,.74),
+                   (.19,.69,.96), (.63,.32,.94), (.96,.28,.65), (.99,.43,.33))
+            bottom = ((.17,.30,.58), (.50,.20,.98), (.16,.25,.44),
+                      (.10,.85,.90), (.98,.17,.58))
+            split = int(height * .79)
+            for i, (r,g,b) in enumerate(top):
+                left = width * i / len(top)
+                cr.set_source_rgb(r,g,b)
+                cr.rectangle(left, 0, width / len(top) + 1, split)
+                cr.fill()
+            for i, (r,g,b) in enumerate(bottom):
+                left = width * i / len(bottom)
+                cr.set_source_rgb(r,g,b)
+                cr.rectangle(left, split, width / len(bottom) + 1, height - split)
+                cr.fill()
+
+        def _syn_reconnect_build(self):
+            self._syn_reconnect_watch = syn_reconnect.RecoveryWatch()
+            self._syn_reconnect_last_url = None
+            self._syn_reconnect_layer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            self._syn_reconnect_layer.set_halign(Gtk.Align.CENTER)
+            self._syn_reconnect_layer.set_valign(Gtk.Align.CENTER)
+            self._syn_reconnect_layer.set_can_target(False)
+            self._syn_reconnect_layer.set_visible(False)
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+            card.set_halign(Gtk.Align.CENTER)
+            card.set_margin_top(15); card.set_margin_bottom(15)
+            card.set_margin_start(15); card.set_margin_end(15)
+            card.add_css_class('syn-reconnect-card')
+            self._syn_reconnect_art = Gtk.DrawingArea()
+            self._syn_reconnect_art.set_content_width(280)
+            self._syn_reconnect_art.set_content_height(172)
+            self._syn_reconnect_art.set_draw_func(self._syn_reconnect_bars_draw)
+            card.append(self._syn_reconnect_art)
+            label = Gtk.Label(label=('Reconnecting…' if LANGUAGE.startswith('en')
+                                      else 'Reconectando…'))
+            label.set_xalign(.5)
+            label.add_css_class('title-3')
+            card.append(label)
+            self._syn_reconnect_label = label
+            self._syn_reconnect_layer.append(card)
+            self.overlay.add_overlay(self._syn_reconnect_layer)
+            # App priority: consistent in Sistema, Claro, Oscuro and Teal.
+            css = Gtk.CssProvider()
+            css.load_from_data(b'.syn-reconnect-card { background-color: rgba(11,24,29,0.94); '
+                               b'color: white; padding: 18px; border-radius: 18px; '
+                               b'border: 1px solid rgba(255,255,255,0.18); } '
+                               b'.syn-reconnect-card label { color: white; }')
+            display = self.get_display() or Gdk.Display.get_default()
+            if display is not None:
+                Gtk.StyleContext.add_provider_for_display(
+                    display, css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 4)
+            self._syn_reconnect_css = css
+            GLib.timeout_add(800, self._syn_reconnect_tick)
+
+        def _syn_reconnect_reset(self):
+            if hasattr(self, '_syn_reconnect_watch'):
+                self._syn_reconnect_watch.clear()
+                self._syn_reconnect_last_url = None
+                self._syn_reconnect_layer.set_visible(False)
+
+        def _syn_reconnect_tick(self):
+            player = self.area.player if getattr(self, 'area', None) else None
+            channel = getattr(self, 'current', None)
+            if not hasattr(self, '_syn_reconnect_watch'):
+                return True
+            if not player or not player.ctx.value or not channel or not player.active_url:
+                self._syn_reconnect_reset()
+                return True
+            if self.is_fullscreen() and getattr(self, 'guide_open', False):
+                # Never obscure the interactive guide with a recovery card.
+                self._syn_reconnect_layer.set_visible(False)
+            if getattr(self, '_syn_ts_snapshot_mode', False) or getattr(self, '_dvr_playing_file', False):
+                self._syn_reconnect_reset()
+                return True
+            # UI never calls mpv_get_property: the control thread owns polling.
+            snapshot = player.playback_position()
+            cache = bool(getattr(player, '_syn_reconnect_buffering', False))
+            seeking = bool(getattr(player, '_syn_reconnect_seeking', False))
+            loading = bool(getattr(player, '_awaiting_load', False))
+            decision = self._syn_reconnect_watch.sample(
+                time.monotonic(), player.active_url, snapshot,
+                paused=player.paused(), buffering=cache,
+                seeking=seeking, loading=loading)
+            show = bool(decision.visible and not getattr(self, 'guide_open', False)
+                        and not self.dvr_view.get_visible())
+            self._syn_reconnect_layer.set_visible(show)
+            if show:
+                if LANGUAGE.startswith('en'):
+                    msg = 'Reconnecting…' if decision.retry else 'Waiting for signal…'
+                else:
+                    msg = 'Reconectando…' if decision.retry else 'Esperando señal…'
+                if decision.attempt:
+                    msg += '  ·  ' + str(decision.attempt)
+                self._syn_reconnect_label.set_text(msg)
+            if decision.retry:
+                # Crucial: reload CURRENT PLAYER URL. It may be a local DVR
+                # relay or a timeshift HTTP URL, NOT the upstream IPTV URL.
+                # Do not stop any FFmpeg worker, timeshift session or DVR job.
+                try:
+                    target = player.active_url
+                    if target == channel.url and syn_dvr.allowed_stream_url(target):
+                        # Double-DVR admission wins over reconnecting playback:
+                        # never accidentally open a third provider connection.
+                        db = self.dvr_store.read()
+                        if syn_multistream.should_release_playback(
+                                db, self.profile.get('id'),
+                                syn_multistream.profile_limit(self.profile), channel.url):
+                            relay, _waiting = self._syn_dvr_playback_target(channel)
+                            if relay:
+                                target = relay
+                            else:
+                                player.stop()
+                                self._syn_reconnect_reset()
+                                return True
+                    player.play(Channel(channel.name, channel.group,
+                                        target, channel.logo))
+                except (OSError, ValueError, RuntimeError) as exc:
+                    self.status.set_text('SYN: ' + type(exc).__name__)
+            return True
+
+        # SYN_IDLE_COLORBARS_BETA4: strictly visual; no MPV or DVR modifications.
+        def _syn_idle_build(self):
+            # Add before OSD/EPG/reconnect layers, so their controls stay visible.
+            asset = Path(__file__).resolve().with_name('syn_idle_screen.png')
+            self._syn_idle_layer = Gtk.Overlay()
+            self._syn_idle_layer.set_hexpand(True)
+            self._syn_idle_layer.set_vexpand(True)
+            self._syn_idle_layer.set_halign(Gtk.Align.FILL)
+            self._syn_idle_layer.set_valign(Gtk.Align.FILL)
+            self._syn_idle_layer.set_can_target(False)
+            picture = Gtk.Picture.new_for_filename(str(asset))
+            picture.set_content_fit(Gtk.ContentFit.COVER)
+            picture.set_can_shrink(True)
+            picture.set_hexpand(True)
+            picture.set_vexpand(True)
+            self._syn_idle_layer.set_child(picture)
+            hint = Gtk.Label(label=('Double-click a channel to play' if
+                                    LANGUAGE.startswith('en') else
+                                    'Doble click en un canal para reproducir'))
+            hint.set_justify(Gtk.Justification.CENTER)
+            hint.set_wrap(True)
+            hint.set_max_width_chars(42)
+            hint.set_halign(Gtk.Align.CENTER)
+            hint.set_valign(Gtk.Align.CENTER)
+            hint.set_can_target(False)
+            hint.add_css_class('syn-idle-hint')
+            self._syn_idle_hint = hint
+            self._syn_idle_layer.add_overlay(hint)
+            self.overlay.add_overlay(self._syn_idle_layer)
+            # Old white-text placeholder is superseded only while this artwork
+            # is installed. Keep the object for existing code paths/set_text.
+            self.blank_label.set_visible(False)
+            css = Gtk.CssProvider()
+            # SYN_IDLE_TEXT_SHADOW_BETA4_1: text directly on bars, no container.
+            css.load_from_data(b'.syn-idle-hint { color: #f6fafb; '
+                               b'font-size: 19px; font-weight: 700; '
+                               b'background: transparent; border: none; '
+                               b'padding: 0; border-radius: 0; box-shadow: none; '
+                               b'text-shadow: 0 2px 7px rgba(0,0,0,0.95), '
+                               b'0 0 18px rgba(0,0,0,0.75); }')
+            display = self.get_display() or Gdk.Display.get_default()
+            if display:
+                Gtk.StyleContext.add_provider_for_display(
+                    display, css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 5)
+            self._syn_idle_css = css
+            self._syn_idle_sync()
+            self._syn_idle_timer_id = GLib.timeout_add(350, self._syn_idle_tick)
+
+        def _syn_idle_sync(self):
+            if not hasattr(self, '_syn_idle_layer'):
+                return
+            no_channel = self.current is None or bool(getattr(self,'_syn_cast_only',False))
+            guide = bool(getattr(self, 'guide_open', False))
+            dvr = getattr(self, 'dvr_view', None)
+            dvr_visible = bool(dvr and dvr.get_visible())
+            visible = no_channel and not guide and not dvr_visible
+            if self._syn_idle_layer.get_visible() != visible:
+                self._syn_idle_layer.set_visible(visible)
+            # Preserve the original placeholder object for callers, but never
+            # allow it to appear above the artist's colour-bar background.
+            if self.blank_label.get_visible():
+                self.blank_label.set_visible(False)
+
+        def _syn_idle_tick(self):
+            self._syn_idle_sync()
+            return True
+
+        # SYN_CAPTURE_TIMESHIFT_BETA5: direct MPV frame PNG, not a window screenshot.
+        def _syn_capture_folder(self):
+            folder = (self.cfg.get('player', {}) or {}).get('screenshot_dir', '')
+            if folder:
+                return Path(folder).expanduser()
+            pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+            return Path(pictures) / 'SYN' if pictures else Path.home() / 'Imágenes' / 'SYN'
+
+        def _syn_capture_setup(self):
+            # Overlay decorations never consume mouse events or affect Gtk.GLArea.
+            css = Gtk.CssProvider()
+            css.load_from_data(b'.syn-shot-flash { background-color: rgba(255,255,255,0.65); } '
+                               b'.syn-shot-preview { background-color: rgba(9,23,27,0.8); '
+                               b'border: 1px solid rgba(255,255,255,0.4); border-radius: 8px; '
+                               b'padding: 5px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }')
+            display = self.get_display() or Gdk.Display.get_default()
+            if display:
+                Gtk.StyleContext.add_provider_for_display(
+                    display, css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
+            self._syn_shot_css = css
+            self._syn_shot_flash = Gtk.Box()
+            self._syn_shot_flash.add_css_class('syn-shot-flash')
+            self._syn_shot_flash.set_hexpand(True)
+            self._syn_shot_flash.set_vexpand(True)
+            self._syn_shot_flash.set_halign(Gtk.Align.FILL)
+            self._syn_shot_flash.set_valign(Gtk.Align.FILL)
+            self._syn_shot_flash.set_can_target(False)
+            self._syn_shot_flash.set_visible(False)
+            self.overlay.add_overlay(self._syn_shot_flash)
+            self._syn_shot_image = Gtk.Picture()
+            self._syn_shot_image.set_content_fit(Gtk.ContentFit.CONTAIN)
+            self._syn_shot_image.set_can_shrink(True)
+            self._syn_shot_image.set_size_request(184, 104)
+            self._syn_shot_reveal = Gtk.Revealer()
+            self._syn_shot_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+            self._syn_shot_reveal.set_transition_duration(420)
+            self._syn_shot_reveal.set_halign(Gtk.Align.START)
+            self._syn_shot_reveal.set_valign(Gtk.Align.START)
+            self._syn_shot_reveal.set_margin_start(23)
+            self._syn_shot_reveal.set_margin_top(23)
+            self._syn_shot_reveal.set_can_target(False)
+            self._syn_shot_reveal.add_css_class('syn-shot-preview')
+            self._syn_shot_reveal.set_child(self._syn_shot_image)
+            self._syn_shot_reveal.set_reveal_child(False)
+            self._syn_shot_reveal.set_visible(False)
+            self.overlay.add_overlay(self._syn_shot_reveal)
+            self._syn_shot_fade_id = 0
+            self._syn_shot_hold_id = 0
+            self._syn_shot_poll_id = 0
+            self._syn_shot_pending = None
+
+        def _syn_capture_flash(self):
+            if self._syn_shot_fade_id:
+                GLib.source_remove(self._syn_shot_fade_id)
+                self._syn_shot_fade_id = 0
+            layer = self._syn_shot_flash
+            layer.set_opacity(0.82)
+            layer.set_visible(True)
+            start = time.monotonic()
+            def tick():
+                elapsed = time.monotonic() - start
+                if elapsed >= 0.28:
+                    layer.set_opacity(0.0)
+                    layer.set_visible(False)
+                    self._syn_shot_fade_id = 0
+                    return False
+                layer.set_opacity(max(0.0, 0.82 * (1.0-elapsed/0.28)**2))
+                return True
+            self._syn_shot_fade_id = GLib.timeout_add(16, tick)
+
+        def _syn_capture_hide_preview(self):
+            self._syn_shot_hold_id = 0
+            self._syn_shot_reveal.set_reveal_child(False)
+            return False
+
+        def _syn_capture_poll(self):
+            pending = self._syn_shot_pending
+            if not pending:
+                self._syn_shot_poll_id = 0
+                return False
+            target, start = pending
+            if target.is_file() and target.stat().st_size > 100:
+                # PNG screenshot-to-file is asynchronous: only open when decodable.
+                try:
+                    texture = Gdk.Texture.new_from_filename(str(target))
+                except (GLib.Error, OSError):
+                    pass
+                else:
+                    self._syn_shot_pending = None
+                    self._syn_shot_poll_id = 0
+                    self._syn_shot_image.set_paintable(texture)
+                    self._syn_shot_reveal.set_visible(True)
+                    self._syn_shot_reveal.set_reveal_child(True)
+                    self._syn_capture_flash()
+                    if self._syn_shot_hold_id:
+                        GLib.source_remove(self._syn_shot_hold_id)
+                    self._syn_shot_hold_id = GLib.timeout_add(2400, self._syn_capture_hide_preview)
+                    return False
+            if time.monotonic() - start >= 6.0:
+                self._syn_shot_pending = None
+                self._syn_shot_poll_id = 0
+                self.status.set_text('SYN: no se pudo guardar la captura PNG.')
+                return False
+            return True
+
+        def _syn_capture_take(self, *_):
+            player = self.area.player
+            if not self.current or not player or not player.ctx.value or not player.active_url:
+                self.status.set_text('SYN: selecciona un canal antes de hacer una captura.')
+                return
+            if getattr(self, '_syn_shot_pending', None):
+                return  # Do not pile up asynchronous screenshot commands.
+            try:
+                folder = self._syn_capture_folder()
+                folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if not folder.is_dir():
+                    raise OSError('No es una carpeta.')
+                safe = syn_capture_filename(self.current.name)
+                stamp = dt.datetime.now().strftime('%Y-%m-%d %H-%M-%S-%f')
+                dest = folder / f'SYN - {safe} - {stamp}.png'
+                # This command runs on the existing MPV control worker,
+                # never on the GTK/GL rendering thread.
+                if player.command('screenshot-to-file', str(dest), 'video') < 0:
+                    raise OSError('libmpv no aceptó la captura.')
+                self._syn_shot_pending = (dest, time.monotonic())
+                self._syn_shot_poll_id = GLib.timeout_add(120, self._syn_capture_poll)
+            except (OSError, ValueError) as exc:
+                self.status.set_text('SYN captura: ' + str(exc)[:150])
+
+        def _syn_capture_close(self):
+            for name in ('_syn_shot_fade_id', '_syn_shot_hold_id', '_syn_shot_poll_id'):
+                source_id = getattr(self, name, 0)
+                if source_id:
+                    GLib.source_remove(source_id)
+                    setattr(self, name, 0)
+            self._syn_shot_pending = None
 
         def fs_volume_changed(self, scale):
             if hasattr(self, "volume") and abs(self.volume.get_value() - scale.get_value()) >= 0.5:
@@ -3145,10 +3797,12 @@ def run_gui(playlist):
             ix = self.fs_category.get_selected()
             category = self.category_names[ix] if ix < len(self.category_names) else "Todas las categorías"
             fav_only = self.fs_only_favorites.get_active()
-            return [ch for ch in self.channels
-                    if (not query or query in norm(ch.name + ' ' + ch.group))
-                    and (category == "Todas las categorías" or ch.group == category)
-                    and (not fav_only or ch.favorite_id in self.favorites)]
+            matches = [ch for ch in self.channels
+                       if (not query or query in norm(ch.name + ' ' + ch.group))
+                       and (category == "Todas las categorías" or ch.group == category)
+                       and (not fav_only or ch.favorite_id in self.favorites)]
+            return (syn_fav_sort.order_channels(matches, self.profile.get('favorites', []))
+                    if fav_only else matches)
 
         def render_fs_channels(self):
             if not hasattr(self, "fs_list") or not self.fs_remote_open:
@@ -3319,6 +3973,7 @@ def run_gui(playlist):
             self.fs_remote_revealer.set_visible(self.fullscreen_mode)
             self._syn_fade_fullscreen_osd(visible)
             if visible:
+                self._syn_ts_render()
                 self.fs_channel_label.set_text(display_channel_name(self.current.name) if self.current else "SYN")
                 self.update_programme()
                 if abs(self.fs_volume.get_value() - self.volume.get_value()) >= 0.5:
@@ -3367,6 +4022,9 @@ def run_gui(playlist):
             channels = [ch for ch in self.channels
                         if (not query or query in norm(ch.name) or query in norm(ch.group))
                         and (not self.quick_favs.get_active() or ch.favorite_id in self.favorites)]
+            if self.quick_favs.get_active():
+                channels = syn_fav_sort.order_channels(
+                    channels, self.profile.get('favorites', []))
             for ch in channels[:160]:
                 row = Gtk.ListBoxRow()
                 row.channel = ch
@@ -3395,14 +4053,257 @@ def run_gui(playlist):
                     self.listbox.select_row(self.listbox.get_row_at_index(i))
                     break
 
+        # SYN_CAST_BETA6: cast runs via a separate authenticated user service.
+        # The GTK process never handles discovery, video relay or ffmpeg itself.
+        # SYN_CAST_ICON_HOTFIX: icono Chromecast dedicado y resaltado visual.
+        # SYN_CAST_ORANGE_VISUAL_6_2: solo cambia el color de los botones Chromecast.
+        def _syn_cast_apply_orange_style(self):
+            if getattr(self, '_syn_cast_orange_css', None) is not None:
+                return
+            css = Gtk.CssProvider()
+            css.load_from_data(b"""
+            button.syn-cast-button {
+                background-image: none;
+                background-color: #FF6B00;
+                border: 1px solid #C94B00;
+                border-radius: 9px;
+                color: #FFFFFF;
+                min-width: 32px;
+                min-height: 32px;
+                padding: 4px 7px;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.33);
+            }
+            button.syn-cast-button image { color: #FFFFFF; }
+            button.syn-cast-button:hover {
+                background-image: none;
+                background-color: #FF8C29;
+                color: #FFFFFF;
+                border-color: #D75B00;
+            }
+            button.syn-cast-button:active,
+            button.syn-cast-button:checked {
+                background-image: none;
+                background-color: #DC5900;
+                color: #FFFFFF;
+                border-color: #B84700;
+            }
+            button.syn-cast-button:disabled {
+                background-image: none;
+                background-color: #986044;
+                color: #FFFFFF;
+            }
+            """)
+            Gtk.StyleContext.add_provider_for_display(
+                self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+            self._syn_cast_orange_css = css
+
+        def _syn_cast_call(self, data, on_result):
+            def worker():
+                try:
+                    import urllib.request
+                    token = (Path.home() / '.config/syn/cast-token').read_text('utf-8').strip()
+                    request = urllib.request.Request(
+                        'http://127.0.0.1:18976',
+                        data=json.dumps(data).encode('utf-8'),
+                        headers={'Content-Type': 'application/json', 'X-Syn-Token': token},
+                        method='POST')
+                    with urllib.request.urlopen(request, timeout=105) as resp:
+                        result = json.loads(resp.read(20000))
+                    if result.get('error'):
+                        raise RuntimeError(result['error'])
+                    GLib.idle_add(on_result, result, None)
+                except Exception as exc:
+                    # Do not expose the user's IPTV URLs in error messages.
+                    msg = type(exc).__name__ + ': ' + str(exc)
+                    if data.get('url'):
+                        msg = msg.replace(str(data['url']), '[URL]')
+                    GLib.idle_add(on_result, None, msg[:220])
+            threading.Thread(target=worker, daemon=True).start()
+
+        def _syn_cast_limit(self):
+            try:
+                count = int(self.profile.get('cast_max_connections', 1))
+            except (ValueError,TypeError): count = 1
+            return min(8, max(1,count))
+
+        def _syn_cast_dvr_count(self):
+            # Conservative: every running job consumes a slot. Never stop a DVR.
+            try:
+                jobs=self.dvr_store.read().get('jobs',[])
+                return sum(1 for j in jobs if j.get('status')=='running')
+            except Exception:
+                return None  # Unknown => refuse instead of risking the provider.
+
+        def _syn_cast_show_card(self):
+            if not hasattr(self, '_syn_idle_hint'): return
+            if getattr(self,'_syn_cast_only',False):
+                dest = getattr(self,'_syn_cast_device_name','') or 'Chromecast'
+                self._syn_idle_hint.set_text('RETRANSMITIENDO A…\n' + dest)
+            else:
+                self._syn_idle_hint.set_text(
+                    'Double-click a channel to play' if LANGUAGE.startswith('en')
+                    else 'Doble click en un canal para reproducir')
+            if hasattr(self,'_syn_idle_sync'): self._syn_idle_sync()
+
+        def _syn_cast_menu(self, button):
+            pop=Gtk.Popover()
+            pop.set_parent(button)
+            col=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
+            col.set_margin_top(12);col.set_margin_bottom(12)
+            col.set_margin_start(13);col.set_margin_end(13)
+            title=Gtk.Label(label='Retransmitir a un televisor',xalign=0)
+            title.add_css_class('heading');col.append(title)
+            row=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=12)
+            row.append(Gtk.Label(label='Conexiones máximas del perfil'))
+            spin=Gtk.SpinButton.new_with_range(1,8,1)
+            spin.set_value(self._syn_cast_limit())
+            def limit_changed(s):
+                self.profile['cast_max_connections']=s.get_value_as_int()
+                sources.save_config(self.cfg)
+            spin.connect('value-changed',limit_changed)
+            row.append(spin);col.append(row)
+            info=Gtk.Label(label='Se respetarán las grabaciones activas.\n'
+                                      'El límite debe coincidir con el de tu proveedor.',xalign=0)
+            info.set_wrap(True);col.append(info)
+            if getattr(self,'_syn_cast_target_uuid',None):
+                stop=Gtk.Button(label='Dejar de retransmitir y volver a SYN')
+                stop.connect('clicked',lambda *_:(pop.popdown(),self._syn_cast_stop()))
+                col.append(stop)
+            col.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+            busy=Gtk.Label(label='Buscando Chromecast…',xalign=0)
+            col.append(busy)
+            pop.set_child(col);pop.popup()
+            def done(result,error):
+                if not pop.get_parent(): return False
+                col.remove(busy)
+                if error:
+                    message=Gtk.Label(label='Sin conexión con el servicio Cast.\n'+error,xalign=0)
+                    message.set_wrap(True);col.append(message)
+                    return False
+                devices=result.get('devices',[])
+                if not devices:
+                    text=Gtk.Label(label='No se detectan dispositivos. Comprueba\n'
+                                         'que Fedora y Chromecast estén en la misma red.',xalign=0)
+                    col.append(text)
+                for dev in devices:
+                    b=Gtk.Button(label=dev['name'])
+                    b.connect('clicked',lambda _,d=dev:(pop.popdown(),self._syn_cast_play(d)))
+                    col.append(b)
+                return False
+            self._syn_cast_call({'action':'devices'},done)
+
+        def _syn_cast_play(self, device, channel=None):
+            channel = channel or self.current
+            if not channel:
+                self.status.set_text('Cast: selecciona primero un canal.')
+                return
+            if not channel.url.startswith(('http://','https://')):
+                self.status.set_text('Cast: este canal no tiene una URL HTTP(S) compatible.')
+                return
+            occupied=self._syn_cast_dvr_count()
+            if occupied is None:
+                self.status.set_text('Cast: no se puede verificar el estado del DVR.')
+                return
+            capacity=self._syn_cast_limit()
+            if occupied>=capacity:
+                self.status.set_text('Cast: todas las conexiones están ocupadas por el DVR.')
+                return
+            local_playing = bool(self.current is not None)
+            old_cast_only=bool(getattr(self,'_syn_cast_only',False))
+            exclusive=old_cast_only or (occupied + (1 if local_playing else 0) + 1 > capacity)
+            previous=self.current
+            self._syn_cast_device_name=device.get('name','Chromecast')
+            if exclusive:
+                # Cancel the rolling buffering session before releasing local playback.
+                if hasattr(self,'_syn_ts_stop') and getattr(self,'_syn_ts_session',None):
+                    try:self._syn_ts_stop(restore=False)
+                    except Exception as exc:
+                        self.status.set_text('Cast: no se pudo liberar el timeshift. '+type(exc).__name__)
+                        return
+                if self.area.player:self.area.player.stop()
+                self._syn_cast_only=True
+                self._syn_cast_show_card()
+            self.status.set_text('Cast: conectando con '+self._syn_cast_device_name+'…')
+            ua=getattr(syn_dvr,'VLC_UA','VLC/3.0.21 LibVLC/3.0.21')
+            # A relay/remux is needed for .ts and provider-specific User-Agent.
+            self._syn_cast_busy=True
+            def done(result,error):
+                self._syn_cast_busy=False
+                if error:
+                    self.status.set_text('Cast: '+error)
+                    if exclusive:
+                        self._syn_cast_only=False
+                        self._syn_cast_show_card()
+                        if previous:self.start_channel(previous)
+                    return False
+                self._syn_cast_target_uuid=device['id']
+                self.current=channel
+                self._syn_cast_device_name=result.get('name',device['name'])
+                self.now_playing.set_text(display_channel_name(channel.name))
+                self.fs_channel_label.set_text(display_channel_name(channel.name))
+                self._syn_cast_show_card()
+                self.status.set_text('Retransmitiendo a '+self._syn_cast_device_name)
+                return False
+            self._syn_cast_call({'action':'play','device':device['id'],
+                                 'url':channel.url,'title':display_channel_name(channel.name),
+                                 'ua':ua,'relay':True,
+                                 'capacity':capacity,'exclusive':exclusive},done)
+
+        def _syn_cast_restore(self):
+            def done(result,error):
+                if not error and result and result.get('active'):
+                    self._syn_cast_target_uuid=result.get('device')
+                    self._syn_cast_device_name=result.get('name') or 'Chromecast'
+                    self._syn_cast_only=bool(result.get('exclusive'))
+                    self._syn_cast_show_card()
+                    self.status.set_text('Cast activo: '+self._syn_cast_device_name)
+                return False
+            self._syn_cast_call({'action':'status'},done)
+            return False
+
+        def _syn_cast_stop(self):
+            if getattr(self,'_syn_cast_busy',False):
+                self.status.set_text('Cast: operación en curso.')
+                return
+            restore=bool(getattr(self,'_syn_cast_only',False))
+            channel=self.current
+            def done(result,error):
+                if error:
+                    self.status.set_text('Cast: '+error)
+                    return False
+                self._syn_cast_target_uuid=None
+                self._syn_cast_only=False
+                self._syn_cast_show_card()
+                if restore and channel:
+                    self.start_channel(channel)
+                else:
+                    self.status.set_text('Cast detenido.')
+                return False
+            self._syn_cast_call({'action':'stop'},done)
+
+        def _syn_cast_zap(self,channel):
+            if getattr(self,'_syn_cast_busy',False):
+                self.status.set_text('Cast: espera a que termine el cambio de canal.')
+                return
+            if not getattr(self,'_syn_cast_target_uuid',None):
+                if getattr(self,'_syn_cast_busy',False):
+                    self.status.set_text('Cast: esperando a que el televisor conecte.')
+                    return
+                self._syn_cast_only=False
+                self.start_channel(channel)
+                return
+            self._syn_cast_play({'id':self._syn_cast_target_uuid,
+                                 'name':self._syn_cast_device_name},channel)
+
         def _arrange_toolbar(self, compact):
             for child in self.toolbar_widgets:
                 if child.get_parent() == self.strip:
                     self.strip.remove(child)
-            play, pause, stop, rec, speaker, slider, info, full = self.toolbar_widgets
+            play, pause, stop, rec, shot, speaker, slider, info, full = self.toolbar_widgets
             if compact:
                 layout = ((play, 0, 0, 1), (pause, 1, 0, 1),
                           (stop, 2, 0, 1), (rec, 3, 0, 1),
+                          (shot, 4, 0, 1),
                           (speaker, 0, 1, 1), (slider, 1, 1, 2),
                           (info, 3, 1, 1), (full, 4, 1, 1))
             else:
@@ -3412,6 +4313,13 @@ def run_gui(playlist):
             self.volume.set_hexpand(compact)
             self.play_button.set_label(tr("▶ Ver") if compact else tr("▶  Reproducir"))
             self._update_pause_label()
+            if hasattr(self, 'cast_button'):
+                if self.cast_button.get_parent() == self.strip:
+                    self.strip.remove(self.cast_button)
+                if compact:
+                    self.strip.attach(self.cast_button, 5, 1, 1, 1)
+                else:
+                    self.strip.attach(self.cast_button, len(self.toolbar_widgets), 0, 1, 1)
 
         def _update_pause_label(self):
             paused = bool(self.area.player and self.area.player.paused())
@@ -3435,6 +4343,25 @@ def run_gui(playlist):
             finally:
                 self._clamping_sidebar = False
 
+        def _syn_apply_startup_video_ratio(self):
+            """Ajusta el tamaño de ventana una vez; después no impone proporción."""
+            if not self._syn_startup_ratio_pending:
+                return
+            if self.is_fullscreen() or self.is_maximized() or self.fullscreen_mode:
+                self._syn_startup_ratio_pending = False
+                return
+            window_w, window_h = self.get_width(), self.get_height()
+            video_w, video_h = self.overlay.get_width(), self.overlay.get_height()
+            # La primera asignación GTK puede tardar uno o varios ciclos.
+            if min(window_w, window_h, video_w, video_h) <= 0:
+                return
+            self._syn_startup_ratio_pending = False
+            desired_video_h = round(video_w * 9 / 16)
+            delta = desired_video_h - video_h
+            if abs(delta) >= 3:
+                # set_default_size NO fija tamaño mínimo ni fuerza 16:9 después.
+                self.set_default_size(window_w, max(1, window_h + delta))
+
         def _check_responsive_layout(self):
             if self.is_fullscreen() or self.fullscreen_mode:
                 return True
@@ -3442,6 +4369,9 @@ def run_gui(playlist):
             if width <= 0:
                 return True
             video_width = self.overlay.get_width()
+            # Medir el vídeo real tras el primer layout, antes del early-return.
+            if self._syn_startup_ratio_pending:
+                self._syn_apply_startup_video_ratio()
             if (width == self._last_window_width and
                     video_width == self._last_video_width):
                 return True
@@ -3475,8 +4405,7 @@ def run_gui(playlist):
             tiny = width < 510
             if tiny != self._tiny_header:
                 self._tiny_header = tiny
-                self.header_title.set_text("SYN")
-                self.subtitle.set_visible(not tiny)
+                self.header_title.set_markup("<b>SYN</b>")
                 self.resolution.set_visible(not tiny)
             self._last_window_width = width
             self._last_video_width = video_width
@@ -3494,6 +4423,12 @@ def run_gui(playlist):
             self.blank_label.set_text(tr("No se pudo iniciar el vídeo\n\n") + reason)
 
         def player_status(self, text, failed):
+            if failed and getattr(self, '_syn_ts_ready', False):
+                self._syn_ts_stop(restore=True)
+                self.status.set_text('Timeshift no compatible con este canal; recuperado el directo.')
+                return
+            if failed and hasattr(self, '_syn_reconnect_watch') and self.current:
+                self._syn_reconnect_watch.error(time.monotonic())
             if text == 'Reproduciendo': text = tr('Reproduciendo')
             if failed:
                 self.status.set_text(text)
@@ -3503,6 +4438,13 @@ def run_gui(playlist):
                 self.status.set_text(text + " · " + self.current.name)
 
         def change_profile(self, dropdown, *_):
+            if getattr(self,'_syn_cast_target_uuid',None):
+                self.status.set_text('Detén Cast antes de cambiar de perfil IPTV.')
+                ix=next((i for i,p in enumerate(self.cfg['profiles'])
+                         if p.get('id')==self.profile.get('id')),None)
+                if ix is not None and dropdown.get_selected()!=ix:
+                    dropdown.set_selected(ix)
+                return
             ix = dropdown.get_selected()
             if ix >= len(self.cfg['profiles']): return
             profile = self.cfg['profiles'][ix]
@@ -3561,7 +4503,6 @@ def run_gui(playlist):
                 old_fs = self.category_names[self.fs_category.get_selected()] if selected_item and self.fs_category.get_selected() < len(self.category_names) else 'Todas las categorías'
                 self.fs_category.set_model(Gtk.StringList.new([tr('Todas las categorías') if c == 'Todas las categorías' else c for c in self.category_names]))
                 self.fs_category.set_selected(self.category_names.index(old_fs) if old_fs in self.category_names else 0)
-            self.subtitle.set_text(f"{len(self.channels)} {tr('channels')} · {len(self.category_names)-1} {tr('categories')} · {self.profile['name']} · v{SYN_VERSION}")
             self.render_list()
             if self.guide_open:
                 self.guide_render_categories()
@@ -3916,6 +4857,137 @@ def run_gui(playlist):
                 self._request_logo(ch.logo, pic, ch, pill)
             return pill
 
+        # SYN_FAVORITOS_DRAG_BETA7: Gtk4 DnD, order scoped to the IPTV profile.
+        def _syn_fav_drag_prepare(self, key):
+            # Only inside the Favorites filter. Ordinary channel clicks are unchanged.
+            if not self.favs.get_active() or key not in self.favorites:
+                return None
+            if not hasattr(self, '_syn_fav_drag_token'):
+                self._syn_fav_drag_token = os.urandom(16).hex()
+            return Gdk.ContentProvider.new_for_value(self._syn_fav_drag_token + '|' + key)
+
+        # SYN_FAVORITOS_VISUAL_BETA7_1: mostrar LA FILA real bajo el puntero.
+        def _syn_fav_drag_prepare_visual(self, source, row, key, x, y):
+            payload = self._syn_fav_drag_prepare(key)
+            if payload is not None:
+                # La cadena interna sigue autenticando el DnD, pero no se ve.
+                # GTK dibuja pastilla, nombre y corazon de la fila original.
+                paintable = Gtk.WidgetPaintable.new(row)
+                hot_x = max(0, min(int(x), max(0, row.get_width() - 1)))
+                hot_y = max(0, min(int(y), max(0, row.get_height() - 1)))
+                source.set_icon(paintable, hot_x, hot_y)
+            return payload
+
+        def _syn_fav_visual_style(self):
+            if getattr(self, '_syn_fav_visual_css', None) is not None:
+                return
+            provider = Gtk.CssProvider()
+            provider.load_from_data(b"""
+                window.iptv-tv row.syn-fav-insert-before {
+                    box-shadow: inset 0 4px 0 #FF6B00;
+                }
+                window.iptv-tv row.syn-fav-insert-after {
+                    box-shadow: inset 0 -4px 0 #FF6B00;
+                }
+            """)
+            Gtk.StyleContext.add_provider_for_display(
+                self.get_display(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 2)
+            self._syn_fav_visual_css = provider
+
+        def _syn_fav_clear_drop_marker(self):
+            old = getattr(self, '_syn_fav_visual_target', None)
+            if old is not None:
+                old.remove_css_class('syn-fav-insert-before')
+                old.remove_css_class('syn-fav-insert-after')
+            self._syn_fav_visual_target = None
+            self._syn_fav_visual_position = None
+            self.listbox.drag_unhighlight_row()
+
+        def _syn_fav_drag_end_visual(self, row):
+            row.remove_css_class('syn-fav-dragging')
+            self._syn_fav_clear_drop_marker()
+
+        def _syn_fav_drag_leave_visual(self, row):
+            if getattr(self, '_syn_fav_visual_target', None) is row:
+                self._syn_fav_clear_drop_marker()
+
+        def _syn_fav_attach_drag(self, row, channel):
+            if not self.favs.get_active() or channel.favorite_id not in self.favorites:
+                return
+            row.set_tooltip_text('Arrastra para ordenar los favoritos')
+            source = Gtk.DragSource.new()
+            source.set_actions(Gdk.DragAction.MOVE)
+            source.connect('prepare', lambda s, x, y, key=channel.favorite_id, r=row:
+                           self._syn_fav_drag_prepare_visual(s, r, key, x, y))
+            source.connect('drag-begin', lambda _s, _drag, r=row:
+                           r.add_css_class('syn-fav-dragging'))
+            source.connect('drag-end', lambda _s, _drag, _delete, r=row:
+                           self._syn_fav_drag_end_visual(r))
+            row.add_controller(source)
+
+            target = Gtk.DropTarget.new(str, Gdk.DragAction.MOVE)
+            target.connect('enter', lambda _t, _x, y, r=row:
+                           self._syn_fav_drag_enter(r, y))
+            target.connect('motion', lambda _t, _x, y, r=row:
+                           self._syn_fav_drag_enter(r, y))
+            target.connect('leave', lambda _t, r=row:
+                           self._syn_fav_drag_leave_visual(r))
+            target.connect('drop', lambda _t, value, _x, y, r=row:
+                           self._syn_fav_drag_drop(value, r, y))
+            row.add_controller(target)
+
+        def _syn_fav_drag_enter(self, row, y):
+            if not self.favs.get_active():
+                return Gdk.DragAction(0)
+            self._syn_fav_visual_style()
+            direction = 'after' if y >= row.get_height() / 2 else 'before'
+            old_row = getattr(self, '_syn_fav_visual_target', None)
+            old_direction = getattr(self, '_syn_fav_visual_position', None)
+            if old_row is row and old_direction == direction:
+                return Gdk.DragAction.MOVE
+            self._syn_fav_clear_drop_marker()
+            self.listbox.drag_highlight_row(row)
+            row.add_css_class('syn-fav-insert-' + direction)
+            self._syn_fav_visual_target = row
+            self._syn_fav_visual_position = direction
+            return Gdk.DragAction.MOVE
+
+        def _syn_fav_drag_drop(self, value, row, y):
+            self._syn_fav_clear_drop_marker()
+            if not self.favs.get_active() or not isinstance(value, str):
+                return False
+            token = getattr(self, '_syn_fav_drag_token', None)
+            if not token or not value.startswith(token + '|'):
+                return False
+            original = value[len(token) + 1:]
+            target_id = row.channel.favorite_id
+            if original not in self.favorites or target_id not in self.favorites:
+                return False
+            previous = list(self.profile.get('favorites', []))
+            updated = syn_fav_sort.move(
+                syn_fav_sort.normalize(previous, self.favorites),
+                original, target_id, after=(y > row.get_height() / 2))
+            if updated == previous:
+                return True
+            self.profile['favorites'] = updated
+            try:
+                sources.save_config(self.cfg)
+            except (OSError, ValueError):
+                self.profile['favorites'] = previous
+                self.status.set_text('No se pudo guardar el orden de favoritos.')
+                return False
+            # Never destroy the Gtk.ListBoxRow while GTK completes its DnD event.
+            GLib.idle_add(self._syn_fav_refresh_after_drop)
+            return True
+
+        def _syn_fav_refresh_after_drop(self):
+            self.render_list()
+            self._syn_sync_favorite_guide()
+            if hasattr(self, 'fs_list') and self.fs_remote_open:
+                self.render_fs_channels()
+            self.status.set_text('Orden de favoritos guardado.')
+            return False
+
         def _channel_sidebar_row(self, ch):
             """UNA fila para todos los canales. El filtro Favoritos NO cambia el diseño.
 
@@ -3955,6 +5027,7 @@ def run_gui(playlist):
             heart = self._favorite_heart_button(ch)
             content.append(heart)
             row.set_child(content)
+            self._syn_fav_attach_drag(row, ch)
             return row
 
         def render_list(self):
@@ -3967,6 +5040,9 @@ def run_gui(playlist):
                              (cat == 'Todas las categorías' or ch.group == cat) and
                              (not self.favs.get_active() or ch.favorite_id in self.favorites) and
                              (not query or query in norm(ch.name + ' ' + ch.group))]
+            if self.favs.get_active():
+                self.filtered = syn_fav_sort.order_channels(
+                    self.filtered, self.profile.get('favorites', []))
             while (row := self.listbox.get_row_at_index(0)) is not None:
                 self.listbox.remove(row)
             restore = None
@@ -4055,7 +5131,8 @@ def run_gui(playlist):
                 self.favorites.add(key)
             else:
                 self.favorites.remove(key)
-            self.profile['favorites'] = sorted(self.favorites)
+            self.profile['favorites'] = syn_fav_sort.normalize(
+                self.profile.get('favorites', []), self.favorites)
             sources.save_config(self.cfg)
             if animate_button is None:
                 self.render_list()
@@ -4093,6 +5170,18 @@ def run_gui(playlist):
             else:
                 self.status.set_text(tr("Selecciona un canal en la lista."))
 
+        def _syn_enforce_connection_limit(self):
+            player = self.area.player
+            if not player or not self.current or not syn_dvr.allowed_stream_url(self.current.url):
+                return
+            db = self.dvr_store.read()
+            slots = syn_multistream.profile_limit(self.profile)
+            if (syn_multistream.should_release_playback(db, self.profile.get('id'),
+                                                        slots, self.current.url)
+                    and player.active_url == self.current.url):
+                player.stop()
+                self.status.set_text('DVR: conexiones ocupadas. Selecciona uno de los canales que se están grabando.')
+
         # SYN_DVR_SHARED_124: no second IPTV session while viewing a recording.
         def _syn_dvr_playback_target(self, channel):
             """Return (local URL, waiting). Only trusted local DB drives routing."""
@@ -4124,6 +5213,12 @@ def run_gui(playlist):
                         or not syn_dvr.allowed_stream_url(channel.url)):
                     return True
                 url, waiting = self._syn_dvr_playback_target(channel)
+                if getattr(self, '_syn_ts_session', None):
+                    db = self.dvr_store.read()
+                    if (url or syn_multistream.should_release_playback(
+                            db, self.profile.get('id'),
+                            syn_multistream.profile_limit(self.profile), channel.url)):
+                        self._syn_ts_stop(restore=False)
                 playing = player.active_url
                 if url:
                     if playing != url:
@@ -4135,7 +5230,12 @@ def run_gui(playlist):
                     if not playing or playing == channel.url:
                         self.status.set_text(tr('DVR: esperando al grabador o su reconexión…'))
                 elif playing and playing.startswith('udp://127.0.0.1:'):
-                    player.play(channel)  # The DVR has stopped: return to live IPTV.
+                    if not syn_multistream.should_release_playback(
+                            self.dvr_store.read(), self.profile.get('id'),
+                            syn_multistream.profile_limit(self.profile), channel.url):
+                        player.play(channel)  # Return only with a free provider slot.
+                elif playing == channel.url:
+                    self._syn_enforce_connection_limit()
                 if hasattr(self, '_syn_reattach_rec_button'):
                     self._syn_reattach_rec_button(self.dvr_store.read())
             except (ValueError, OSError, RuntimeError, AttributeError) as exc:
@@ -4143,6 +5243,15 @@ def run_gui(playlist):
             return True
 
         def start_channel(self, channel):
+            if getattr(self,'_syn_cast_only',False):
+                return self._syn_cast_zap(channel)
+            # SYN_TIMESHIFT_AUTO_BETA5: retry only after switching channels.
+            if getattr(self, '_syn_ts_auto_blocked_url', None) != channel.url:
+                self._syn_ts_auto_blocked_url = None
+            self._syn_idle_layer.set_visible(False)
+            self._syn_reconnect_reset()
+            if getattr(self, '_syn_ts_session', None):
+                self._syn_ts_stop(restore=False)
             if syn_dvr.allowed_stream_url(channel.url):
                 self._dvr_playing_file = False
                 self.dvr_back_btn.set_visible(False)
@@ -4169,7 +5278,18 @@ def run_gui(playlist):
                     player.stop()  # Never open a second IPTV session while DVR is active.
                     self.status.set_text(tr('DVR: esperando la señal compartida…'))
                 else:
-                    player.play(channel)
+                    if syn_multistream.should_release_playback(
+                            self.dvr_store.read(), self.profile.get('id'),
+                            syn_multistream.profile_limit(self.profile), channel.url):
+                        player.stop()
+                        self.status.set_text('DVR: connection limit reached.' if LANGUAGE.startswith('en') else 'DVR: límite de conexiones alcanzado.')
+                    else:
+                        if self._syn_ts_auto_enabled(channel):
+                            # FFmpeg takes over this provider slot; do NOT open
+                            # a transient second mpv connection first.
+                            self._syn_ts_start()
+                        else:
+                            player.play(channel)
             except Exception as exc:
                 self.status.set_text(tr("No se pudo abrir el canal: ") + str(exc))
             if hasattr(self, '_syn_reattach_rec_button'):
@@ -4184,9 +5304,15 @@ def run_gui(playlist):
                 self._update_pause_label()
 
         def stop(self, *_):
+            if getattr(self,'_syn_cast_only',False):
+                return self._syn_cast_stop()
+            self._syn_reconnect_reset()
+            if getattr(self, '_syn_ts_session', None):
+                self._syn_ts_stop(restore=False)
             if self.area.player:
                 self.area.player.stop()
             self.current = None
+            self._syn_idle_sync()
             self.blank_label.set_text(tr("▣\n\nSelecciona un canal para empezar"))
             self.blank_label.set_visible(True)
             self.now_playing.set_text(tr("Sin reproducción"))
@@ -4711,9 +5837,12 @@ def run_gui(playlist):
 
         def guide_filtered_channels(self):
             # Keep the exact original Channel instance and its XMLTV ID.
-            return syn_favoritos.filter_channels(
+            matches = syn_favoritos.filter_channels(
                 self.channels, self.favorites, self.guide_category_name,
                 self.guide_search.get_text(), norm)
+            if self.guide_category_name == syn_favoritos.FAVORITES_CATEGORY:
+                return syn_fav_sort.order_channels(matches, self.profile.get('favorites', []))
+            return matches
 
         def _guide_programmes_for(self, channel):
             return syn_favoritos.programmes_for(
@@ -5059,6 +6188,13 @@ def run_gui(playlist):
                 pass
 
         def closing(self, *_):
+            self._syn_capture_close()
+            if getattr(self, '_syn_idle_timer_id', 0):
+                GLib.source_remove(self._syn_idle_timer_id)
+                self._syn_idle_timer_id = 0
+            self._syn_reconnect_reset()
+            if getattr(self, '_syn_ts_session', None):
+                self._syn_ts_stop(restore=False)
             # Save the current view at normal close; playlist/profile data is preserved.
             try:
                 idx = self.category.get_selected()
