@@ -20,3 +20,7 @@
 - The app includes **no** channels, subscription, streaming URLs, user profiles, credentials or DVR recordings.
 
 Chromecast was user-tested successfully on Fedora ARM64 using the Beta 6.2 transcoding mode. Other distros and receivers still need testing. The package build matrix runs offline verification; it does not constitute hardware compatibility testing.
+
+## Cast 6.5 validated improvements
+
+See [Cast 6.5 final notes](CAST_6_5_FINAL.md) for shared HLS, reliable zapping and rejoining, fixed light-theme icon, and 720p/1080p quality slider. 720p is recommended on Fedora virtualized. The user validated Cast, local playback and DVR; occasional start-up buffering may occur.

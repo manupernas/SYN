@@ -175,3 +175,7 @@ Para configurar los servicios sin recompilar la aplicación: `bash instalar-serv
 Casting requires **Python PyChromecast and FFmpeg with libx264/AAC on the Linux host**. The Flatpak cannot run a host-level service by itself. After installing SYN, download `instalar-servicio-cast.sh` from this release's source and run `bash instalar-servicio-cast.sh` as your normal user, **without sudo**. This installs a separate `syn-cast-bridge.service` under `systemd --user` and stores only a random access token locally. It does not overwrite an existing SYN Cast service or touch DVR.
 
 Fedora host dependency: `sudo dnf install python3-chromecast`; other distributions need an equivalent host Python package. Casting uses TCP 18977 on the local network and requires a reachable Chromecast; the host's firewall or VM networking may require explicit configuration. No IPTV credentials are included.
+
+### SYN Cast 6.5 — 1.3.3 final
+
+The app includes Chromecast relay sharing, stable channel rejoining, a light-theme-safe orange Cast icon and a saved quality slider with 720p or 1080p. 720p is recommended for virtualized systems; see [Cast 6.5 notes](docs/CAST_6_5_FINAL.md). A separate host-side Cast service is required.

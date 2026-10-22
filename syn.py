@@ -2261,6 +2261,7 @@ def run_gui(playlist):
             self._syn_cast_busy = False
             self._arrange_toolbar(compact=False)
             GLib.timeout_add(1600, self._syn_cast_restore)
+            GLib.timeout_add_seconds(5, self._syn_cast_watch)
 
             self.footer = Gtk.Label(label=tr("Doble clic en canal para reproducir · Espacio pausa · F pantalla completa · Esc salir de pantalla completa"), xalign=0)
             self.footer.add_css_class("iptv-details")
@@ -4058,11 +4059,12 @@ def run_gui(playlist):
         # SYN_CAST_ICON_HOTFIX: icono Chromecast dedicado y resaltado visual.
         # SYN_CAST_ORANGE_VISUAL_6_2: solo cambia el color de los botones Chromecast.
         def _syn_cast_apply_orange_style(self):
+            # SYN_CAST_CONTRASTE_CLARO_6_5: por encima de Claro, Oscuro, Teal y acento.
             if getattr(self, '_syn_cast_orange_css', None) is not None:
                 return
             css = Gtk.CssProvider()
             css.load_from_data(b"""
-            button.syn-cast-button {
+            window.iptv-tv button.syn-cast-button {
                 background-image: none;
                 background-color: #FF6B00;
                 border: 1px solid #C94B00;
@@ -4073,28 +4075,28 @@ def run_gui(playlist):
                 padding: 4px 7px;
                 box-shadow: 0 2px 6px rgba(0, 0, 0, 0.33);
             }
-            button.syn-cast-button image { color: #FFFFFF; }
-            button.syn-cast-button:hover {
+            window.iptv-tv button.syn-cast-button image { color: #FFFFFF; }
+            window.iptv-tv button.syn-cast-button:hover {
                 background-image: none;
                 background-color: #FF8C29;
                 color: #FFFFFF;
                 border-color: #D75B00;
             }
-            button.syn-cast-button:active,
-            button.syn-cast-button:checked {
+            window.iptv-tv button.syn-cast-button:active,
+            window.iptv-tv button.syn-cast-button:checked {
                 background-image: none;
                 background-color: #DC5900;
                 color: #FFFFFF;
                 border-color: #B84700;
             }
-            button.syn-cast-button:disabled {
+            window.iptv-tv button.syn-cast-button:disabled {
                 background-image: none;
                 background-color: #986044;
                 color: #FFFFFF;
             }
             """)
             Gtk.StyleContext.add_provider_for_display(
-                self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+                self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 8)
             self._syn_cast_orange_css = css
 
         def _syn_cast_call(self, data, on_result):
@@ -4145,6 +4147,37 @@ def run_gui(playlist):
                     else 'Doble click en un canal para reproducir')
             if hasattr(self,'_syn_idle_sync'): self._syn_idle_sync()
 
+        # SYN_CAST_SLIDER_720_1080_BETA6_5: GUI controls NEXT Cast session only.
+        # The host reads ~/.config/syn/cast-quality when a new HLS stream starts.
+        def _syn_cast_quality_read(self):
+            path = Path.home() / '.config/syn/cast-quality'
+            try:
+                raw = path.read_text(encoding='utf-8').strip()
+            except OSError:
+                raw = 'compatible'
+            return 'alta' if raw == 'alta' else 'compatible'
+
+        def _syn_cast_quality_write(self, value):
+            if value not in ('compatible', 'alta'):
+                return False
+            path = Path.home() / '.config/syn/cast-quality'
+            temp_path = None
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                        dir=str(path.parent), prefix='.cast-quality-',
+                        delete=False) as temp:
+                    temp_path = Path(temp.name)
+                    temp.write(value + '\n')
+                os.chmod(temp_path, 0o600)
+                os.replace(temp_path, path)
+                return True
+            except OSError:
+                if temp_path is not None:
+                    try: temp_path.unlink(missing_ok=True)
+                    except OSError: pass
+                return False
+
         def _syn_cast_menu(self, button):
             pop=Gtk.Popover()
             pop.set_parent(button)
@@ -4162,6 +4195,38 @@ def run_gui(playlist):
                 sources.save_config(self.cfg)
             spin.connect('value-changed',limit_changed)
             row.append(spin);col.append(row)
+            # Only 720p and 1080p are offered; 480p is deliberately excluded.
+            resolution_title = Gtk.Label(label='Calidad Chromecast', xalign=0)
+            col.append(resolution_title)
+            resolution_slider = Gtk.Scale.new_with_range(
+                Gtk.Orientation.HORIZONTAL, 0, 1, 1)
+            resolution_slider.set_draw_value(False)
+            resolution_slider.set_digits(0)
+            resolution_slider.set_round_digits(0)
+            resolution_slider.set_has_origin(False)
+            resolution_slider.set_size_request(210, -1)
+            resolution_slider.set_hexpand(True)
+            resolution_slider.add_mark(0, Gtk.PositionType.BOTTOM, '720p')
+            resolution_slider.add_mark(1, Gtk.PositionType.BOTTOM, '1080p')
+            resolution_slider.set_value(1 if self._syn_cast_quality_read()=='alta' else 0)
+            col.append(resolution_slider)
+            resolution_info = Gtk.Label(xalign=0)
+            resolution_info.set_wrap(True)
+            def describe_quality(value):
+                selected = '1080p · Full HD (más CPU)' if value=='alta' else '720p · Recomendado'
+                return selected + '\nSe aplicará al iniciar la siguiente retransmisión.'
+            resolution_info.set_text(describe_quality(self._syn_cast_quality_read()))
+            col.append(resolution_info)
+            def resolution_changed(widget):
+                selected = 'alta' if widget.get_value() >= 0.5 else 'compatible'
+                if self._syn_cast_quality_write(selected):
+                    resolution_info.set_text(describe_quality(selected))
+                else:
+                    resolution_info.set_text('No se pudo guardar la calidad. Comprueba los permisos.')
+                    previous = 1 if self._syn_cast_quality_read()=='alta' else 0
+                    if widget.get_value() != previous:
+                        widget.set_value(previous)
+            resolution_slider.connect('value-changed', resolution_changed)
             info=Gtk.Label(label='Se respetarán las grabaciones activas.\n'
                                       'El límite debe coincidir con el de tu proveedor.',xalign=0)
             info.set_wrap(True);col.append(info)
@@ -4192,7 +4257,105 @@ def run_gui(playlist):
                 return False
             self._syn_cast_call({'action':'devices'},done)
 
+        # SYN_CAST_SHARED_RELAY_BETA6_4: player and TV share one upstream HLS relay.
+        # SYN_CAST_REJOIN_SHARED_BETA6_5: returning to Cast channel must NOT
+        # open an extra provider session, even when local TS is enabled.
+        def _syn_cast_rejoin_shared(self, channel):
+            local_url=getattr(self,'_syn_cast_shared_url',None)
+            if not isinstance(local_url,str) or not local_url.startswith('http://127.0.0.1:18977/'):
+                self.status.set_text('Cast: relay compartido no disponible; no se abrirá una conexión duplicada.')
+                return
+            if getattr(self,'_syn_cast_busy',False):
+                return
+            self._syn_cast_busy=True
+            previous=self.current
+            # Release Antena 3 and its timeshift BEFORE switching the bridge
+            # back to one shared upstream. Otherwise a transient third session
+            # can cause an IPTV provider to disconnect the TV after a few seconds.
+            self._syn_reconnect_reset()
+            if getattr(self,'_syn_ts_session',None):
+                try:self._syn_ts_stop(restore=False)
+                except Exception as exc:
+                    self._syn_cast_busy=False
+                    self.status.set_text('Cast: no se pudo cerrar el timeshift: '+type(exc).__name__)
+                    return
+            if self.area.player:self.area.player.stop()
+            self.status.set_text('Cast: recuperando canal compartido sin otra conexión IPTV…')
+            def done(result,error):
+                self._syn_cast_busy=False
+                if error or not result or not result.get('ok'):
+                    self.status.set_text('Cast: '+(error or 'no se pudo compartir el canal'))
+                    # Restore Antena 3 if the Cast service refused rejoining.
+                    if previous:self.start_channel(previous)
+                    return False
+                self._syn_cast_shared_local=True
+                self.current=channel
+                self._syn_idle_layer.set_visible(False)
+                self.blank_label.set_visible(False)
+                self.now_playing.set_text(display_channel_name(channel.name))
+                self.fs_channel_label.set_text(display_channel_name(channel.name))
+                self.pause_button.set_sensitive(True)
+                if self.area.player and self.area.player.ctx.value:
+                    self.area.player.play(Channel(channel.name,channel.group,
+                                                  local_url,channel.logo))
+                else:
+                    self.status.set_text('Cast: libmpv no está listo para abrir el relay local.')
+                    return False
+                self.status.set_text('Cast: mismo canal en SYN y Chromecast · una conexión IPTV')
+                self._update_pause_label()
+                self.update_programme()
+                return False
+            self._syn_cast_call({'action':'local_usage','shared':True},done)
+
+        def _syn_cast_prepare_local_zap(self, channel):
+            if self._syn_cast_dvr_count() is None or (self._syn_cast_dvr_count() + 2 > self._syn_cast_limit()):
+                self.status.set_text('Cast: no hay conexiones libres para otro canal por las grabaciones DVR.')
+                return
+            self._syn_cast_busy=True
+            def done(result,error):
+                self._syn_cast_busy=False
+                if error:
+                    self.status.set_text('Cast: '+error)
+                    return False
+                # Reserve the second provider connection before opening MPV.
+                self._syn_cast_shared_local=False
+                self.start_channel(channel)
+                return False
+            self._syn_cast_call({'action':'local_usage','shared':False}, done)
+
+        def _syn_cast_watch(self):
+            if not getattr(self,'_syn_cast_target_uuid',None) or getattr(self,'_syn_cast_busy',False):
+                return True
+            if getattr(self,'_syn_cast_watch_inflight',False):
+                return True
+            self._syn_cast_watch_inflight=True
+            def done(result,error):
+                self._syn_cast_watch_inflight=False
+                if error or result is None:
+                    return False
+                if result.get('active'):
+                    return False
+                # The bridge may yield automatically to an incoming DVR job.
+                restore=bool(getattr(self,'_syn_cast_only',False) or
+                             getattr(self,'_syn_cast_shared_local',False))
+                channel=self.current
+                self._syn_cast_target_uuid=None
+                self._syn_cast_only=False
+                self._syn_cast_shared_local=False
+                self._syn_cast_origin_url=None
+                self._syn_cast_shared_url=None
+                self._syn_cast_show_card()
+                if restore and channel:
+                    self.start_channel(channel)
+                self.status.set_text('Cast finalizado; DVR y reproducción local protegidos.')
+                return False
+            self._syn_cast_call({'action':'status'},done)
+            return True
+
         def _syn_cast_play(self, device, channel=None):
+            if getattr(self, '_syn_cast_busy', False):
+                self.status.set_text('Cast: espera a que termine la operación anterior.')
+                return
             channel = channel or self.current
             if not channel:
                 self.status.set_text('Cast: selecciona primero un canal.')
@@ -4210,20 +4373,22 @@ def run_gui(playlist):
                 return
             local_playing = bool(self.current is not None)
             old_cast_only=bool(getattr(self,'_syn_cast_only',False))
-            exclusive=old_cast_only or (occupied + (1 if local_playing else 0) + 1 > capacity)
+            exclusive=old_cast_only or (occupied + 1 >= capacity)
             previous=self.current
             self._syn_cast_device_name=device.get('name','Chromecast')
-            if exclusive:
-                # Cancel the rolling buffering session before releasing local playback.
-                if hasattr(self,'_syn_ts_stop') and getattr(self,'_syn_ts_session',None):
-                    try:self._syn_ts_stop(restore=False)
-                    except Exception as exc:
-                        self.status.set_text('Cast: no se pudo liberar el timeshift. '+type(exc).__name__)
-                        return
-                if self.area.player:self.area.player.stop()
-                self._syn_cast_only=True
-                self._syn_cast_show_card()
-            self.status.set_text('Cast: conectando con '+self._syn_cast_device_name+'…')
+            # One provider connection for both local and TV: release local MPV
+            # and optional timeshift upstream BEFORE starting FFmpeg. This also
+            # avoids a short-lived third upstream connection on slow providers.
+            if hasattr(self,'_syn_ts_stop') and getattr(self,'_syn_ts_session',None):
+                try:self._syn_ts_stop(restore=False)
+                except Exception as exc:
+                    self.status.set_text('Cast: no se pudo liberar el timeshift. '+type(exc).__name__)
+                    return
+            if self.area.player:self.area.player.stop()
+            self._syn_cast_shared_local=False
+            self._syn_cast_only=exclusive
+            self._syn_cast_show_card()
+            self.status.set_text('Cast: preparando retransmisión compartida…')
             ua=getattr(syn_dvr,'VLC_UA','VLC/3.0.21 LibVLC/3.0.21')
             # A relay/remux is needed for .ts and provider-specific User-Agent.
             self._syn_cast_busy=True
@@ -4231,16 +4396,32 @@ def run_gui(playlist):
                 self._syn_cast_busy=False
                 if error:
                     self.status.set_text('Cast: '+error)
-                    if exclusive:
-                        self._syn_cast_only=False
-                        self._syn_cast_show_card()
-                        if previous:self.start_channel(previous)
+                    self._syn_cast_only=False
+                    self._syn_cast_shared_local=False
+                    self._syn_cast_show_card()
+                    if previous:self.start_channel(previous)
+                    return False
+                local_url=result.get('local_url')
+                if not exclusive and not (isinstance(local_url,str) and
+                        local_url.startswith('http://127.0.0.1:18977/')):
+                    self.status.set_text('Cast: puente antiguo, falta el relay local. Detén Cast.')
+                    # Do not open an extra provider session; stop Cast safely.
+                    self._syn_cast_target_uuid=device['id']
+                    self._syn_cast_stop()
                     return False
                 self._syn_cast_target_uuid=device['id']
                 self.current=channel
                 self._syn_cast_device_name=result.get('name',device['name'])
                 self.now_playing.set_text(display_channel_name(channel.name))
                 self.fs_channel_label.set_text(display_channel_name(channel.name))
+                self._syn_cast_shared_local=not exclusive
+                self._syn_cast_origin_url=channel.url
+                self._syn_cast_shared_url=local_url if isinstance(local_url,str) else None
+                if not exclusive:
+                    # Same HLS segments as Chromecast, no second IPTV request.
+                    self._syn_idle_layer.set_visible(False)
+                    self.area.player.play(Channel(channel.name,channel.group,
+                                                  local_url,channel.logo))
                 self._syn_cast_show_card()
                 self.status.set_text('Retransmitiendo a '+self._syn_cast_device_name)
                 return False
@@ -4255,6 +4436,11 @@ def run_gui(playlist):
                     self._syn_cast_target_uuid=result.get('device')
                     self._syn_cast_device_name=result.get('name') or 'Chromecast'
                     self._syn_cast_only=bool(result.get('exclusive'))
+                    self._syn_cast_shared_local=bool(result.get('local_shared'))
+                    self._syn_cast_shared_url=result.get('local_url')
+                    # The origin channel is unknown after an app restart: no
+                    # automatic guess from the title or another provider URL.
+                    self._syn_cast_origin_url=None
                     self._syn_cast_show_card()
                     self.status.set_text('Cast activo: '+self._syn_cast_device_name)
                 return False
@@ -4266,15 +4452,22 @@ def run_gui(playlist):
                 self.status.set_text('Cast: operación en curso.')
                 return
             restore=bool(getattr(self,'_syn_cast_only',False))
+            shared=bool(getattr(self,'_syn_cast_shared_local',False))
             channel=self.current
+            self._syn_cast_busy=True
             def done(result,error):
+                self._syn_cast_busy=False
                 if error:
                     self.status.set_text('Cast: '+error)
                     return False
                 self._syn_cast_target_uuid=None
                 self._syn_cast_only=False
+                self._syn_cast_shared_local=False
+                self._syn_cast_origin_url=None
+                self._syn_cast_shared_url=None
                 self._syn_cast_show_card()
-                if restore and channel:
+                if (restore or shared) and channel:
+                    # The HLS relay has stopped; switch back to the provider.
                     self.start_channel(channel)
                 else:
                     self.status.set_text('Cast detenido.')
@@ -5243,8 +5436,20 @@ def run_gui(playlist):
             return True
 
         def start_channel(self, channel):
+            if getattr(self,'_syn_cast_busy',False):
+                self.status.set_text('Cast: espera a que se conecte el televisor.')
+                return
             if getattr(self,'_syn_cast_only',False):
                 return self._syn_cast_zap(channel)
+            if getattr(self,'_syn_cast_target_uuid',None):
+                # Returning to Cast's existing source MUST reuse its HLS URL.
+                # Comparing source URLs supports duplicate entries in playlists.
+                if getattr(self,'_syn_cast_origin_url',None)==channel.url:
+                    if getattr(self,'_syn_cast_shared_local',False) and self.current and self.current.url==channel.url:
+                        return
+                    return self._syn_cast_rejoin_shared(channel)
+                if getattr(self,'_syn_cast_shared_local',False):
+                    return self._syn_cast_prepare_local_zap(channel)
             # SYN_TIMESHIFT_AUTO_BETA5: retry only after switching channels.
             if getattr(self, '_syn_ts_auto_blocked_url', None) != channel.url:
                 self._syn_ts_auto_blocked_url = None
@@ -5304,6 +5509,8 @@ def run_gui(playlist):
                 self._update_pause_label()
 
         def stop(self, *_):
+            if getattr(self,'_syn_cast_shared_local',False):
+                return self._syn_cast_stop()
             if getattr(self,'_syn_cast_only',False):
                 return self._syn_cast_stop()
             self._syn_reconnect_reset()

@@ -19,6 +19,9 @@ from urllib.parse import urlsplit
 PORT = 18976
 QUALITY_FILE = Path.home() / '.config/syn/cast-quality'
 QUALITY_PROFILES = {
+    # SYN_CAST_SHARED_RELAY_BETA6_4: H264/AAC settings unchanged.
+    # SYN_CAST_FHD1080_OPTIONAL_BETA6_5: opt-in 1080p at up to 7 Mbps.
+    'alta': {'height': 1080, 'bitrate': '5500k', 'maxrate': '7000k', 'bufsize': '9000k'},
     'compatible': {'height': 720, 'bitrate': '2500k', 'maxrate': '3000k', 'bufsize': '4000k'},
     'ligero': {'height': 480, 'bitrate': '1200k', 'maxrate': '1600k', 'bufsize': '2000k'},
     'solo-audio': {'height': 0, 'bitrate': '', 'maxrate': '', 'bufsize': ''},
@@ -58,11 +61,18 @@ def cast_hls_command(ffmpeg, url, ua, folder, playlist, quality):
     else:
         h=preset['height']
         # Preserve aspect ratio; never upscale; frame-rate and keyframes predictable.
-        scale=(f'scale=w={1280 if h==720 else 854}:h={h}:'
-               'force_original_aspect_ratio=decrease:force_divisible_by=2,'
-               'setsar=1,fps=25,format=yuv420p')
+        if quality=='alta':
+            # Limit to Full HD. Do not upscale 720p/SD sources to 1080p.
+            scale=("scale=w='min(iw,1920)':h='min(ih,1080)':"
+                   'force_original_aspect_ratio=decrease:force_divisible_by=2,'
+                   'setsar=1,fps=25,format=yuv420p')
+        else:
+            scale=(f'scale=w={1280 if h==720 else 854}:h={h}:'
+                   'force_original_aspect_ratio=decrease:force_divisible_by=2,'
+                   'setsar=1,fps=25,format=yuv420p')
         cmd+=['-vf',scale,'-c:v','libx264','-preset','ultrafast',
-              '-tune','zerolatency','-profile:v','baseline','-level','3.1',
+              '-tune','zerolatency','-profile:v','baseline',
+              '-level',('4.0' if quality=='alta' else '3.1'),
               '-r','25','-g','50','-keyint_min','50','-sc_threshold','0',
               '-force_key_frames','expr:gte(t,n_forced*2)',
               '-b:v',preset['bitrate'],'-maxrate',preset['maxrate'],
@@ -99,6 +109,7 @@ CURRENT = {'device': None, 'name': None, 'cast': None, 'browser': None,
            'ffmpeg': None, 'media_server': None, 'media_thread': None,
            'tempdir': None, 'title': None, 'mode': None,
            'capacity': 1, 'exclusive': False, 'parallel': False,
+           'shared_local': False, 'local_url': '',
            'errfile': None, 'media_ip': '', 'media_hits': {'m3u8':0, 'ts':0},
            'encoding': 'compatible', 'encoder_metrics': {}}
 LAST_DIAG = {'status':'Aún no se ha probado Cast', 'media_ip':'',
@@ -162,6 +173,7 @@ def stop_cast(stop_remote=True):
                        ffmpeg=None, media_server=None, media_thread=None,
                        tempdir=None, title=None, mode=None,
                        capacity=1, exclusive=False, parallel=False,
+                       shared_local=False, local_url='',
                        errfile=None,media_ip='',media_hits={'m3u8':0,'ts':0},
                        encoding='compatible',encoder_metrics={})
 
@@ -334,9 +346,17 @@ def start_cast(device_id,url,title,ua,relay=True,capacity=1,exclusive=True):
                 relay_resources=res
             elif not urlsplit(url).path.lower().endswith('.m3u8'):
                 raise RuntimeError('Sin FFmpeg solo es posible enviar HLS directo.')
+            # The local MPV uses the SAME HLS relay as the TV, so a non-exclusive
+            # session still occupies only one provider slot.
+            shared_local=bool(relay and not exclusive)
+            local_url=''
+            if shared_local:
+                remote_path=urlsplit(play_url).path
+                local_url='http://127.0.0.1:18977'+remote_path
             CURRENT.update(device=device_id,name=cast.name,cast=cast,browser=browser,
                            title=title,mode='relay' if relay else 'direct',
-                           capacity=capacity,exclusive=bool(exclusive),parallel=not bool(exclusive))
+                           capacity=capacity,exclusive=bool(exclusive),parallel=not bool(exclusive),
+                           shared_local=shared_local,local_url=local_url)
             if relay_resources:
                 (CURRENT['tempdir'],CURRENT['media_server'],CURRENT['media_thread'],
                  CURRENT['ffmpeg'],CURRENT['errfile'])=relay_resources
@@ -354,7 +374,9 @@ def start_cast(device_id,url,title,ua,relay=True,capacity=1,exclusive=True):
                     LAST_DIAG.update(status='Chromecast informa PLAYING (verificar fluidez y sonido)',detail='',
                                      encoding=CURRENT.get('encoding','compatible'),
                                      encoder_speed=CURRENT.get('encoder_metrics',{}).get('speed'))
-                    return {'name':cast.name,'mode':CURRENT['mode']}
+                    return {'name':cast.name,'mode':CURRENT['mode'],
+                            'local_url':CURRENT['local_url'],
+                            'local_shared':CURRENT['shared_local']}
                 if CURRENT['ffmpeg'] and CURRENT['ffmpeg'].poll() is not None:
                     raise RuntimeError(_ffmpeg_hint(CURRENT['errfile']))
                 # Ignore an old IDLE from previous session during initial handshake.
@@ -390,7 +412,7 @@ def cast_dvr_guard():
                 if not CURRENT['cast']:
                     continue
                 capacity=CURRENT['capacity']
-                local=1 if CURRENT['parallel'] else 0
+                local=1 if CURRENT['parallel'] and not CURRENT['shared_local'] else 0
                 # Count planned jobs about to start, avoiding a new collision.
                 jobs_by_id={}
                 for path in paths:
@@ -446,6 +468,40 @@ class Handler(BaseHTTPRequestHandler):
                              bool(inp.get('relay',True)),
                              inp.get('capacity',1),inp.get('exclusive',True))
                 self.reply(200,{'ok':True,**d})
+            elif action=='local_usage':
+                with LOCK:
+                    if not CURRENT['cast'] or CURRENT['exclusive']:
+                        self.reply(200,{'error':'No hay Cast paralelo activo.'})
+                    elif not isinstance(inp.get('shared'),bool):
+                        self.reply(200,{'error':'Estado local no válido.'})
+                    else:
+                        # Recheck reservations at the bridge. The GTK-side DVR
+                        # snapshot may be stale during a scheduled job start.
+                        def occupied_slots():
+                            found={}
+                            for db in (Path.home()/'.local/share/syn/dvr.json',
+                                       Path.home()/'.var/app/com.mrseivane.Syn/data/syn/dvr.json'):
+                                try: records=json.loads(db.read_text('utf-8')).get('jobs',[])
+                                except FileNotFoundError: continue
+                                for job in records:
+                                    if not isinstance(job,dict): continue
+                                    key=str(job.get('id') or (str(db),len(found)))
+                                    if key not in found or job.get('status')=='running': found[key]=job
+                            now=time.time()
+                            return sum(1 for job in found.values() if
+                                job.get('status')=='running' or
+                                (job.get('status')=='scheduled' and
+                                 float(job.get('start',0))<=now+8))
+                        try: slots=occupied_slots()
+                        except (OSError,ValueError,TypeError):
+                            self.reply(200,{'error':'Estado DVR no verificable; cambio local cancelado.'})
+                        else:
+                            required=slots+1+(0 if inp['shared'] else 1)
+                            if required>CURRENT['capacity']:
+                                self.reply(200,{'error':'No quedan conexiones libres para cambiar el canal local.'})
+                            else:
+                                CURRENT['shared_local']=inp['shared']
+                                self.reply(200,{'ok':True})
             elif action=='stop':
                 stop_cast();self.reply(200,{'ok':True})
             elif action=='status':
@@ -456,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
                                     'name':CURRENT['name'] or '',
                                     'device':CURRENT['device'],
                                     'exclusive':CURRENT['exclusive'],
+                                    'local_shared':CURRENT['shared_local'],
+                                    'local_url':CURRENT['local_url'],
                                     'diagnostic':{**LAST_DIAG,
                                       'encoding':CURRENT['encoding'] if cast else LAST_DIAG.get('encoding'),
                                       'encoder_speed':CURRENT['encoder_metrics'].get('speed') if cast else LAST_DIAG.get('encoder_speed'),
