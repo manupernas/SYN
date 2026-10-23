@@ -18,7 +18,8 @@ class AutomaticServiceTests(unittest.TestCase):
             target = ROOT / 'icons' / f'{size}x{size}' / 'apps' / 'com.mrseivane.Syn.png'
             self.assertTrue(target.is_file(), str(target))
             data = target.read_bytes()
-            self.assertTrue(data.startswith(b'\\x89PNG\\r\\n\\x1a\\n'))
+            self.assertEqual(data[:8], bytes.fromhex('89504e470d0a1a0a'))
+            self.assertEqual(data[12:16], b'IHDR')
             self.assertGreater(len(data), 100)
             self.assertEqual(struct.unpack('>II', data[16:24]), (size, size))
 
