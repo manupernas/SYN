@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.2 — flexible panoramic player and pure fullscreen.
+"""SYN Plus 2.0 alpha2.3 — refined overlay and near-borderless video frame.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -71,15 +71,11 @@ def css(theme='system'):
                 "{ color:#ffffff; text-shadow:0 1px 2px rgba(0,0,0,.2); }")
     return '''
     /* SYN-Plus 2.0: visual workbench of the approved 2026-10-23 mockups. */
-    window.iptv-tv .synplus-plus-mark {
-      font-size:10px; font-weight:750; letter-spacing:2px;
-      opacity:.66; margin-bottom:7px;
-    }
     window.iptv-tv .synplus-workbench { border-spacing:0; }
     window.iptv-tv .synplus-nav {
       padding:10px 9px 13px 9px; border-right:1px solid;
     }
-    window.iptv-tv .synplus-nav-brand { margin:6px 0 12px 0; }
+    window.iptv-tv .synplus-nav-brand { margin:6px 0 18px 0; }
     window.iptv-tv button.synplus-nav-button {
       min-height:34px; margin:2px 0; padding:6px 10px;
       border:0; border-radius:11px; background-image:none;
@@ -100,10 +96,20 @@ def css(theme='system'):
     window.iptv-tv .synplus-sidebar .syn-channel-display-name { font-size:12px; font-weight:580; }
     window.iptv-tv .synplus-sidebar .syn-heart-filter { min-width:34px; min-height:31px; }
     window.iptv-tv .synplus-visual-player { background-color:#03080b; }
+    /* A longer, continuous tonal ramp; no sudden black foot at the bottom. */
     window.iptv-tv .synplus-video-chrome {
       background-image:linear-gradient(to bottom,
-          rgba(4,10,16,0) 0%,rgba(4,10,16,.12) 42%,rgba(4,10,16,.52) 100%);
-      color:#f6f8fa; padding:11px 13px 8px 13px;
+          rgba(5,11,17,.015) 0%,
+          rgba(5,11,17,.045) 20%,
+          rgba(5,11,17,.105) 40%,
+          rgba(5,11,17,.19) 60%,
+          rgba(5,11,17,.30) 80%,
+          rgba(5,11,17,.42) 100%);
+      color:#f6f8fa; padding:76px 11px 7px 11px;
+    }
+    /* Small player: keep the same steady ramp without covering all the image. */
+    window.iptv-tv.synplus-window.synplus-compact-player .synplus-video-chrome {
+      padding-top:53px;
     }
     window.iptv-tv .synplus-video-chrome label { color:#f6f8fa; }
     window.iptv-tv .synplus-video-chrome .iptv-details { color:#d8e0e8; }
@@ -149,12 +155,15 @@ def css(theme='system'):
       margin:0; border:0; border-radius:0; background-color:@window_bg_color;
     }
     window.iptv-tv.synplus-window .synplus-visual-player {
-      border-radius:15px; margin:9px 11px 0 11px; }
+      border-radius:6px; margin:2px 4px 0 4px;
+      border:0; box-shadow:none; }
+    window.iptv-tv.synplus-window .synplus-visual-player .iptv-video {
+      border:0; box-shadow:none; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-visual-player {
       border-radius:0; margin:0; padding:0; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-chrome {
       background-image:none; padding:0; }
-    window.iptv-tv.synplus-window .synplus-video-chrome { border-radius:0 0 14px 14px; }
+    window.iptv-tv.synplus-window .synplus-video-chrome { border-radius:0 0 5px 5px; }
     window.iptv-tv.synplus-window .synplus-guide .syn-guide-program { border-radius:10px; }
     window.iptv-tv.synplus-window .synplus-avatar {
       min-height:38px; min-width:38px; border-radius:14px; padding:4px;
@@ -189,7 +198,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.2")
+    window.set_title("SYN Plus · Alfa 2.3")
     window.set_default_size(1370, 920)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
@@ -218,11 +227,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.syn_wordmark.set_margin_top(4)
     window._syn_brand_band.add_css_class('synplus-nav-brand')
     nav.append(window._syn_brand_band)
-    plus_mark = Gtk.Label(label='P L U S', xalign=0)
-    plus_mark.add_css_class('synplus-plus-mark')
-    plus_mark.set_margin_start(7)
-    plus_mark.set_margin_bottom(12)
-    nav.append(plus_mark)
+    # The original SYN wordmark is the sole brand: no extra subtitle.
     window.sidebar.add_css_class('synplus-sidebar')
     window.paned.set_position(315)
     window._saved_paned_position = 315
@@ -361,7 +366,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.2', xalign=0)
+    info = Gtk.Label(label='ALFA 2.3', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -515,7 +520,9 @@ def adapt(window, width):
         # measurement EXCLUDES the frame, so its dimensions remain flexible.
         cw, ch = host.get_width(), host.get_height()
         if cw > 0 and ch > 0 and not full_guide:
-            wanted = player_geometry(cw, ch, 0, vertical_margin=8)
+            # Just four pixels of visual breathing room around the video,
+            # instead of the thick insets introduced in the previous alpha.
+            wanted = player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
             if wanted and wanted != getattr(window,'_synplus_requested_video',None):
                 # AspectFrame must follow the actual requested frame ratio.
                 # Leaving this fixed at 16:9 would introduce a dead letterbox
@@ -526,6 +533,11 @@ def adapt(window, width):
     player_w = getattr(window,'_synplus_requested_video',(0,0))
     displayed_w = player_w[0] if player_w else 0
     window._synplus_compact = width < 1260 or (0 < displayed_w < 690)
+    # A slightly shorter ramp for compact windows: gradient shape stays smooth.
+    if window._synplus_compact:
+        window.add_css_class('synplus-compact-player')
+    else:
+        window.remove_css_class('synplus-compact-player')
     poll_chrome(window)
 
 
