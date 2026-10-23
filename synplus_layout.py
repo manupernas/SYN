@@ -1,4 +1,4 @@
-"""SYN-Plus 2.0 alpha1 — three-zone GTK4 workbench built on SYN 1.3.7.
+"""SYN-Plus 2.0 alpha2.1 — refined legacy artwork & strict 16:9 GTK layout.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -144,7 +144,7 @@ def css(theme='system'):
       min-height:28px; border-radius:13px; padding:3px 8px;
     }
     ''' + palette + avatar_css() + '''
-    window.iptv-tv.synplus-window .synplus-nav { min-width:124px; }
+    window.iptv-tv.synplus-window .synplus-nav { min-width:138px; }
     window.iptv-tv.synplus-window .synplus-guide-full {
       margin:0; border:0; border-radius:0; background-color:@window_bg_color;
     }
@@ -185,18 +185,18 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2")
+    window.set_title("SYN Plus · Alfa 2.1")
     window.set_default_size(1370, 920)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
 
-    # 3 zones: 138px navigation, existing 315px channel browser, player + EPG.
+    # 3 zones: fixed 138px nav, existing 315px channel browser, player + EPG.
     workbench = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
     workbench.add_css_class('synplus-workbench')
     workbench.set_hexpand(True)
     workbench.set_vexpand(True)
     nav = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-    nav.set_size_request(124, -1)
+    nav.set_size_request(138, -1)
     nav.set_hexpand(False)
     nav.set_halign(Gtk.Align.START)
     nav.add_css_class('synplus-nav')
@@ -330,7 +330,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_nav_buttons = buttons
     # Existing fallback art uses a Cairo drawing callback. Override only this
     # instance, so a genuine provider logo still renders through the stable path.
-    window._draw_channel_logo_or_art = lambda area,cr,w,h: draw_editorial_pill(window,area,cr,w,h)
+    window._draw_channel_logo_or_art = lambda area,cr,w,h: draw_classic_refined_pill(window,area,cr,w,h)
     nav_spacer = Gtk.Box()
     nav_spacer.set_vexpand(True)
     nav.append(nav_spacer)
@@ -357,7 +357,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2', xalign=0)
+    info = Gtk.Label(label='ALFA 2.1', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -365,13 +365,20 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     # before the first realization and overlay an unobtrusive playback chrome.
     video_column.remove(window.overlay)
     frame = Gtk.AspectFrame.new(0.5, 0.5, 16 / 9, False)
-    frame.set_hexpand(True)
-    frame.set_vexpand(True)
-    frame.set_size_request(-1, 220)
+    # GTK AspectFrame constrains its CHILD, not the aspect of the frame itself.
+    # Never make the outer frame vertically expandable: we fix both dimensions
+    # below to the exact 16:9 ratio, keeping the video and chrome together.
+    frame.set_hexpand(False)
+    frame.set_vexpand(False)
+    frame.set_halign(Gtk.Align.CENTER)
+    frame.set_valign(Gtk.Align.START)
+    frame.set_size_request(320, 180)
     frame.add_css_class('synplus-visual-player')
     frame.set_child(window.overlay)
     video_column.prepend(frame)
     window._synplus_player_frame = frame
+    window._synplus_video_column = video_column
+    window._synplus_requested_video = None
 
     chrome = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     chrome.add_css_class('synplus-video-chrome')
@@ -426,26 +433,75 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_in_fullscreen = False
     # Main content navigates between an embedded 3–5-row EPG and full guide.
     window._synplus_open_full_guide = _guide
+    # Height-only resizes and dragging the channel divider must also resize
+    # the player; SYN's pre-existing responsive timer tracks window width.
+    def _poll_geometry():
+        if window.get_root() is None:
+            return True  # not mapped yet; wait for the normal GTK allocation
+        if not getattr(window,'_synplus_in_fullscreen',False):
+            adapt(window, window.get_width())
+        return True
+    window._synplus_geometry_timer = GLib.timeout_add(220, _poll_geometry)
     GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
 
 
+def player_geometry(region_width, region_height, guide_height, horizontal_margin=24,
+                    vertical_margin=28):
+    """16:9 geometry constrained by BOTH available width and EPG height.
+
+    Width/height are integer CSS pixels; at most 1 px of rounding error.
+    The reserved EPG is never sacrificed to enlarge the player.
+    """
+    usable_w = max(0, int(region_width) - int(horizontal_margin))
+    usable_h = max(0, int(region_height) - int(guide_height) - int(vertical_margin))
+    if usable_w <= 0 or usable_h <= 0:
+        return None
+    w = min(usable_w, (usable_h * 16) // 9)
+    # Round to a 16:9-friendly multiple; prevent accumulated GTK 1px drift.
+    if w < 16:
+        return None
+    w = (w // 16) * 16
+    h = (w * 9) // 16
+    return (int(w), int(h))
+
+
 def adapt(window, width):
-    """Fixed left rail, responsive 3/4/5-row EPG and compact playback chrome."""
+    """Fixed 138px left navigation, strict 16:9 player, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
     window._synplus_nav.set_visible(True)
-    window._synplus_nav.set_size_request(124, -1)
+    window._synplus_nav.set_size_request(138, -1)
     window.channel_menu.set_visible(width < 1140)
     window._synplus_more.set_visible(True)
-    if not getattr(window, '_synplus_full_guide', False):
+    full_guide = getattr(window, '_synplus_full_guide', False)
+    if not full_guide:
         rows = 3 if window.get_height() < 850 else (4 if window.get_height() < 1080 else 5)
         window._synplus_rows = rows
-        # 70px source rows + header, clock, footer and margins; scrollbar
-        # exposes all other channels without adding a sixth visible row.
-        window.guide_surface.set_size_request(-1, 70 * rows + 119)
-        window.guide_tracks_scroll.set_min_content_height(70 * rows)
-    video_width = window._synplus_player_frame.get_width()
-    window._synplus_compact = width < 1260 or (video_width > 0 and video_width < 690)
+        # Existing EPG renderer (programmes, click-to-record, scroll) remains.
+        guide_h = 70 * rows + 119
+        if getattr(window, '_synplus_guide_height',None) != guide_h:
+            window._synplus_guide_height=guide_h
+            window.guide_surface.set_size_request(-1, guide_h)
+            window.guide_tracks_scroll.set_min_content_height(70 * rows)
+    else:
+        guide_h = 0
+
+    column = getattr(window, '_synplus_video_column', None)
+    frame = getattr(window, '_synplus_player_frame', None)
+    if column is not None and frame is not None:
+        cw = column.get_width()
+        # Use allocated workspace height, NOT GtkAspectFrame's natural height.
+        # Avoid a feedback loop in GTK's width-for-height measurement.
+        ch = window.main_stack.get_height()
+        if ch <= 0: ch = max(0, window.get_height() - 64)
+        if cw > 0 and ch > 0 and not full_guide:
+            wanted = player_geometry(cw, ch, guide_h)
+            if wanted and wanted != getattr(window,'_synplus_requested_video',None):
+                frame.set_size_request(*wanted)
+                window._synplus_requested_video=wanted
+    player_w = getattr(window,'_synplus_requested_video',(0,0))
+    displayed_w = player_w[0] if player_w else 0
+    window._synplus_compact = width < 1260 or (0 < displayed_w < 690)
     poll_chrome(window)
 
 
@@ -614,39 +670,66 @@ def show_guide_page(window, GLib):
     if cb and not getattr(window,'_synplus_in_fullscreen',False): cb()
 
 
-def draw_editorial_pill(window, area, cr, width, height):
-    """Quiet graphic identity for a missing logo. Real provider logos win."""
-    if getattr(area,'_syn_pixbuf',None) is not None:
-        return window._draw_channel_logo(area,cr,width,height)
-    name,group=getattr(area,'_syn_art_id',('SYN','TV'))
-    raw=unicodedata.normalize('NFKD',str(name or 'TV'))
-    normalized=''.join(ch for ch in raw if ord(ch)<128)
-    words=[w for w in normalized.replace('-',' ').split() if w]
-    monogram=(''.join(w[0] for w in words[:2]) or 'TV').upper()
-    code=hashlib.sha256((str(name)+'|'+str(group)).encode('utf-8')).digest()
-    back=(('#273a42','#e7ddc9'),('#4b565e','#f0e8d8'),
-          ('#536a61','#f6efe0'),('#665c60','#eee8e4'),
-          ('#40546e','#f1eee6'),('#7a6957','#f2eadf'))[code[0]%6]
-    bg,fg=back
-    rr,gg,bb=_rgb(bg)
-    cr.set_source_rgb(rr,gg,bb);cr.rectangle(0,0,width,height);cr.fill()
-    # One subtle editorial accent: blocks, arcs, or hairline curves.
-    cr.set_line_width(1.3);cr.set_source_rgba(1,1,1,.22)
-    style=code[1]%3
-    if style==0:
-        cr.arc(width-13,height/2,15,0,6.283);cr.stroke()
-        cr.arc(width-13,height/2,8,0,6.283);cr.stroke()
-    elif style==1:
-        for n in range(3):
-            cr.move_to(width-39+n*8,5);cr.line_to(width-12+n*8,height-5);cr.stroke()
-    else:
-        cr.rectangle(width-37,8,18,18);cr.stroke()
-        cr.move_to(width-33,height-7);cr.line_to(width-8,height-7);cr.stroke()
-    cr.set_source_rgb(*_rgb(fg))
-    cr.select_font_face('Sans',0,1)
-    cr.set_font_size(min(20,max(13,height*.39)))
-    cr.move_to(13,height*.68)
-    cr.show_text(monogram[:3])
-    cr.set_source_rgba(1,1,1,.55)
-    cr.rectangle(12,height-7,min(width-30,17+code[2]%24),1.2)
-    cr.fill()
+# SYN classic refined: exactly the original two-line composition and graphic
+# motifs, only the inks are less saturated and the accents less aggressive.
+# No visual rebranding; real provider logos still take precedence.
+CLASSIC_REFINED_PALETTES = (
+    ((.10,.20,.35),(.58,.38,.49),(.79,.66,.44)),
+    ((.09,.28,.30),(.64,.42,.35),(.78,.65,.47)),
+    ((.29,.19,.39),(.33,.63,.59),(.78,.47,.58)),
+    ((.09,.27,.43),(.60,.42,.60),(.78,.66,.46)),
+    ((.32,.19,.28),(.66,.45,.35),(.78,.63,.58)),
+    ((.16,.28,.24),(.62,.44,.37),(.73,.70,.45)),
+    ((.19,.21,.38),(.53,.46,.67),(.50,.70,.77)),
+    ((.13,.29,.33),(.66,.44,.51),(.76,.67,.46)),
+)
+
+
+def draw_classic_refined_pill(window, area, cr, width, height):
+    """Original SYN fallback collage, with gentle editorial colour grading."""
+    if getattr(area, '_syn_pixbuf', None) is not None:
+        return window._draw_channel_logo(area, cr, width, height)
+    if width <= 0 or height <= 0:
+        return
+    import math
+    from syn_fallback_art import artwork_identity, artwork_lines
+    name,group=getattr(area, '_syn_art_id', ('SYN','TV'))
+    idx,motif=artwork_identity(name,group)
+    bg,shape,sparkle=CLASSIC_REFINED_PALETTES[idx]
+    title,subtitle=artwork_lines(name)
+    cr.save()
+    try:
+        cr.scale(width/108.0,height/38.0)
+        cr.set_source_rgb(*bg)
+        cr.rectangle(0,0,108,38);cr.fill()
+        # Keep SYN's recognizable original shapes, softened slightly.
+        cr.set_source_rgba(*shape,.82)
+        if motif==0:
+            cr.arc(100,6,29,0,math.tau);cr.fill()
+            cr.set_source_rgba(*sparkle,.75)
+            cr.rectangle(87,23,24,7);cr.fill()
+        elif motif==1:
+            cr.move_to(78,38);cr.line_to(94,0);cr.line_to(108,0)
+            cr.line_to(108,38);cr.close_path();cr.fill()
+            cr.set_source_rgba(*sparkle,.75)
+            cr.arc(104,31,9,0,math.tau);cr.fill()
+        elif motif==2:
+            cr.rectangle(89,0,8,38);cr.fill()
+            cr.set_source_rgba(*sparkle,.75)
+            cr.rectangle(99,0,9,38);cr.fill()
+        else:
+            cr.arc(98,20,22,0,math.tau);cr.fill()
+            cr.set_source_rgba(*sparkle,.75)
+            cr.arc(98,20,10,0,math.tau);cr.fill()
+        cr.set_source_rgba(1,1,1,.25)
+        cr.rectangle(6,5,2,28);cr.fill()
+        cr.set_source_rgb(1,1,1)
+        cr.select_font_face('Sans',0,1)
+        cr.set_font_size(9.6 if len(title)<=9 else 7.8)
+        cr.move_to(13,17);cr.show_text(title)
+        cr.set_source_rgba(1,1,1,.82)
+        cr.select_font_face('Sans',0,0)
+        cr.set_font_size(6.8 if len(subtitle)<=13 else 5.9)
+        cr.move_to(13,29);cr.show_text(subtitle)
+    finally:
+        cr.restore()

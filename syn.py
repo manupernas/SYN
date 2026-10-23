@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.1"  # SYNPLUS_ALPHA2; experimental, stable 1.3.7 untouched
+SYN_VERSION = "2.0.2"  # SYNPLUS_ALPHA21; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
