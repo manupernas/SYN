@@ -1,0 +1,132 @@
+name: SYN - Terminar release (8 paquetes)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID del workflow anterior con los 6 paquetes nativos'
+        required: true
+        type: string
+      tag:
+        description: 'Tag existente, por ejemplo v1.3.5'
+        required: true
+        default: 'v1.3.5'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  flatpak:
+    name: Flatpak Flathub / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Descargar dependencias Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packaging/flatpak-cast-wheels
+          python3 -m pip download --disable-pip-version-check \
+            --only-binary=:all: --python-version 3.13 \
+            --implementation cp --abi cp313 \
+            --platform manylinux2014_${{ matrix.arch }} --platform any \
+            --dest packaging/flatpak-cast-wheels 'pychromecast==14.0.10'
+      - name: Compilar Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: com.mrseivane.Syn.yml
+          bundle: SYN-${{ inputs.tag }}-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          branch: master
+          cache: true
+          build-bundle: true
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: '*.flatpak'
+          if-no-files-found: error
+
+  release:
+    name: Publicar los 8 paquetes
+    needs: flatpak
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Recuperar paquetes nativos anteriores
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          pattern: syn-*
+          merge-multiple: true
+          path: release-assets
+      - name: Recuperar Flatpak nuevos
+        uses: actions/download-artifact@v4
+        with:
+          pattern: flatpak-*
+          merge-multiple: true
+          path: nuevos-flatpak
+      - name: Validar formatos, arquitecturas y suma SHA256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          rm -f release-assets/*.flatpak
+          mv nuevos-flatpak/*.flatpak release-assets/
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          files = [p for p in Path('release-assets').iterdir() if p.is_file()]
+          expected = {('rpm', a) for a in ('x86_64','aarch64')}
+          expected |= {('deb', a) for a in ('x86_64','aarch64')}
+          expected |= {('pacman', a) for a in ('x86_64','aarch64')}
+          expected |= {('flatpak', a) for a in ('x86_64','aarch64')}
+          def kind(p):
+              n=p.name
+              fmt=('flatpak' if n.endswith('.flatpak') else
+                   'rpm' if n.endswith('.rpm') else
+                   'deb' if n.endswith('.deb') else
+                   'pacman' if n.endswith('.pkg.tar.zst') else None)
+              arch=('aarch64' if 'aarch64' in n or 'arm64' in n else
+                    'x86_64' if 'x86_64' in n or 'amd64' in n else None)
+              return fmt, arch
+          actual=[kind(p) for p in files]
+          print('Archivos:',*[p.name for p in files],sep='\n  ')
+          if len(files) != 8 or set(actual) != expected or len(set(actual)) != 8 or any(p.stat().st_size <= 1024 for p in files):
+              raise SystemExit('Faltan paquetes, hay duplicados o archivos no válidos: no se publica.')
+          PY
+          (cd release-assets && sha256sum * > SHA256SUMS)
+      - name: Publicar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: SYN ${{ inputs.tag }} - Linux
+          body: |
+            SYN para Linux: RPM, DEB, Pacman y Flatpak para x86_64 y ARM64.
+            Se adjuntan los ocho paquetes y SHA256SUMS.
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
