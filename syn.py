@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.5"  # SYNPLUS_ALPHA24; experimental, stable 1.3.7 untouched
+SYN_VERSION = "2.0.6"  # SYNPLUS_ALPHA25; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -4538,7 +4538,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             guide = bool(getattr(self, 'guide_open', False))
             dvr = getattr(self, 'dvr_view', None)
             dvr_visible = bool(dvr and dvr.get_visible())
-            visible = no_channel and not guide and not dvr_visible
+            visible = no_channel and not dvr_visible and (getattr(self, "_synplus_ui", False) or not guide)
             if self._syn_idle_layer.get_visible() != visible:
                 self._syn_idle_layer.set_visible(visible)
             # Preserve the original placeholder object for callers, but never

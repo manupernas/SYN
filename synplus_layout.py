@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.4 — persistent soft player gradient and unrestricted window sizing.
+"""SYN Plus 2.0 alpha2.5 — startup 16:9, free resize, linked chrome and retro monochrome standby.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -96,19 +96,19 @@ def css(theme='system'):
     window.iptv-tv .synplus-sidebar .syn-channel-display-name { font-size:12px; font-weight:580; }
     window.iptv-tv .synplus-sidebar .syn-heart-filter { min-width:34px; min-height:31px; }
     window.iptv-tv .synplus-visual-player { background-color:#03080b; }
-    /* Persistent video gradient on its OWN non-interactive overlay.
-       It is independent of the chrome revealer so it remains on screen
-       when playback controls and titles are hidden. */
+    /* Video-shadow is a separate unclickable revealer, but uses the same
+       state and duration as the text/buttons. Long, dark, uniform tail:
+       high contrast at the bottom without an abrupt black stripe. */
     window.iptv-tv.synplus-window .synplus-video-gradient {
       background-color:transparent;
       background-image:linear-gradient(to bottom,
-          rgba(5,11,17,0) 0%,
-          rgba(5,11,17,.015) 16%,
-          rgba(5,11,17,.055) 35%,
-          rgba(5,11,17,.13) 53%,
-          rgba(5,11,17,.23) 70%,
-          rgba(5,11,17,.36) 85%,
-          rgba(5,11,17,.50) 100%);
+          rgba(5,8,11,0) 0%,
+          rgba(5,8,11,.035) 13%,
+          rgba(5,8,11,.10) 29%,
+          rgba(5,8,11,.22) 44%,
+          rgba(5,8,11,.39) 62%,
+          rgba(5,8,11,.58) 80%,
+          rgba(5,8,11,.77) 100%);
       box-shadow:none; border:0; border-radius:0;
     }
     window.iptv-tv.synplus-window .synplus-video-chrome {
@@ -157,7 +157,7 @@ def css(theme='system'):
       min-height:28px; border-radius:13px; padding:3px 8px;
     }
     ''' + palette + avatar_css() + '''
-    window.iptv-tv.synplus-window .synplus-nav { min-width:138px; }
+    window.iptv-tv.synplus-window .synplus-nav { min-width:150px; }
     window.iptv-tv.synplus-window .synplus-guide-full {
       margin:0; border:0; border-radius:0; background-color:@window_bg_color;
     }
@@ -197,6 +197,80 @@ def css(theme='system'):
     '''
 
 
+def draw_monochrome_testcard(area, cr, width, height):
+    """Scale-independent B/W vintage TV test pattern used before playback.
+
+    Pure Cairo drawing: no external images, no downloads, no stored assets,
+    and never a black blank player surface. Drawn only while the original
+    SYN idle layer is visible; leaves GLArea/libmpv completely untouched.
+    """
+    if width <= 0 or height <= 0:
+        return
+    import math
+    cr.save()
+    try:
+        # Retro SMPTE/monoscope-inspired geometry, deliberately GRAYSCALE only.
+        cr.scale(width/960.0, height/540.0)
+        def ink(y): cr.set_source_rgb(y,y,y)
+        def rect(x,y,w,h,tone):
+            ink(tone); cr.rectangle(x,y,w,h); cr.fill()
+        def line(x1,y1,x2,y2,tone=.14,thickness=2):
+            ink(tone); cr.set_line_width(thickness)
+            cr.move_to(x1,y1); cr.line_to(x2,y2); cr.stroke()
+        rect(0,0,960,540,.78)
+        rect(10,10,940,520,.12)
+        rect(18,18,924,504,.87)
+        # Repeated vertical gray bars, like a monochrome broadcast chart.
+        for i,shade in enumerate((.98,.84,.70,.57,.44,.31,.18,.08)):
+            rect(28+i*113,28,113,117,shade)
+        rect(28,151,904,22,.15)
+        for i in range(16):
+            rect(28+i*56.5,152,56.5,20,.94 if i%2==0 else .24)
+        # Lower calibration ramp and alternate-frequency blocks.
+        for i in range(20):
+            rect(28+i*45.2,425,45.2,43,.10+i*(.84/19.0))
+        for i in range(36):
+            rect(28+i*25.12,474,25.12,32,.97 if i%2 else .11)
+        # Border crosses give the technical, slightly imperfect retro feel.
+        for x in (50,910):
+            for y in (198,400):
+                line(x-13,y,x+13,y,.17,2)
+                line(x,y-13,x,y+13,.17,2)
+        # Central calibration target with circular rulers.
+        ink(.94); cr.arc(480,298,128,0,math.tau);cr.fill()
+        ink(.16);cr.set_line_width(5);cr.arc(480,298,124,0,math.tau);cr.stroke()
+        ink(.52);cr.set_line_width(15);cr.arc(480,298,103,0,math.tau);cr.stroke()
+        ink(.11);cr.set_line_width(2);cr.arc(480,298,76,0,math.tau);cr.stroke()
+        ink(.12);cr.set_line_width(1.4);cr.arc(480,298,43,0,math.tau);cr.stroke()
+        for t in range(0,360,15):
+            a=math.radians(t)
+            outer=120
+            inner=108 if t%45 else 98
+            line(480+inner*math.cos(a),298+inner*math.sin(a),
+                 480+outer*math.cos(a),298+outer*math.sin(a),.14,2)
+        line(480,178,480,418,.14,1.5)
+        line(356,298,604,298,.14,1.5)
+        # High contrast signature strip and central SYN wordmark.
+        rect(401,263,158,63,.12)
+        ink(.97)
+        cr.select_font_face('Sans', 0, 1)
+        cr.set_font_size(43)
+        cr.move_to(431,310)
+        cr.show_text('SYN')
+        # Useful engineering captions, with simple ASCII toy text.
+        ink(.19);cr.select_font_face('Monospace',0,1)
+        cr.set_font_size(15)
+        cr.move_to(41,194);cr.show_text('MONOCHROME / TEST SIGNAL')
+        cr.move_to(680,194);cr.show_text('625 LINES')
+        cr.move_to(45,414);cr.show_text('VIDEO CALIBRATION')
+        cr.move_to(731,414);cr.show_text('STANDBY')
+        # Thin edge rules to anchor all elements at any ratio.
+        ink(.13);cr.set_line_width(2)
+        cr.rectangle(22,22,916,494);cr.stroke()
+    finally:
+        cr.restore()
+
+
 def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_header_controls):
     """Recompose EXISTING GTK widgets before GTK/GLArea is realized.
 
@@ -207,20 +281,20 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.4")
+    window.set_title("SYN Plus · Alfa 2.5")
     window.set_resizable(True)
     # INITIAL size only; no aspect, fixed size, or window geometry hints.
-    window.set_default_size(1370, 920)
+    window.set_default_size(1370, 950)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
 
-    # 3 zones: fixed 138px nav, existing 315px channel browser, player + EPG.
+    # 3 zones: fixed 150px nav, existing 315px channel browser, player + EPG.
     workbench = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
     workbench.add_css_class('synplus-workbench')
     workbench.set_hexpand(True)
     workbench.set_vexpand(True)
     nav = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-    nav.set_size_request(138, -1)
+    nav.set_size_request(150, -1)
     nav.set_hexpand(False)
     nav.set_halign(Gtk.Align.START)
     nav.add_css_class('synplus-nav')
@@ -377,16 +451,29 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.4', xalign=0)
+    info = Gtk.Label(label='ALFA 2.5', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
+
+    # Replace SYN's old coloured idle PNG with a purely grayscale, responsive
+    # Cairo test pattern, before GTK realizes the GLArea. Existing idle logic
+    # still controls visibility; actual playback is unaffected.
+    card = Gtk.DrawingArea()
+    card.set_hexpand(True)
+    card.set_vexpand(True)
+    card.set_halign(Gtk.Align.FILL)
+    card.set_valign(Gtk.Align.FILL)
+    card.set_can_target(False)
+    card.set_draw_func(draw_monochrome_testcard)
+    window._syn_idle_layer.set_child(card)
+    window._syn_idle_hint.set_visible(False)
+    window._synplus_idle_testcard = card
 
     # Existing video stays inside the Gtk.Overlay. We only move the overlay
     # before the first realization and overlay an unobtrusive playback chrome.
     video_column.remove(window.overlay)
-    # Gtk.Frame deliberately does NOT impose a child aspect ratio.
-    # Resizing is free; player_geometry alone limits HEIGHT to 9/16 width.
-    # libmpv handles the input stream's own aspect ratio (no stretching).
+    # Gtk.Frame does NOT impose any aspect ratio. The player canvas follows
+    # the window's dimensions freely; MPV letterboxes the source as needed.
     # Gtk.GLArea stays attached to its original Gtk.Overlay throughout.
     frame = Gtk.Frame.new(None)
     frame.set_hexpand(False)
@@ -414,8 +501,12 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
-    # We never use Gtk.AspectFrame or Gdk surface geometry hints: the user's
-    # window can be portrait, square or ultrawide independently of the video.
+    # Starts exactly 16:9. Once the user resizes, the player canvas becomes
+    # fully free (portrait, square, ultrawide); this is NOT a size constraint.
+    window._synplus_opening_ratio = True
+    window._synplus_opening_window_size = None
+    # No Gtk.AspectFrame or Gdk surface geometry hints. The window, video
+    # canvas, and EPG can be portrait, square or ultrawide as space allows.
     # SYN 1.3.7's one-shot startup 16:9 WINDOW resize is not wanted here:
     # user dimensions must remain free from the very first launch.
     window._syn_startup_ratio_pending = False
@@ -431,21 +522,33 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         chrome.append(child)
     window.overlay.add_overlay(chrome)
     window._synplus_chrome = chrome
-    # The gradient is NOT a child of the revealer: it must remain visible
-    # over the video even when the mouse is outside the mini-player.
-    # It covers the allocated video canvas, not the small toolbar rectangle.
+    # The gradient and the controls now have independent, perfectly matched
+    # 210ms CROSSFADE animations. Both follow one visibility state.
+    # Drawing the gradient on a full-height surface makes it smooth, not a
+    # black stripe cut off just below the buttons.
     persistent_gradient = Gtk.Box()
     persistent_gradient.add_css_class('synplus-video-gradient')
     persistent_gradient.set_halign(Gtk.Align.FILL)
     persistent_gradient.set_valign(Gtk.Align.FILL)
     persistent_gradient.set_hexpand(True)
     persistent_gradient.set_vexpand(True)
-    persistent_gradient.set_can_target(False)  # Mouse motion reaches the player.
-    window.overlay.add_overlay(persistent_gradient)
-    window.overlay.set_measure_overlay(persistent_gradient, False)
+    persistent_gradient.set_can_target(False)
+    gradient_reveal = Gtk.Revealer()
+    gradient_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+    gradient_reveal.set_transition_duration(210)
+    gradient_reveal.set_halign(Gtk.Align.FILL)
+    gradient_reveal.set_valign(Gtk.Align.FILL)
+    gradient_reveal.set_hexpand(True)
+    gradient_reveal.set_vexpand(True)
+    gradient_reveal.set_can_target(False)  # Do not block mouse or controls.
+    gradient_reveal.set_child(persistent_gradient)
+    gradient_reveal.set_reveal_child(False)
+    window.overlay.add_overlay(gradient_reveal)
+    window.overlay.set_measure_overlay(gradient_reveal, False)
     window._synplus_video_gradient = persistent_gradient
+    window._synplus_gradient_reveal = gradient_reveal
 
-    # Crossfade of ALL playback text and controls (not the gradient).
+    # Crossfade of the original toolbar and text on top of the shadow.
     window.overlay.remove_overlay(chrome)
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
@@ -503,28 +606,41 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
 
 
-def player_geometry(region_width, region_height, guide_height, horizontal_margin=24,
-                    vertical_margin=28):
-    """Fill available horizontal space, without ever becoming taller than 16:9.
+def player_geometry(region_width, region_height, guide_height, horizontal_margin=8,
+                    vertical_margin=4):
+    """Use every available pixel: no 16:9 minimum, maximum, or other ratio.
 
-    16 is the baseline width and 9 is the MAXIMUM proportional height. Resizing
-    a shallow window can produce a wide cinematic frame (21:9, 32:9, etc.).
-    The underlying MPV render preserves the source's own pixel aspect ratio;
-    video content is never stretched just to fill the frame.
+    The Gtk.Overlay and Gtk.GLArea inherit this available area, while MPV
+    retains the source material's original aspect ratio inside it.
     """
     usable_w = max(0, int(region_width) - int(horizontal_margin))
     usable_h = max(0, int(region_height) - int(guide_height) - int(vertical_margin))
     if usable_w < 16 or usable_h < 16:
         return None
-    return (usable_w, min(usable_h, (usable_w * 9) // 16))
+    return usable_w, usable_h
+
+
+def opening_player_geometry(region_width, region_height,
+                            horizontal_margin=8, vertical_margin=4):
+    """Exactly 16:9, fitted INSIDE the available player area at startup only.
+
+    Uses integer blocks of 16x9, so never distorts or requests outside its host.
+    After a window resize `player_geometry` takes over (arbitrary proportions).
+    """
+    available_w=max(0,int(region_width)-int(horizontal_margin))
+    available_h=max(0,int(region_height)-int(vertical_margin))
+    blocks=min(available_w//16,available_h//9)
+    if blocks < 1:
+        return None
+    return 16*blocks,9*blocks
 
 
 def adapt(window, width):
-    """Fixed 138px navigation, flexible panoramic player, 3–5 EPG rows."""
+    """Fixed 150px navigation, freely sized video, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
     window._synplus_nav.set_visible(True)
-    window._synplus_nav.set_size_request(138, -1)
+    window._synplus_nav.set_size_request(150, -1)
     window.channel_menu.set_visible(width < 1140)
     window._synplus_more.set_visible(True)
     full_guide = getattr(window, '_synplus_full_guide', False)
@@ -549,10 +665,24 @@ def adapt(window, width):
         if cw > 0 and ch > 0 and not full_guide:
             # Just four pixels of visual breathing room around the video,
             # instead of the thick insets introduced in the previous alpha.
-            wanted = player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
+            if getattr(window,'_synplus_opening_ratio',False):
+                # Remember the first allocated window size, not GTK's
+                # preliminary zero-sized measurement. Only an actual change
+                # in outer dimensions releases the 16:9 startup condition.
+                outer=(window.get_width(),window.get_height())
+                original=getattr(window,'_synplus_opening_window_size',None)
+                if original is None and min(outer)>100:
+                    window._synplus_opening_window_size=outer
+                elif original is not None and (abs(outer[0]-original[0])>7 or
+                                               abs(outer[1]-original[1])>7):
+                    window._synplus_opening_ratio=False
+            if getattr(window,'_synplus_opening_ratio',False):
+                wanted=opening_player_geometry(cw,ch,8,4)
+            else:
+                wanted=player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
             if wanted and wanted != getattr(window,'_synplus_requested_video',None):
-                # Not a rigid AspectFrame: arbitrary window aspect ratios are
-                # supported. Only the player canvas is limited to >=16:9.
+                # Initial frame is 16:9; after manual resize any ratio works.
+                # The broadcast image itself keeps its native aspect ratio.
                 frame.set_size_request(*wanted)
                 window._synplus_requested_video=wanted
         elif (full_guide or cw < 16 or ch < 16) and getattr(window,'_synplus_requested_video',None):
@@ -562,7 +692,7 @@ def adapt(window, width):
     player_w = getattr(window,'_synplus_requested_video',(0,0))
     displayed_w = player_w[0] if player_w else 0
     window._synplus_compact = width < 1260 or (0 < displayed_w < 690)
-    # A slightly shorter ramp for compact windows: gradient shape stays smooth.
+    # The gradient is the same soft full-canvas ramp at any window size.
     if window._synplus_compact:
         window.add_css_class('synplus-compact-player')
     else:
@@ -606,7 +736,8 @@ def fullscreen_changed(window, enabled, GLib):
         # The player frame stretches to the physical fullscreen surface.
         # libmpv, not GTK, letterboxes nonmatching broadcast aspect ratios.
         # No toolbar/rail/channel-list/EPG occupies space.
-        window._synplus_video_gradient.set_visible(False)
+        window._synplus_gradient_reveal.set_reveal_child(False)
+        window._synplus_gradient_reveal.set_visible(False)
         frame.set_size_request(-1, -1)
         frame.set_halign(align.FILL)
         frame.set_valign(align.FILL)
@@ -626,11 +757,13 @@ def fullscreen_changed(window, enabled, GLib):
     frame.set_halign(align.CENTER)
     frame.set_valign(align.START)
     window._synplus_requested_video = None
+    window._synplus_mouse_over_video = False
+    window._synplus_reveal_until = 0.0
     window._synplus_nav.set_visible(True)
     window._synplus_more.set_visible(True)
     window._synplus_chrome.set_visible(True)
     window._synplus_chrome_reveal.set_visible(True)
-    window._synplus_video_gradient.set_visible(True)
+    window._synplus_gradient_reveal.set_visible(True)
     if not window.guide_open and window._synplus_guide_requested:
         GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
     elif window.guide_open:
@@ -797,6 +930,10 @@ def poll_chrome(window):
         getattr(window,'_synplus_reveal_until',0.0),
         time.monotonic())
     reveal.set_reveal_child(visible)
+    # SAME state and CROSSFADE duration for shadow + text/buttons.
+    gradient=getattr(window,'_synplus_gradient_reveal',None)
+    if gradient is not None:
+        gradient.set_reveal_child(visible)
     return True
 
 
