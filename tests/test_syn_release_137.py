@@ -9,7 +9,7 @@ APP_ID='com.mrseivane.Syn'
 
 def test_source_version_and_theme_fixes():
     source=(ROOT/'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "1.3.7"' in source
+    assert 'SYN_VERSION = "2.0.0"' in source
     assert 'def syn_popup_theme_css' in source
     assert 'def epg_axis_ink' in source
     assert 'self.syn_wordmark.set_size_request(206, 108)' in source
@@ -43,7 +43,7 @@ def test_branding_and_software_center_metadata():
 
 def test_readme_showcases_new_brand():
     text=(ROOT/'README.md').read_text('utf-8')
-    assert '**SYN 1.3.7**' in text
+    assert '**SYN 2.0.0**' in text
     for f in ('syn-readme-banner.png','syn-readme-banner-dark.png','syn-readme-banner-light.png'):
         assert (ROOT/'docs/brand'/f).stat().st_size > 100
         assert f in text or f == 'syn-readme-banner.png' and f in text

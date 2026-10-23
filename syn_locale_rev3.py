@@ -113,6 +113,34 @@ EN.update({
  'DVR: límite de conexiones alcanzado.': 'DVR: connection limit reached.',
 })
 
+# SYN Plus 2.0: translation of the redesigned navigation / profile / overflow UI.
+# Both en_US and en_GB use this dictionary; localize() below adjusts
+# favourites/favorites, programmes/programs automatically.
+EN.update({
+    'Guía': 'Guide',
+    'Series': 'Series',
+    'Cine': 'Cinema',
+    'Ajustes': 'Settings',
+    'Perfiles': 'Profiles',
+    'Mi televisión': 'My television',
+    'Sin nombre': 'Unnamed',
+    'Más acciones de SYN': 'More SYN actions',
+    'Actualizar canales': 'Refresh channels',
+    'Abrir archivo M3U': 'Open M3U file',
+    'Personalizar logo del canal': 'Customise channel logo',
+    'Capturar PNG': 'Save PNG screenshot',
+    'Información de reproducción': 'Playback information',
+    'Perfiles · cambiar o añadir': 'Profiles · switch or add',
+    '+  Añadir': '+  Add',
+    'Añadir perfil IPTV': 'Add IPTV profile',
+    '+  Añadir perfil': '+  Add profile',
+    'Bienvenido a SYN': 'Welcome to SYN',
+})
+
+# SYN 2.0 - locale fallback verificado (publicador macOS)
+SYN20_EN = {'Guía': 'Guide', 'Cine': 'Cinema', 'Perfiles': 'Profiles', 'Más acciones de SYN': 'More SYN actions', '+  Añadir perfil': '+  Add profile', 'Bienvenido a SYN': 'Welcome to SYN', 'Añade una fuente para empezar. Solo te pediremos los datos imprescindibles.': 'Add a source to get started. We will only ask for the essentials.', 'Opciones avanzadas · EPG opcional': 'Advanced options · optional EPG', 'Mi televisión': 'My television', 'Favoritos': 'Favourites'}
+EN.update(SYN20_EN)
+
 ES = {
  'channels': 'canales', 'categories': 'categorías', 'channels loaded': 'canales cargados',
  'profile': 'perfil', 'Loading profile': 'Cargando perfil', 'of': 'de',

@@ -47,8 +47,8 @@ def syn_capture_filename(value):
             .strip(' ._') or 'Canal')[:75]
 
 APP_ID = "com.mrseivane.Syn"
-APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.8"  # SYNPLUS_ALPHA27; experimental, stable 1.3.7 untouched
+APP_TITLE = "SYN"
+SYN_VERSION = "2.0.0"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -3704,7 +3704,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if self._welcome_window:
                 self._welcome_window.present()
                 return False
-            dialog = Gtk.Window(title='Bienvenido a SYN Plus', transient_for=self,
+            dialog = Gtk.Window(title=tr('Bienvenido a SYN'), transient_for=self,
                                 modal=True, default_width=670, default_height=655)
             dialog.add_css_class('synplus-welcome')
             self._welcome_window = dialog
@@ -3725,7 +3725,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             hero.set_halign(Gtk.Align.FILL)
             header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
             header.append(brand_icon(35))
-            name = Gtk.Label(label='SYN  /  PLUS', xalign=0)
+            name = Gtk.Label(label='SYN', xalign=0)
             name.add_css_class('syn-welcome-kicker')
             header.append(name)
             header.set_margin_bottom(10)
@@ -3737,7 +3737,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             tagline.add_css_class('syn-welcome-title')
             tagline.set_wrap(True)
             hero.append(tagline)
-            subtitle = Gtk.Label(label='Añade una fuente para empezar. Solo te pediremos los datos imprescindibles.')
+            subtitle = Gtk.Label(label=tr('Añade una fuente para empezar. Solo te pediremos los datos imprescindibles.'))
             subtitle.add_css_class('syn-welcome-subtitle')
             subtitle.set_wrap(True)
             subtitle.set_justify(Gtk.Justification.CENTER)
@@ -3824,7 +3824,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             epg_group.append(epg_browse)
             # The XMLTV override is useful, but should not interrupt basic setup.
             form_shell.remove(epg_group)
-            extras = Gtk.Expander(label='Opciones avanzadas · EPG opcional')
+            extras = Gtk.Expander(label=tr('Opciones avanzadas · EPG opcional'))
             extras.set_child(epg_group)
             form_shell.append(extras)
             notice = Gtk.Label(label='', xalign=0)
@@ -7615,7 +7615,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if display and getattr(self, '_teal_provider_active', False):
                     Gtk.StyleContext.remove_provider_for_display(display, self.teal_theme_provider)
                     self._teal_provider_active = False
-                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css() + synplus_layout.css(theme)
+                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css() + synplus_layout.css(theme, getattr(self, "_accent_hex", ""), manager.get_dark())
                 self.theme_provider.load_from_data(css.encode('utf-8'))
                 # The accent CSS is loaded separately at higher priority so
                 # Adwaita and all bundled color schemes cannot override it.
@@ -7634,7 +7634,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     else:
                         palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
                     self.teal_theme_provider.load_from_data(
-                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme) + synplus_layout.css(theme)).encode('utf-8'))
+                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme) + synplus_layout.css(theme, getattr(self, "_accent_hex", ""), manager.get_dark())).encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,
                         Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)

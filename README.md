@@ -17,17 +17,30 @@
   <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
   <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
   <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
-  <a href="docs/RELEASE_1.3.7.md">What's new in 1.3.7</a>
+  <a href="docs/RELEASE_2.0.0.md">What's new in SYN 2.0</a>
 </p>
 
-**SYN 1.3.7** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
+**SYN 2.0.0** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
 
 The new interface uses the approved **icono_3** colour-bars icon in every launcher and package, plus the new SYN wordmark in light and dark variants. It offers **System, Light, Dark, SYN Teal, Nord Light/Dark and Gruvbox Light/Dark** themes, with optional custom accent colours. SYN starts on **live TV**, not the library landing page.
 
 > [!IMPORTANT]
 > **Bring your own legal IPTV sources.** SYN does not include playlists, credentials, channels or media. Films, series, artwork and EPG depend on what **your provider actually supplies**. SYN is distributed through GitHub Releases and **is not currently listed on Flathub**.
 
-### Updated in 1.3.7
+### New in SYN 2.0.0
+
+The new three-zone GTK4 interface places navigation, channels and live video/EPG side by side.
+A fullscreen EPG overlays the player without interrupting playback, and the compact player
+supports freely resizable proportions after its initial 16:9 presentation. Controls and
+their soft gradient appear on pointer hover, while a monochrome retro test card appears
+when no channel is playing. Redesigned profile avatars, refined channel fallback artwork,
+and all original DVR, Chromecast, recording scheduler, timeshift and library capabilities
+are retained. The UI uses Spanish, English (US) and English (UK) based on the system locale.
+
+**SYN 1.3.7** was the previous stable release; its source is retained in the
+`backup/syn-1.3.7-before-v2` branch.
+
+### Previously in 1.3.7
 
 The GTK4 category/profile dropdown popovers now match the selected theme; the EPG time axis is legible on light themes. New SYN wordmarks from the project library appear in the sidebar and README. The **icono_3** icon is included at nine hicolor resolutions in native and Flatpak packages.
 
@@ -91,7 +104,7 @@ Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup st
 *Screenshots from SYN 1.3.7. Recording filenames and local storage paths have been blurred for privacy. SYN does not include TV channels or subscriptions.*
 ## Download: choose the right package
 
-Get the **1.3.7** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
+Get the **2.0.0** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
 
 | Your Linux system | File extension | Architecture label | Installer |
 | --- | --- | --- | --- |
@@ -104,10 +117,10 @@ Get the **1.3.7** release assets from **[GitHub Releases](https://github.com/man
 
 ### Fedora (RPM)
 
-Download the file matching your architecture, e.g. `syn-iptv-1.3.7-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
+Download the file matching your architecture, e.g. `syn-iptv-2.0.0-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
 
 ```bash
-sudo dnf install ./syn-iptv-1.3.7-1.*.rpm
+sudo dnf install ./syn-iptv-2.0.0-1.*.rpm
 ```
 
 DNF resolves package dependencies. Start **SYN** from the app launcher or run `syn`.
@@ -117,7 +130,7 @@ DNF resolves package dependencies. Start **SYN** from the app launcher or run `s
 Download the matching `amd64` or `arm64` DEB, then:
 
 ```bash
-sudo apt install ./syn-iptv_1.3.7-1_*.deb
+sudo apt install ./syn-iptv_2.0.0-1_*.deb
 ```
 
 APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Required runtime libraries must be available in your distribution's repositories.
@@ -135,11 +148,11 @@ Pacman resolves packages available in your configured repositories. Start **SYN*
 ### Flatpak (Fedora, Debian, Arch and others)
 
 1. Install **Flatpak** from your distribution's package manager if you don't already have it.
-2. Download `SYN-1.3.7-x86_64.flatpak` or `SYN-1.3.7-aarch64.flatpak`, matching `uname -m`.
+2. Download `SYN-2.0.0-x86_64.flatpak` or `SYN-2.0.0-aarch64.flatpak`, matching `uname -m`.
 3. Install the bundle and start SYN:
 
 ```bash
-flatpak install --user ./SYN-1.3.7-*.flatpak
+flatpak install --user ./SYN-2.0.0-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -148,7 +161,7 @@ If the GNOME runtime is missing, Flatpak can offer to install it (an internet co
 **Already installed system-wide?** To update that installation instead of creating a second user copy, use:
 
 ```bash
-sudo flatpak install --system --reinstall ./SYN-1.3.7-*.flatpak
+sudo flatpak install --system --reinstall ./SYN-2.0.0-*.flatpak
 flatpak run --system --branch=master com.mrseivane.Syn
 ```
 
@@ -161,16 +174,16 @@ Descarga el archivo de **SYN 1.3.7** para tu distribución y procesador desde [R
 
 ```bash
 # Fedora
-sudo dnf install ./syn-iptv-1.3.7-1.*.rpm
+sudo dnf install ./syn-iptv-2.0.0-1.*.rpm
 
 # Debian / Ubuntu
-sudo apt install ./syn-iptv_1.3.7-1_*.deb
+sudo apt install ./syn-iptv_2.0.0-1_*.deb
 
 # Arch / EndeavourOS
 sudo pacman -U ./syn-iptv-1.3.7-1-*.pkg.tar.zst
 
 # Flatpak — instalación de usuario
-flatpak install --user ./SYN-1.3.7-*.flatpak
+flatpak install --user ./SYN-2.0.0-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 

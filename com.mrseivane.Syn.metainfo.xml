@@ -37,6 +37,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.0" date="2026-10-23">
+      <description>
+        <p>New SYN interface: fixed navigation rail, live player with optional overlay controls, integrated and full-screen programme guide, monochrome test card and redesigned profiles. Preserves built-in DVR, Chromecast and media libraries.</p>
+        <p xml:lang="es">Nueva interfaz SYN: navegación fija, reproductor con controles superpuestos, guía integrada y a pantalla completa, carta de ajuste monocroma y perfiles renovados. Mantiene DVR, Chromecast y bibliotecas integrados.</p>
+      </description>
+    </release>
     <release version="1.3.7" date="2026-10-23">
       <description>
         <p>GTK4 popovers match the chosen palette, EPG hour labels are legible in light themes, and the new SYN logos and approved icono_3 icon appear consistently across the desktop and README.</p>

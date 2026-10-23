@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.7 — fullscreen EPG fix; startup 16:9, free resize, linked chrome and retro monochrome standby.
+"""SYN 2.0 release — fullscreen EPG fix; startup 16:9, free resize, linked chrome and retro monochrome standby.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -7,9 +7,11 @@ from __future__ import annotations
 import hashlib
 import time
 import unicodedata
+import re
+from syn_i18n import translate as tr
 
 
-def css(theme='system'):
+def css(theme='system', accent_hex='', system_dark=False):
     """Theme-neutral GTK CSS, with small scoped overrides for bundled palettes."""
     values = {
         'teal': ('#091b20', '#0f252a', '#10272c', '#e9f7f4', '#162f34', '#f1a46a'),
@@ -60,6 +62,17 @@ def css(theme='system'):
     else:
         epg_colors = ('#245d48', '#59317e', '#194c86', '#6a5231', '#266064', '#724653')
         epg_text = '#f9fcfd'
+    if theme in ('light', 'nord-light', 'gruvbox-light') or (theme == 'system' and not system_dark):
+        if isinstance(accent_hex, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', accent_hex):
+            tint_color = accent_hex
+        elif theme in values:
+            tint_color = values[theme][5]
+        else:
+            tint_color = '@accent_color'
+        palette += ("window.iptv-tv.synplus-window .synplus-nav { "
+                    "background-image:linear-gradient(to bottom, "
+                    f"alpha({tint_color},.10), alpha({tint_color},.10)); "
+                    "}")
     palette += ''.join(
         f'window.iptv-tv .synplus-guide .syn-guide-program-{n} '
         f'{{ background-color:{tone}; }}\n'
@@ -281,7 +294,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.7")
+    window.set_title("SYN")
     window.set_resizable(True)
     # INITIAL size only; no aspect, fixed size, or window geometry hints.
     window.set_default_size(1370, 950)
@@ -327,7 +340,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
 
     more = Gtk.MenuButton()
     more.set_icon_name('view-more-symbolic')
-    more.set_tooltip_text('Más acciones de SYN')
+    more.set_tooltip_text(tr('Más acciones de SYN'))
     menu = Gtk.Popover()
     menu_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
     menu_content.set_margin_top(7)
@@ -343,7 +356,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         ('Información de reproducción', window.show_info),
     )
     for label, handler in more_items:
-        action = Gtk.Button(label=label)
+        action = Gtk.Button(label=tr(label))
         action.set_halign(Gtk.Align.FILL)
         action.add_css_class('flat')
         action.connect('clicked', lambda _btn, h=handler: (menu.popdown(), h()))
@@ -412,7 +425,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         pictogram = Gtk.Image.new_from_icon_name(icon_name)
         pictogram.set_pixel_size(16)
         content.append(pictogram)
-        caption = Gtk.Label(label=label, xalign=0)
+        caption = Gtk.Label(label=tr(label), xalign=0)
         caption.set_hexpand(True)
         content.append(caption)
         button.set_child(content)
@@ -431,7 +444,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     # Profile avatars are deterministic: same ID, same icon, same colours.
     profile_button = Gtk.MenuButton()
     profile_button.add_css_class('synplus-avatar')
-    profile_button.set_tooltip_text('Perfiles · cambiar o añadir')
+    profile_button.set_tooltip_text(tr('Perfiles · cambiar o añadir'))
     avatar_image = Gtk.Image.new_from_icon_name('avatar-default-symbolic')
     avatar_image.set_pixel_size(22)
     profile_button.set_child(avatar_image)
@@ -446,14 +459,11 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         rebuild_profile_menu(window, Gtk) if btn.get_active() else None)
     window.profile_picker.connect('notify::selected', lambda *_: refresh_avatar(window))
     refresh_avatar(window)
-    add_profile = Gtk.Button(label='+  Añadir')
-    add_profile.set_tooltip_text('Añadir perfil IPTV')
+    add_profile = Gtk.Button(label=tr('+  Añadir'))
+    add_profile.set_tooltip_text(tr('Añadir perfil IPTV'))
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.7', xalign=0)
-    info.add_css_class('synplus-nav-note')
-    nav.append(info)
 
     # Replace SYN's old coloured idle PNG with a purely grayscale, responsive
     # Cairo test pattern, before GTK realizes the GLArea. Existing idle logic
@@ -832,7 +842,7 @@ def refresh_avatar(window):
     digest=hashlib.sha256(str(p.get('id','synplus')).encode('utf-8')).digest()
     btn.add_css_class('synplus-avatar-c%d' % (digest[1] % len(PROFILE_COLORS)))
     window._synplus_avatar_picture.set_from_icon_name(PROFILE_ICONS[i])
-    btn.set_tooltip_text('Perfiles · %s' % p.get('name','Mi televisión'))
+    btn.set_tooltip_text(tr('Perfiles')+' · %s' % p.get('name',tr('Mi televisión')))
 
 
 def rebuild_profile_menu(window, Gtk):
@@ -842,17 +852,17 @@ def rebuild_profile_menu(window, Gtk):
     root=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=5)
     for margin in ('top','bottom','start','end'):
         getattr(root,'set_margin_'+margin)(10)
-    title=Gtk.Label(label='Perfiles',xalign=0)
+    title=Gtk.Label(label=tr('Perfiles'),xalign=0)
     title.add_css_class('heading')
     root.append(title)
     for i,p in enumerate(window.cfg.get('profiles',[])):
-        name=p.get('name','Sin nombre')
+        name=p.get('name',tr('Sin nombre'))
         btn=Gtk.Button(label=('✓  ' if p.get('id')==window.profile.get('id') else '    ')+name)
         btn.add_css_class('flat')
         btn.connect('clicked',lambda _b,index=i:(pop.popdown(),window.profile_picker.set_selected(index)))
         root.append(btn)
     root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-    add=Gtk.Button(label='+  Añadir perfil')
+    add=Gtk.Button(label=tr('+  Añadir perfil'))
     add.add_css_class('suggested-action')
     add.connect('clicked',lambda *_:(pop.popdown(),window.show_welcome()))
     root.append(add)
