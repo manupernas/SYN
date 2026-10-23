@@ -17,7 +17,7 @@
   <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
   <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
   <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
-  <a href="docs/RELEASE_1.3.7.md">What's new in 1.3.5</a>
+  <a href="docs/RELEASE_1.3.7.md">What's new in 1.3.7</a>
 </p>
 
 **SYN 1.3.7** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
@@ -71,19 +71,24 @@ Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup st
 
 ## Screenshots
 
+<!-- SYN_SCREENSHOT_GALLERY_137: managed by screenshot update script -->
+<p align="center">
+  <a href="docs/screenshots/1.3.7/01-tv-guide-light.png"><img src="docs/screenshots/1.3.7/01-tv-guide-light.png" alt="SYN 1.3.7 television guide showing channels and a colourful EPG timeline" width="940"></a>
+</p>
+<p align="center"><strong>Interactive TV guide</strong> · Find channels, explore the EPG and schedule recordings without leaving live TV</p>
+
 <table>
   <tr>
-    <th>TV and channels</th><th>EPG</th><th>Settings</th>
+    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/02-live-tv-cast-dark.png"><img src="docs/screenshots/1.3.7/02-live-tv-cast-dark.png" width="440" alt="Watch live TV and cast to Android TV"></a><br><strong>Live TV &amp; casting</strong><br><sub>Watch live TV and cast to Android TV</sub></td>
+    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/03-dvr-recordings-teal.png"><img src="docs/screenshots/1.3.7/03-dvr-recordings-teal.png" width="440" alt="Record instantly, schedule recordings and browse saved files"></a><br><strong>DVR &amp; recordings</strong><br><sub>Record instantly, schedule recordings and browse saved files</sub></td>
   </tr>
   <tr>
-    <td><a href="docs/screenshots/01-player-en.png"><img src="docs/screenshots/01-player-en.png" width="285" alt="TV view"></a></td>
-    <td><a href="docs/screenshots/02-guide-en.png"><img src="docs/screenshots/02-guide-en.png" width="285" alt="Programme guide"></a></td>
-    <td><a href="docs/screenshots/03-settings-en.png"><img src="docs/screenshots/03-settings-en.png" width="285" alt="Settings"></a></td>
+    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/04-library-home-light.png"><img src="docs/screenshots/1.3.7/04-library-home-light.png" width="440" alt="Switch between TV, series and films"></a><br><strong>Your library</strong><br><sub>Switch between TV, series and films</sub></td>
+    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/05-series-library-dark.png"><img src="docs/screenshots/1.3.7/05-series-library-dark.png" width="440" alt="Find programmes in a searchable visual library"></a><br><strong>Series browser</strong><br><sub>Find programmes in a searchable visual library</sub></td>
   </tr>
 </table>
 
-*Screenshots may show an earlier UI. The film and series libraries are new in 1.3.5.*
-
+*Screenshots from SYN 1.3.7. Recording filenames and local storage paths have been blurred for privacy. SYN does not include TV channels or subscriptions.*
 ## Download: choose the right package
 
 Get the **1.3.7** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
@@ -152,7 +157,7 @@ flatpak run --system --branch=master com.mrseivane.Syn
 <details>
 <summary><strong>Instalación rápida en español</strong></summary>
 
-Descarga el archivo de **SYN 1.3.5** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
+Descarga el archivo de **SYN 1.3.7** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
 
 ```bash
 # Fedora
@@ -195,7 +200,7 @@ flatpak run com.mrseivane.Syn
 
 The source build requires Git, `flatpak-builder`, the GNOME runtime/SDK and network access to dependencies. **You do not need to run the old `instalar-servicios-syn.sh` or `instalar-servicio-cast.sh` after installation.** These are not end-user installation steps.
 
-The GitHub Actions release workflow produces RPM, DEB, Pacman and Flatpak binaries independently for **x86_64** and **aarch64**. A GitHub Release is published only after all eight build jobs succeed. See [the release notes](docs/RELEASE_1.3.5.md).
+The GitHub Actions release workflow produces RPM, DEB, Pacman and Flatpak binaries independently for **x86_64** and **aarch64**. A GitHub Release is published only after all eight build jobs succeed. See [the release notes](docs/RELEASE_1.3.7.md).
 
 ## Privacy, legal use and licence
 
