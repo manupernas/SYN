@@ -83,6 +83,34 @@ EN = {
  'Sí': ('Yes','Yes'), 'No': ('No','No'),
 }
 
+# SYN 1.3.6beta11: Nord/Gruvbox labels in Settings (en_US, en_GB).
+# The existing translator t() selects one column; these are not channel names.
+EN.update({
+ 'Nord claro': ('Nord Light', 'Nord Light'),
+ 'Nord oscuro': ('Nord Dark', 'Nord Dark'),
+ 'Snow Storm · hielo': ('Snow Storm · ice', 'Snow Storm · ice'),
+ 'Polar Night · ártico': ('Polar Night · Arctic', 'Polar Night · Arctic'),
+ 'Nord · Frost y Aurora': ('Nord · Frost and Aurora', 'Nord · Frost and Aurora'),
+ 'Frost · azul hielo': ('Frost · ice blue', 'Frost · ice blue'),
+ 'Aurora · rojo': ('Aurora · red', 'Aurora · red'),
+ 'Aurora · naranja': ('Aurora · orange', 'Aurora · orange'),
+ 'Aurora · amarillo': ('Aurora · yellow', 'Aurora · yellow'),
+ 'Aurora · verde': ('Aurora · green', 'Aurora · green'),
+ 'Aurora · violeta': ('Aurora · purple', 'Aurora · purple'),
+ 'Gruvbox claro': ('Gruvbox Light', 'Gruvbox Light'),
+ 'Gruvbox oscuro': ('Gruvbox Dark', 'Gruvbox Dark'),
+ 'Crema · retro': ('Cream · retro', 'Cream · retro'),
+ 'Café · retro': ('Coffee · retro', 'Coffee · retro'),
+ 'Gruvbox · colores de realce': ('Gruvbox · accent colors', 'Gruvbox · accent colours'),
+ 'Rojo': ('Red', 'Red'), 'Verde': ('Green', 'Green'),
+ 'Amarillo': ('Yellow', 'Yellow'), 'Azul': ('Blue', 'Blue'),
+ 'Morado': ('Purple', 'Purple'), 'Aqua': ('Aqua', 'Aqua'),
+ 'Naranja': ('Orange', 'Orange'),
+ 'Ajustes guardados. La reproducción continúa sin interrupción.':
+    ('Settings saved. Playback continues uninterrupted.',
+     'Settings saved. Playback continues uninterrupted.'),
+})
+
 def t(msg):
     if LANGUAGE == 'en_US':
         return EN.get(msg, (msg,msg))[0]
@@ -125,6 +153,19 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
           window.syn-settings-window button.syn-pref-swatch-orange { background-color: #F28C28; }
           window.syn-settings-window button.syn-pref-swatch-blue { background-color: #527EB0; }
           window.syn-settings-window button.syn-pref-swatch-red { background-color: #D94B63; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-frost { background-color: #88C0D0; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-red { background-color: #BF616A; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-orange { background-color: #D08770; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-yellow { background-color: #EBCB8B; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-green { background-color: #A3BE8C; }
+          window.syn-settings-window button.syn-pref-swatch-aurora-purple { background-color: #B48EAD; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-red { background-color: #CC241D; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-green { background-color: #98971A; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-yellow { background-color: #D79921; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-blue { background-color: #458588; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-purple { background-color: #B16286; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-aqua { background-color: #689D6A; }
+          window.syn-settings-window button.syn-pref-swatch-gruvbox-orange { background-color: #D65D0E; }
         ''')
         Gtk.StyleContext.add_provider_for_display(win.get_display(), css,
                                                     Gtk.STYLE_PROVIDER_PRIORITY_USER + 5)
@@ -333,12 +374,16 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
           'Elige dónde guardar capturas PNG del vídeo.')
 
     gp = group(appearance_page, 'Tema de la aplicación')
-    theme_codes = ['system','light','dark','teal']
+    theme_codes = ['system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark']
     theme_labels = [('Sistema','Respetar los colores del escritorio'),
                     ('Claro','Aspecto pastel'),('Oscuro','Negro y gris'),
-                    ('Teal SYN','Verde azulado petróleo')]
-    tile_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
-    tile_row.set_homogeneous(True)
+                    ('Teal SYN','Verde azulado petróleo'),
+                    ('Nord claro','Snow Storm · hielo'),
+                    ('Nord oscuro','Polar Night · ártico'),
+                    ('Gruvbox claro','Crema · retro'),
+                    ('Gruvbox oscuro','Café · retro')]
+    tile_row = Gtk.Grid(column_spacing=8, row_spacing=8)
+    tile_row.set_column_homogeneous(True)
     tiles = []
     for idx,(title,hint) in enumerate(theme_labels):
         tile = Gtk.ToggleButton()
@@ -353,7 +398,7 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
         tile.set_child(content)
         tile.set_active(theme_codes[idx] == app.cfg.get('theme','teal'))
         tiles.append(tile)
-        tile_row.append(tile)
+        tile_row.attach(tile, idx % 2, idx // 2, 1, 1)
     gp.append(tile_row)
 
     gp = group(appearance_page, 'Color de realce personalizado')
@@ -375,6 +420,50 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
             accent_switch.set_active(True), color_entry.set_text(c)))
         swatches.append(swatch)
     field(gp, 'Colores rápidos', swatches)
+
+    # NORDBETA: Frost plus Nord11..15 Aurora, saved using existing accent_hex.
+    aurora_title = Gtk.Label(label=t('Nord · Frost y Aurora'), xalign=0)
+    aurora_title.add_css_class('syn-pref-section-title')
+    gp.append(aurora_title)
+    aurora_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+    for slug, title, hex_value in (
+        ('frost', 'Frost · azul hielo', '#88C0D0'),
+        ('red', 'Aurora · rojo', '#BF616A'),
+        ('orange', 'Aurora · naranja', '#D08770'),
+        ('yellow', 'Aurora · amarillo', '#EBCB8B'),
+        ('green', 'Aurora · verde', '#A3BE8C'),
+        ('purple', 'Aurora · violeta', '#B48EAD'),
+    ):
+        button = Gtk.Button()
+        button.add_css_class('syn-pref-swatch')
+        button.add_css_class('syn-pref-swatch-aurora-' + slug)
+        button.set_tooltip_text(t(title) + '  ' + hex_value)
+        button.connect('clicked', lambda _btn, color=hex_value: (
+            accent_switch.set_active(True), color_entry.set_text(color)))
+        aurora_row.append(button)
+    gp.append(aurora_row)
+
+    gruvbox_title = Gtk.Label(label=t('Gruvbox · colores de realce'), xalign=0)
+    gruvbox_title.add_css_class('syn-pref-section-title')
+    gp.append(gruvbox_title)
+    gruvbox_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+    for slug, title, hex_value in (
+        ('red', 'Rojo', '#CC241D'),
+        ('green', 'Verde', '#98971A'),
+        ('yellow', 'Amarillo', '#D79921'),
+        ('blue', 'Azul', '#458588'),
+        ('purple', 'Morado', '#B16286'),
+        ('aqua', 'Aqua', '#689D6A'),
+        ('orange', 'Naranja', '#D65D0E'),
+    ):
+        button = Gtk.Button()
+        button.add_css_class('syn-pref-swatch')
+        button.add_css_class('syn-pref-swatch-gruvbox-' + slug)
+        button.set_tooltip_text('Gruvbox · ' + t(title) + ' · ' + hex_value)
+        button.connect('clicked', lambda _btn, color=hex_value: (
+            accent_switch.set_active(True), color_entry.set_text(color)))
+        gruvbox_row.append(button)
+    gp.append(gruvbox_row)
 
     gp = group(appearance_page, 'Logos de canales')
     ch = app._logo_selected_channel()
@@ -477,6 +566,10 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
                       if accent_switch.get_active() else '')
         except ValueError as exc:
             notice.set_text(str(exc)); notice.set_tooltip_text(str(exc)); return
+        previous_profile = next((p for p in app.cfg['profiles']
+                                 if p.get('id') == new_id), None)
+        profile_changed = (is_new or previous_profile != obj
+                           or app.cfg.get('selected') != obj['id'])
         if is_new:
             app.cfg['profiles'].append(obj)
         else:
@@ -501,12 +594,17 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
         sources.save_config(app.cfg)
         app.get_application().apply_theme(app.cfg['theme'],app.cfg['accent_hex'])
         app.player_options = dict(app.cfg['player'])
+        # Reconstruct the UI only for a genuinely changed source/profile.
+        # Theme-only Save must NOT reset the currently playing mpv stream,
+        # its EPG, selected channel or scrolled list.
         app.profile = obj
-        app.favorites = set(obj.get('favorites', []))
-        app.profile_picker.set_model(Gtk.StringList.new([p['name'] for p in app.cfg['profiles']]))
-        app.profile_picker.set_selected(app.cfg['profiles'].index(obj))
-        app.load_channels()
-        app.status.set_text(t('Ajustes guardados. Reinicia SYN para aplicar los cambios de MPV.'))
+        if profile_changed:
+            app.favorites = set(obj.get('favorites', []))
+            app.profile_picker.set_model(Gtk.StringList.new(
+                [p['name'] for p in app.cfg['profiles']]))
+            app.profile_picker.set_selected(app.cfg['profiles'].index(obj))
+            app.load_channels()
+        app.status.set_text(t('Ajustes guardados. La reproducción continúa sin interrupción.'))
         win.close()
 
     def tab_changed(stack,_pspec):

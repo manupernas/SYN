@@ -36,6 +36,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.3.6" date="2026-10-23">
+      <description>
+        <p>Nord and Gruvbox light/dark themes, Aurora accents, full-bleed channel artwork, colourful EPG gradients, smoother timeline navigation and translation fixes.</p>
+        <p xml:lang="es">Temas Nord y Gruvbox claros y oscuros, acentos Aurora, pastillas artísticas, EPG con degradados, navegación fluida y mejoras de traducción.</p>
+      </description>
+    </release>
     <release version="1.3.5" date="2026-10-23">
       <description>
         <p>New film and series libraries, searchable poster grids, Xtream/M3U VOD discovery, episode browser, adaptive SYN branding, updated application icon, and plug-and-play DVR/Chromecast without the system tray service.</p>

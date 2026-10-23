@@ -64,6 +64,55 @@ EN = {
  ' en segundo plano': ' in the background',
  'Propiedad no disponible': 'Property unavailable',
 }
+# SYN 1.3.6beta11: fallbacks for current UI text absent from older .mo files.
+# en_US/en_GB grammatical variants are handled by localize() below.
+EN.update({
+ 'Sistema, Claro, Oscuro, Teal SYN, Nord claro/oscuro y Gruvbox claro/oscuro. Acentos Frost, Aurora y Gruvbox en Apariencia.':
+    'System, Light, Dark, SYN Teal, Nord Light/Dark and Gruvbox Light/Dark. Frost, Aurora and Gruvbox accents in Appearance.',
+ 'Buscar títulos…': 'Search titles…',
+ '¿Qué te apetece ver?': 'What would you like to watch?',
+ 'Selecciona una categoría para explorar tu contenido': 'Select a category to explore your content',
+ 'Ver más títulos': 'Show more titles',
+ 'No se pudo consultar el catálogo del servidor. Revisa tu fuente Xtream.':
+    'Could not load the server catalogue. Check your Xtream source.',
+ 'de': 'of',
+ '● Programar grabación': '● Schedule recording',
+ 'Conexiones máximas del perfil': 'Maximum connections for this profile',
+ 'Timeshift: no disponible durante una grabación de este canal.':
+    'Timeshift: unavailable while recording this channel.',
+ 'Timeshift: todas las conexiones están ocupadas por el DVR.':
+    'Timeshift: all connections are in use by the DVR.',
+ 'Timeshift: preparando búfer temporal…': 'Timeshift: preparing temporary buffer…',
+ 'Timeshift: sin señal inicial; regreso al directo.':
+    'Timeshift: no initial signal; returning to live TV.',
+ 'Timeshift: límite de almacenamiento; regresando al directo.':
+    'Timeshift: storage limit reached; returning to live TV.',
+ 'Cast: relay compartido no disponible; no se abrirá una conexión duplicada.':
+    'Cast: shared relay unavailable; no duplicate connection will be opened.',
+ 'Cast: recuperando canal compartido sin otra conexión IPTV…':
+    'Cast: restoring the shared channel without another IPTV connection…',
+ 'Cast: libmpv no está listo para abrir el relay local.':
+    'Cast: libmpv is not ready to open the local relay.',
+ 'Cast: mismo canal en SYN y Chromecast · una conexión IPTV':
+    'Cast: same channel in SYN and Chromecast · one IPTV connection',
+ 'Cast finalizado; DVR y reproducción local protegidos.':
+    'Cast ended; DVR and local playback are protected.',
+ 'Cast: espera a que termine la operación anterior.':
+    'Cast: wait for the previous operation to finish.',
+ 'Cast: todas las conexiones están ocupadas por el DVR.':
+    'Cast: all connections are in use by the DVR.',
+ 'Cast: preparando retransmisión compartida…':
+    'Cast: preparing shared stream…',
+ 'Cast: puente antiguo, falta el relay local. Detén Cast.':
+    'Cast: outdated bridge; local relay is missing. Stop casting.',
+ 'Cast: operación en curso.': 'Cast: operation in progress.',
+ 'Detén Cast antes de cambiar de perfil IPTV.':
+    'Stop casting before switching IPTV profiles.',
+ 'DVR: conexiones ocupadas. Selecciona uno de los canales que se están grabando.':
+    'DVR: connections in use. Select one of the channels being recorded.',
+ 'DVR: límite de conexiones alcanzado.': 'DVR: connection limit reached.',
+})
+
 ES = {
  'channels': 'canales', 'categories': 'categorías', 'channels loaded': 'canales cargados',
  'profile': 'perfil', 'Loading profile': 'Cargando perfil', 'of': 'de',

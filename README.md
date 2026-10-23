@@ -16,9 +16,9 @@
   <a href="docs/RELEASE_1.3.5.md">What's new in 1.3.5</a>
 </p>
 
-**SYN 1.3.5** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
+**SYN 1.3.6** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
 
-The new interface includes the original SYN colour-bars icon and light/dark-aware wordmark. It offers **System, Light, Dark and SYN Teal** themes, with optional custom accent colours. SYN starts on **live TV**, not the library landing page.
+The new interface includes the original SYN colour-bars icon and light/dark-aware wordmark. It offers **System, Light, Dark, SYN Teal, Nord Light/Dark and Gruvbox Light/Dark** themes, with optional custom accent colours. SYN starts on **live TV**, not the library landing page.
 
 > [!IMPORTANT]
 > **Bring your own legal IPTV sources.** SYN does not include playlists, credentials, channels or media. Films, series, artwork and EPG depend on what **your provider actually supplies**. SYN is distributed through GitHub Releases and **is not currently listed on Flathub**.
@@ -78,7 +78,7 @@ Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup st
 
 ## Download: choose the right package
 
-Get the **1.3.5** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
+Get the **1.3.6** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
 
 | Your Linux system | File extension | Architecture label | Installer |
 | --- | --- | --- | --- |
@@ -91,10 +91,10 @@ Get the **1.3.5** release assets from **[GitHub Releases](https://github.com/man
 
 ### Fedora (RPM)
 
-Download the file matching your architecture, e.g. `syn-iptv-1.3.5-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
+Download the file matching your architecture, e.g. `syn-iptv-1.3.6-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
 
 ```bash
-sudo dnf install ./syn-iptv-1.3.5-1.*.rpm
+sudo dnf install ./syn-iptv-1.3.6-1.*.rpm
 ```
 
 DNF resolves package dependencies. Start **SYN** from the app launcher or run `syn`.
@@ -104,7 +104,7 @@ DNF resolves package dependencies. Start **SYN** from the app launcher or run `s
 Download the matching `amd64` or `arm64` DEB, then:
 
 ```bash
-sudo apt install ./syn-iptv_1.3.5-1_*.deb
+sudo apt install ./syn-iptv_1.3.6-1_*.deb
 ```
 
 APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Required runtime libraries must be available in your distribution's repositories.
@@ -114,7 +114,7 @@ APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Req
 Download the matching `x86_64` or `aarch64` package, then:
 
 ```bash
-sudo pacman -U ./syn-iptv-1.3.5-1-*.pkg.tar.zst
+sudo pacman -U ./syn-iptv-1.3.6-1-*.pkg.tar.zst
 ```
 
 Pacman resolves packages available in your configured repositories. Start **SYN** from the app launcher or run `syn`. Some ARM-specific distributions may need equivalent dependencies in their own repositories.
@@ -122,11 +122,11 @@ Pacman resolves packages available in your configured repositories. Start **SYN*
 ### Flatpak (Fedora, Debian, Arch and others)
 
 1. Install **Flatpak** from your distribution's package manager if you don't already have it.
-2. Download `SYN-1.3.5-x86_64.flatpak` or `SYN-1.3.5-aarch64.flatpak`, matching `uname -m`.
+2. Download `SYN-1.3.6-x86_64.flatpak` or `SYN-1.3.6-aarch64.flatpak`, matching `uname -m`.
 3. Install the bundle and start SYN:
 
 ```bash
-flatpak install --user ./SYN-1.3.5-*.flatpak
+flatpak install --user ./SYN-1.3.6-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -135,7 +135,7 @@ If the GNOME runtime is missing, Flatpak can offer to install it (an internet co
 **Already installed system-wide?** To update that installation instead of creating a second user copy, use:
 
 ```bash
-sudo flatpak install --system --reinstall ./SYN-1.3.5-*.flatpak
+sudo flatpak install --system --reinstall ./SYN-1.3.6-*.flatpak
 flatpak run --system --branch=master com.mrseivane.Syn
 ```
 
@@ -148,16 +148,16 @@ Descarga el archivo de **SYN 1.3.5** para tu distribución y procesador desde [R
 
 ```bash
 # Fedora
-sudo dnf install ./syn-iptv-1.3.5-1.*.rpm
+sudo dnf install ./syn-iptv-1.3.6-1.*.rpm
 
 # Debian / Ubuntu
-sudo apt install ./syn-iptv_1.3.5-1_*.deb
+sudo apt install ./syn-iptv_1.3.6-1_*.deb
 
 # Arch / EndeavourOS
-sudo pacman -U ./syn-iptv-1.3.5-1-*.pkg.tar.zst
+sudo pacman -U ./syn-iptv-1.3.6-1-*.pkg.tar.zst
 
 # Flatpak — instalación de usuario
-flatpak install --user ./SYN-1.3.5-*.flatpak
+flatpak install --user ./SYN-1.3.6-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
