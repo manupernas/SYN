@@ -1,4 +1,4 @@
-"""SYN-Plus 2.0 alpha2.1 — refined legacy artwork & strict 16:9 GTK layout.
+"""SYN Plus 2.0 alpha2.2 — flexible panoramic player and pure fullscreen.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -102,8 +102,8 @@ def css(theme='system'):
     window.iptv-tv .synplus-visual-player { background-color:#03080b; }
     window.iptv-tv .synplus-video-chrome {
       background-image:linear-gradient(to bottom,
-          rgba(4,10,16,0),rgba(4,10,16,.72) 24%,rgba(4,10,16,.94) 100%);
-      color:#f6f8fa; padding:24px 13px 10px 13px;
+          rgba(4,10,16,0) 0%,rgba(4,10,16,.12) 42%,rgba(4,10,16,.52) 100%);
+      color:#f6f8fa; padding:11px 13px 8px 13px;
     }
     window.iptv-tv .synplus-video-chrome label { color:#f6f8fa; }
     window.iptv-tv .synplus-video-chrome .iptv-details { color:#d8e0e8; }
@@ -150,6 +150,10 @@ def css(theme='system'):
     }
     window.iptv-tv.synplus-window .synplus-visual-player {
       border-radius:15px; margin:9px 11px 0 11px; }
+    window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-visual-player {
+      border-radius:0; margin:0; padding:0; }
+    window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-chrome {
+      background-image:none; padding:0; }
     window.iptv-tv.synplus-window .synplus-video-chrome { border-radius:0 0 14px 14px; }
     window.iptv-tv.synplus-window .synplus-guide .syn-guide-program { border-radius:10px; }
     window.iptv-tv.synplus-window .synplus-avatar {
@@ -185,7 +189,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.1")
+    window.set_title("SYN Plus · Alfa 2.2")
     window.set_default_size(1370, 920)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
@@ -357,7 +361,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.1', xalign=0)
+    info = Gtk.Label(label='ALFA 2.2', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -365,20 +369,38 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     # before the first realization and overlay an unobtrusive playback chrome.
     video_column.remove(window.overlay)
     frame = Gtk.AspectFrame.new(0.5, 0.5, 16 / 9, False)
-    # GTK AspectFrame constrains its CHILD, not the aspect of the frame itself.
-    # Never make the outer frame vertically expandable: we fix both dimensions
-    # below to the exact 16:9 ratio, keeping the video and chrome together.
+    # GTK AspectFrame constrains the CHILD, not the frame. Normal-window
+    # geometry can be wider than 16:9; the ratio follows each allocation.
+    # On fullscreen the frame expands to fill the display without reparenting
+    # Gtk.GLArea or recreating the libmpv OpenGL context.
     frame.set_hexpand(False)
     frame.set_vexpand(False)
     frame.set_halign(Gtk.Align.CENTER)
     frame.set_valign(Gtk.Align.START)
-    frame.set_size_request(320, 180)
+    frame.set_size_request(-1, -1)
     frame.add_css_class('synplus-visual-player')
     frame.set_child(window.overlay)
-    video_column.prepend(frame)
+    # The frame is an UNMEASURED OVERLAY. Its calculated (w,h) request will
+    # not become the MINIMUM WINDOW SIZE, so the GTK window is freely resizable.
+    # The base child provides the flexible space remaining above the EPG.
+    video_host = Gtk.Overlay()
+    video_host.add_css_class('synplus-player-host')
+    video_host.set_hexpand(True)
+    video_host.set_vexpand(True)
+    blank_host = Gtk.Box()
+    blank_host.set_hexpand(True)
+    blank_host.set_vexpand(True)
+    video_host.set_child(blank_host)
+    video_host.add_overlay(frame)
+    video_host.set_measure_overlay(frame, False)
+    video_column.prepend(video_host)
     window._synplus_player_frame = frame
+    window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
+    # SYN 1.3.7's one-shot startup 16:9 WINDOW resize is not wanted here:
+    # user dimensions must remain free from the very first launch.
+    window._syn_startup_ratio_pending = False
 
     chrome = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
     chrome.add_css_class('synplus-video-chrome')
@@ -396,7 +418,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
     reveal.set_transition_duration(210)
-    reveal.set_reveal_child(True)
+    # Windowed chrome starts hidden; pointer hover/click is the ONLY reveal.
+    reveal.set_reveal_child(False)
     reveal.set_halign(Gtk.Align.FILL)
     reveal.set_valign(Gtk.Align.END)
     reveal.set_child(chrome)
@@ -412,8 +435,11 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     GLib.timeout_add(300, lambda: poll_chrome(window))
     window.footer.set_visible(False)
     window.status.set_visible(False)
-    window.play_button.set_label('▶')
-    window.play_button.set_tooltip_text('Reproducir canal seleccionado')
+    # The channel list starts playback directly. Keep the underlying handler
+    # for compatibility but remove the redundant Play button from the toolbar.
+    if window.play_button.get_parent() == window.strip:
+        window.strip.remove(window.play_button)
+    window.play_button.set_visible(False)
     window.pause_button.set_label('⏸')
 
     # Embedded real EPG, using the exact 1.3.7 XMLTV and recording handlers.
@@ -447,26 +473,22 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
 
 def player_geometry(region_width, region_height, guide_height, horizontal_margin=24,
                     vertical_margin=28):
-    """16:9 geometry constrained by BOTH available width and EPG height.
+    """Fill available horizontal space, without ever becoming taller than 16:9.
 
-    Width/height are integer CSS pixels; at most 1 px of rounding error.
-    The reserved EPG is never sacrificed to enlarge the player.
+    16 is the baseline width and 9 is the MAXIMUM proportional height. Resizing
+    a shallow window can produce a wide cinematic frame (21:9, 32:9, etc.).
+    The underlying MPV render preserves the source's own pixel aspect ratio;
+    video content is never stretched just to fill the frame.
     """
     usable_w = max(0, int(region_width) - int(horizontal_margin))
     usable_h = max(0, int(region_height) - int(guide_height) - int(vertical_margin))
-    if usable_w <= 0 or usable_h <= 0:
+    if usable_w < 16 or usable_h < 16:
         return None
-    w = min(usable_w, (usable_h * 16) // 9)
-    # Round to a 16:9-friendly multiple; prevent accumulated GTK 1px drift.
-    if w < 16:
-        return None
-    w = (w // 16) * 16
-    h = (w * 9) // 16
-    return (int(w), int(h))
+    return (usable_w, min(usable_h, (usable_w * 9) // 16))
 
 
 def adapt(window, width):
-    """Fixed 138px left navigation, strict 16:9 player, 3–5 EPG rows."""
+    """Fixed 138px navigation, flexible panoramic player, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
     window._synplus_nav.set_visible(True)
@@ -486,17 +508,19 @@ def adapt(window, width):
     else:
         guide_h = 0
 
-    column = getattr(window, '_synplus_video_column', None)
+    host = getattr(window, '_synplus_player_host', None)
     frame = getattr(window, '_synplus_player_frame', None)
-    if column is not None and frame is not None:
-        cw = column.get_width()
-        # Use allocated workspace height, NOT GtkAspectFrame's natural height.
-        # Avoid a feedback loop in GTK's width-for-height measurement.
-        ch = window.main_stack.get_height()
-        if ch <= 0: ch = max(0, window.get_height() - 64)
+    if host is not None and frame is not None:
+        # The host is sized by Gtk.Box AFTER reserving EPG space. Its own
+        # measurement EXCLUDES the frame, so its dimensions remain flexible.
+        cw, ch = host.get_width(), host.get_height()
         if cw > 0 and ch > 0 and not full_guide:
-            wanted = player_geometry(cw, ch, guide_h)
+            wanted = player_geometry(cw, ch, 0, vertical_margin=8)
             if wanted and wanted != getattr(window,'_synplus_requested_video',None):
+                # AspectFrame must follow the actual requested frame ratio.
+                # Leaving this fixed at 16:9 would introduce a dead letterbox
+                # inside the widget when the user made the window panoramic.
+                frame.set_ratio(wanted[0] / wanted[1])
                 frame.set_size_request(*wanted)
                 window._synplus_requested_video=wanted
     player_w = getattr(window,'_synplus_requested_video',(0,0))
@@ -506,22 +530,75 @@ def adapt(window, width):
 
 
 def fullscreen_changed(window, enabled, GLib):
-    """Video fullscreen must leave GTK GLArea untouched and hide other surfaces."""
+    """Pure transmission fullscreen, without touching the realized GLArea.
+
+    The original SYN fullscreen handler already hides the GNOME header and
+    channel sidebar. SYN Plus must ALSO make its own frame fill the view,
+    hide its independent navigation and EPG, and remove the windowed margins.
+    """
     if not getattr(window, '_synplus_ui', False):
         return
-    window._synplus_in_fullscreen = bool(enabled)
-    window._synplus_nav.set_visible(not enabled)
-    window._synplus_chrome.set_visible(not enabled)
-    window.guide_surface.set_visible(False)
-    window.footer.set_visible(False)
-    window.status.set_visible(False)
-    if not enabled:
-        window._synplus_nav.set_visible(True)
-        if not window.guide_open and window._synplus_guide_requested:
-            GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
-        elif window.guide_open:
-            window.guide_surface.set_visible(True)
-        GLib.idle_add(lambda: (adapt(window, window.get_width()), False)[1])
+    enabled = bool(enabled)
+    if getattr(window, '_synplus_in_fullscreen', False) == enabled:
+        return
+    frame = window._synplus_player_frame
+    align = window._synplus_gtk.Align
+    if enabled:
+        window._synplus_pre_full_guide = bool(window._synplus_full_guide)
+        # A full-page EPG is an overlay of main_stack; remove it BEFORE the
+        # fullscreen player is shown or it may cover the transmission.
+        if window._synplus_full_guide:
+            set_guide_mode(window, GLib, False)
+        window._synplus_in_fullscreen = True
+        window._synplus_nav.set_visible(False)
+        window._synplus_more.set_visible(False)
+        window.guide_surface.set_visible(False)
+        # The stable fullscreen handler handles its own channel sidebar,
+        # but SYN Plus has an independent host and guide outside the video.
+        # Keep them hidden while the window itself is fullscreen.
+        window._synplus_chrome_reveal.set_reveal_child(False)
+        window._synplus_chrome_reveal.set_visible(False)
+        window._synplus_chrome.set_visible(False)
+        window.footer.set_visible(False)
+        window.status.set_visible(False)
+        window.add_css_class('synplus-pure-fullscreen')
+        # Gtk.AspectFrame spans the screen, its CHILD is video-shaped and
+        # GTK/libmpv letterbox the source if the physical screen isn't 16:9.
+        # No toolbar/rail/channel-list/EPG occupies space.
+        frame.set_size_request(-1, -1)
+        frame.set_ratio(16 / 9)
+        frame.set_halign(align.FILL)
+        frame.set_valign(align.FILL)
+        frame.set_hexpand(True)
+        frame.set_vexpand(True)
+        window._synplus_requested_video = None
+        GLib.idle_add(window._queue_video_frame)
+        return
+
+    # Exit fullscreen: return the frame to a naturally sized normal-window
+    # workbench; recompute from the current window dimensions on next GTK pass.
+    window._synplus_in_fullscreen = False
+    window.remove_css_class('synplus-pure-fullscreen')
+    frame.set_size_request(-1, -1)
+    frame.set_hexpand(False)
+    frame.set_vexpand(False)
+    frame.set_halign(align.CENTER)
+    frame.set_valign(align.START)
+    window._synplus_requested_video = None
+    window._synplus_nav.set_visible(True)
+    window._synplus_more.set_visible(True)
+    window._synplus_chrome.set_visible(True)
+    window._synplus_chrome_reveal.set_visible(True)
+    if not window.guide_open and window._synplus_guide_requested:
+        GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
+    elif window.guide_open:
+        window.guide_surface.set_visible(True)
+    if getattr(window, '_synplus_pre_full_guide', False):
+        GLib.idle_add(lambda: (set_guide_mode(window, GLib, True), False)[1])
+    window._synplus_pre_full_guide = False
+    # Layout is reported only after the compositor has sent its allocation.
+    GLib.timeout_add(80, lambda: (adapt(window, window.get_width()), False)[1])
+    GLib.idle_add(window._queue_video_frame)
 
 
 # Icons from the desktop's existing symbolic icon theme: no downloads or
@@ -646,22 +723,38 @@ def set_guide_mode(window, GLib, full):
 
 
 def reveal_controls(window, entering=True):
+    """Hover reveals immediately. Leaving hides immediately, at any size."""
     if getattr(window,'_synplus_in_fullscreen',False): return
     window._synplus_mouse_over_video=bool(entering)
-    if entering: window._synplus_reveal_until=time.monotonic()+3.0
+    if not entering:
+        # Clear the click hold as well: once the pointer leaves, the video
+        # must not retain a dark control strip for several more seconds.
+        window._synplus_reveal_until=0.0
     poll_chrome(window)
+
+
+def click_controls(window):
+    """Show on a direct video click without faking a lasting mouse-enter."""
+    if getattr(window,'_synplus_in_fullscreen',False): return
+    window._synplus_reveal_until=time.monotonic()+2.0
+    poll_chrome(window)
+
+
+def controls_visible(full, hovering, held_until, now):
+    """Pure decision shared by GTK hover/click and offline unit tests."""
+    return bool(not full and (hovering or now < held_until))
 
 
 def poll_chrome(window):
     if not getattr(window,'_synplus_ui',False): return False
     reveal=getattr(window,'_synplus_chrome_reveal',None)
     if reveal is None: return True
-    full=getattr(window,'_synplus_in_fullscreen',False)
-    compact=getattr(window,'_synplus_compact',False)
-    visible=not full and (not compact or
-        getattr(window,'_synplus_mouse_over_video',False) or
-        time.monotonic()<getattr(window,'_synplus_reveal_until',0))
-    reveal.set_reveal_child(bool(visible))
+    visible=controls_visible(
+        getattr(window,'_synplus_in_fullscreen',False),
+        getattr(window,'_synplus_mouse_over_video',False),
+        getattr(window,'_synplus_reveal_until',0.0),
+        time.monotonic())
+    reveal.set_reveal_child(visible)
     return True
 
 

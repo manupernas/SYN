@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.2"  # SYNPLUS_ALPHA21; experimental, stable 1.3.7 untouched
+SYN_VERSION = "2.0.3"  # SYNPLUS_ALPHA22; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -4803,8 +4803,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def on_video_click(self, _gesture, _n_press, _x, _y):
             if getattr(self, '_synplus_ui', False) and not self.fullscreen_mode:
-                synplus_layout.reveal_controls(self, True)
-                GLib.timeout_add(600, lambda: (synplus_layout.reveal_controls(self, False), False)[1])
+                synplus_layout.click_controls(self)
             if self.fullscreen_mode:
                 if self.fs_remote_open:
                     self.set_fs_remote(False)
@@ -5407,6 +5406,13 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                           (info, 3, 1, 1), (full, 4, 1, 1))
             else:
                 layout = tuple((w, i, 0, 1) for i, w in enumerate(self.toolbar_widgets))
+            if getattr(self, '_synplus_ui', False):
+                # Alfa 2.2: Play is redundant: channel rows start playback,
+                # and Pause/Continue already resumes the current transmission.
+                # Remove it from both regular AND compact grid arrangements.
+                layout = tuple((widget, column - (1 if row == 0 else 0), row, span)
+                               for widget, column, row, span in layout
+                               if widget is not play)
             for widget, column, row, span in layout:
                 self.strip.attach(widget, column, row, span, 1)
             self.volume.set_hexpand(compact)
@@ -5420,7 +5426,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if compact:
                     self.strip.attach(self.cast_button, 5, 1, 1, 1)
                 else:
-                    self.strip.attach(self.cast_button, len(self.toolbar_widgets), 0, 1, 1)
+                    self.strip.attach(self.cast_button,
+                        len(self.toolbar_widgets) - (1 if getattr(self, '_synplus_ui', False) else 0),
+                        0, 1, 1)
 
         def _update_pause_label(self):
             paused = bool(self.area.player and self.area.player.paused())
