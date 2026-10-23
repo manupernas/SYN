@@ -21,19 +21,19 @@
   <content_rating type="oars-1.1" />
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/manupernas/SYN/84217b1b202d46fa8bb35ddc1033a9d82b773c1f/docs/screenshots/01-player-en.png</image>
-      <caption>Watch live television and browse channels</caption>
-      <caption xml:lang="es">Reproduce televisión en directo y explora canales</caption>
+      <image>https://raw.githubusercontent.com/manupernas/SYN/b767e4faa2b5eb0c487403f6d80e03081c4d19af/docs/screenshots/1.3.7/01-tv-guide-light.png</image>
+      <caption>Interactive TV guide and programme timeline</caption>
+      <caption xml:lang="es">Guía de televisión interactiva y programación</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/manupernas/SYN/84217b1b202d46fa8bb35ddc1033a9d82b773c1f/docs/screenshots/02-guide-en.png</image>
-      <caption>Explore the electronic programme guide</caption>
-      <caption xml:lang="es">Explora la guía electrónica de programación</caption>
+      <image>https://raw.githubusercontent.com/manupernas/SYN/b767e4faa2b5eb0c487403f6d80e03081c4d19af/docs/screenshots/1.3.7/02-live-tv-cast-dark.png</image>
+      <caption>Live TV and casting to Android TV</caption>
+      <caption xml:lang="es">Televisión en directo y envío a Android TV</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/manupernas/SYN/84217b1b202d46fa8bb35ddc1033a9d82b773c1f/docs/screenshots/03-settings-en.png</image>
-      <caption>Customize appearance and playback settings</caption>
-      <caption xml:lang="es">Personaliza la apariencia y la reproducción</caption>
+      <image>https://raw.githubusercontent.com/manupernas/SYN/b767e4faa2b5eb0c487403f6d80e03081c4d19af/docs/screenshots/1.3.7/05-series-library-dark.png</image>
+      <caption>Series library with searchable cover grid</caption>
+      <caption xml:lang="es">Biblioteca de series con cuadrícula de portadas y búsqueda</caption>
     </screenshot>
   </screenshots>
   <releases>
