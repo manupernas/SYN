@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.1"
+SYN_VERSION = "2.0.2"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -5085,19 +5085,24 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def _syn_cast_menu(self, button):
             pop=Gtk.Popover()
+            # 2.0.2: style this detached GTK surface independently of the
+            # video toolbar's white text, including in light/System themes.
+            pop.add_css_class('syn-cast-popover')
             pop.set_parent(button)
             # 2.0.1: Cast lives inside a hover-only player toolbar. Keep its
             # anchor mapped while the independent GTK popover is open.
             if getattr(self, '_synplus_ui', False) and not getattr(self, '_synplus_in_fullscreen', False):
                 synplus_layout.hold_chrome_for_cast(self, pop, Gtk)
-            col=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
-            col.set_margin_top(12);col.set_margin_bottom(12)
-            col.set_margin_start(13);col.set_margin_end(13)
+            col=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=7)
+            col.add_css_class('syn-cast-panel')
+            col.set_margin_top(10);col.set_margin_bottom(10)
+            col.set_margin_start(12);col.set_margin_end(12)
             title=Gtk.Label(label='Retransmitir a un televisor',xalign=0)
             title.add_css_class('heading');col.append(title)
             row=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=12)
             row.append(Gtk.Label(label=tr('Conexiones máximas del perfil')))
             spin=Gtk.SpinButton.new_with_range(1,8,1)
+            spin.add_css_class('syn-cast-numeric')
             spin.set_value(self._syn_cast_limit())
             def limit_changed(s):
                 self.profile['cast_max_connections']=s.get_value_as_int()
@@ -5141,6 +5146,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             info.set_wrap(True);col.append(info)
             if getattr(self,'_syn_cast_target_uuid',None):
                 stop=Gtk.Button(label='Dejar de retransmitir y volver a SYN')
+                stop.add_css_class('syn-cast-action')
                 stop.connect('clicked',lambda *_:(pop.popdown(),self._syn_cast_stop()))
                 col.append(stop)
             col.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
@@ -5161,6 +5167,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     col.append(text)
                 for dev in devices:
                     b=Gtk.Button(label=dev['name'])
+                    b.add_css_class('syn-cast-action')
                     b.connect('clicked',lambda _,d=dev:(pop.popdown(),self._syn_cast_play(d)))
                     col.append(b)
                 return False
@@ -7625,6 +7632,15 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 # Adwaita and all bundled color schemes cannot override it.
                 self.accent_provider.load_from_data(
                     accent_css(getattr(self, '_accent_hex', '')).encode('utf-8'))
+                if display:
+                    cast_provider = getattr(self, '_syn_cast_popover_provider', None)
+                    if cast_provider is None:
+                        cast_provider = Gtk.CssProvider()
+                        Gtk.StyleContext.add_provider_for_display(
+                            display, cast_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 4)
+                        self._syn_cast_popover_provider = cast_provider
+                    cast_provider.load_from_data(
+                        synplus_layout.cast_popover_css(theme).encode('utf-8'))
                 if theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark') and display:
                     if theme in ('nord-light', 'nord-dark'):
                         from syn_nord_palette import nord_css

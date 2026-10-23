@@ -11,6 +11,63 @@ import re
 from syn_i18n import translate as tr
 
 
+def cast_popover_css(theme='system'):
+    """Strong scoped styling: readable Cast popup even with host GTK USER CSS.
+
+    This CSS is installed separately at USER+4. GTK's popover remains a
+    native Wayland popup; its parent is still the original Cast button.
+    """
+    schemes = {
+        'teal': ('#10272c', '#e9f7f4', '#f1a46a'),
+        'dark': ('#1b2631', '#f2f5f8', '#76c2c2'),
+        'light': ('#ffffff', '#18242e', '#177e79'),
+        'nord-dark': ('#303f50', '#e9f0f6', '#88c0d0'),
+        'nord-light': ('#ffffff', '#293b4c', '#5e81ac'),
+        'gruvbox-dark': ('#37332c', '#f6ead6', '#d79921'),
+        'gruvbox-light': ('#fffae6', '#3c3836', '#458588'),
+    }
+    cast_bg, cast_fg, cast_accent = schemes.get(
+        theme, ('@window_bg_color', '@window_fg_color', '@accent_color'))
+    return f"""
+    popover.syn-cast-popover > contents {{
+        background-image:none; background-color:{cast_bg}; color:{cast_fg};
+        border:1px solid alpha({cast_fg},.18); border-radius:14px;
+        box-shadow:0 10px 28px rgba(0,0,0,.24);
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel,
+    popover.syn-cast-popover > contents box.syn-cast-panel label,
+    popover.syn-cast-popover > contents box.syn-cast-panel label.heading {{
+        color:{cast_fg}; background-color:transparent;
+        opacity:1; text-shadow:none;
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel button.syn-cast-action {{
+        background-image:none; background-color:alpha({cast_fg},.085);
+        color:{cast_fg}; border:1px solid alpha({cast_fg},.16);
+        border-radius:10px; box-shadow:none; min-height:30px;
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel button.syn-cast-action:hover {{
+        background-color:alpha({cast_accent},.20);
+        border-color:alpha({cast_accent},.44);
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel button.syn-cast-action label {{
+        color:{cast_fg}; opacity:1;
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel spinbutton.syn-cast-numeric,
+    popover.syn-cast-popover > contents box.syn-cast-panel spinbutton.syn-cast-numeric text {{
+        color:{cast_fg}; background-color:alpha({cast_fg},.045);
+        border-color:alpha({cast_fg},.16);
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel spinbutton.syn-cast-numeric button {{
+        color:{cast_fg}; background-image:none;
+        background-color:alpha({cast_fg},.075);
+        border-color:alpha({cast_fg},.14);
+    }}
+    popover.syn-cast-popover > contents box.syn-cast-panel scale highlight {{
+        background-color:{cast_accent};
+    }}
+    """
+
+
 def css(theme='system', accent_hex='', system_dark=False):
     """Theme-neutral GTK CSS, with small scoped overrides for bundled palettes."""
     values = {
@@ -64,6 +121,8 @@ def css(theme='system', accent_hex='', system_dark=False):
         window.iptv-tv .synplus-sidebar .iptv-row:selected {
            background-color:alpha(@accent_color,.13); border-color:alpha(@accent_color,.4); }
         '''
+    # Dedicated high-priority Cast styling, unaffected by the video.
+    palette += cast_popover_css(theme)
     # Pastillas cromáticas inspiradas por el boceto: estilo, no datos falsos.
     if theme in ('light', 'nord-light', 'gruvbox-light'):
         # Deep enough for white lettering even in the palest GTK palettes.

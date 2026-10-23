@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.2" date="2026-10-24">
+      <description>
+        <p>Chromecast menu now has a readable, compact, theme-matched popup in light, dark and System modes, without changing the casting engine.</p>
+        <p xml:lang="es">Menú Chromecast compacto y legible con colores correctos en temas claros, oscuros y Sistema, sin modificar el motor de retransmisión.</p>
+      </description>
+    </release>
     <release version="2.0.1" date="2026-10-24">
       <description>
         <p>Polished navigation rail with subtle theme-aware accent tint in light and dark schemes; Chromecast menu remains usable when moving outside the mini-player, without hiding its toolbar.</p>

@@ -11,7 +11,7 @@ ROOT=Path(__file__).resolve().parent.parent
 class Release135Tests(unittest.TestCase):
     def test_version_and_unversioned_library_label(self):
         source=(ROOT/'syn.py').read_text('utf-8')
-        self.assertIn('SYN_VERSION = "2.0.1"',source)
+        self.assertIn('SYN_VERSION = "2.0.2"',source)
         self.assertIn('SYN  /  TU BIBLIOTECA',source)
         self.assertNotIn('CARTELERA  ·  1.3.5',source)
         for method in ('_syn_portal_build','_syn_portal_open','_syn_135d_refresh_wordmark'):

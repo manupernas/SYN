@@ -9,7 +9,7 @@ APP_ID='com.mrseivane.Syn'
 
 def test_source_version_and_theme_fixes():
     source=(ROOT/'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "2.0.1"' in source
+    assert 'SYN_VERSION = "2.0.2"' in source
     assert 'def syn_popup_theme_css' in source
     assert 'def epg_axis_ink' in source
     assert 'self.syn_wordmark.set_size_request(206, 108)' in source
