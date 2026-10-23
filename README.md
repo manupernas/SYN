@@ -84,24 +84,25 @@ Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup st
 
 ## Screenshots
 
-<!-- SYN_SCREENSHOT_GALLERY_137: managed by screenshot update script -->
+<!-- SYN_SCREENSHOT_GALLERY_200 -->
 <p align="center">
-  <a href="docs/screenshots/1.3.7/01-tv-guide-light.png"><img src="docs/screenshots/1.3.7/01-tv-guide-light.png" alt="SYN 1.3.7 television guide showing channels and a colourful EPG timeline" width="940"></a>
+  <a href="docs/screenshots/2.0.0/01-tv-epg-light.png"><img src="docs/screenshots/2.0.0/01-tv-epg-light.png" width="940" alt="Live TV and embedded programme guide"></a>
 </p>
-<p align="center"><strong>Interactive TV guide</strong> · Find channels, explore the EPG and schedule recordings without leaving live TV</p>
+<p align="center"><strong>Live TV and embedded EPG</strong> · Browse channels and schedules alongside the player</p>
 
 <table>
   <tr>
-    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/02-live-tv-cast-dark.png"><img src="docs/screenshots/1.3.7/02-live-tv-cast-dark.png" width="440" alt="Watch live TV and cast to Android TV"></a><br><strong>Live TV &amp; casting</strong><br><sub>Watch live TV and cast to Android TV</sub></td>
-    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/03-dvr-recordings-teal.png"><img src="docs/screenshots/1.3.7/03-dvr-recordings-teal.png" width="440" alt="Record instantly, schedule recordings and browse saved files"></a><br><strong>DVR &amp; recordings</strong><br><sub>Record instantly, schedule recordings and browse saved files</sub></td>
+    <td align="center" valign="top"><a href="docs/screenshots/2.0.0/02-guide-dark.png"><img src="docs/screenshots/2.0.0/02-guide-dark.png" width="440" alt="Full programme guide in dark mode"></a><br><strong>Full programme guide in dark mode</strong></td>
+    <td align="center" valign="top"><a href="docs/screenshots/2.0.0/03-cinema-dark.png"><img src="docs/screenshots/2.0.0/03-cinema-dark.png" width="440" alt="Cinema library and visual catalogue"></a><br><strong>Cinema library and visual catalogue</strong></td>
   </tr>
   <tr>
-    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/04-library-home-light.png"><img src="docs/screenshots/1.3.7/04-library-home-light.png" width="440" alt="Switch between TV, series and films"></a><br><strong>Your library</strong><br><sub>Switch between TV, series and films</sub></td>
-    <td align="center" valign="top"><a href="docs/screenshots/1.3.7/05-series-library-dark.png"><img src="docs/screenshots/1.3.7/05-series-library-dark.png" width="440" alt="Find programmes in a searchable visual library"></a><br><strong>Series browser</strong><br><sub>Find programmes in a searchable visual library</sub></td>
+    <td align="center" valign="top"><a href="docs/screenshots/2.0.0/04-dvr-light.png"><img src="docs/screenshots/2.0.0/04-dvr-light.png" width="440" alt="Schedule recordings and browse the DVR library"></a><br><strong>Schedule recordings and browse the DVR library</strong></td>
+    <td align="center" valign="top"><a href="docs/screenshots/2.0.0/05-appearance-dark.png"><img src="docs/screenshots/2.0.0/05-appearance-dark.png" width="440" alt="Appearance settings and custom accent colours"></a><br><strong>Appearance settings and custom accent colours</strong></td>
   </tr>
 </table>
 
-*Screenshots from SYN 1.3.7. Recording filenames and local storage paths have been blurred for privacy. SYN does not include TV channels or subscriptions.*
+*Actual SYN 2.0 screenshots in English (US). The local recording directory has been obscured for privacy. SYN does not provide TV channels or subscriptions.*
+
 ## Download: choose the right package
 
 Get the **2.0.0** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
