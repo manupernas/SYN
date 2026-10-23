@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.0"  # SYN-Plus alpha1, no publicación estable
+SYN_VERSION = "2.0.1"  # SYNPLUS_ALPHA2; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -3704,8 +3704,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if self._welcome_window:
                 self._welcome_window.present()
                 return False
-            dialog = Gtk.Window(title=tr('Bienvenido a SYN'), transient_for=self,
-                                modal=True, default_width=650, default_height=690)
+            dialog = Gtk.Window(title='Bienvenido a SYN Plus', transient_for=self,
+                                modal=True, default_width=670, default_height=655)
+            dialog.add_css_class('synplus-welcome')
             self._welcome_window = dialog
             dialog.connect('close-request', lambda *_: setattr(self, '_welcome_window', None))
             dialog.set_resizable(True)
@@ -3724,19 +3725,19 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             hero.set_halign(Gtk.Align.FILL)
             header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
             header.append(brand_icon(35))
-            name = Gtk.Label(label='SYN', xalign=0)
+            name = Gtk.Label(label='SYN  /  PLUS', xalign=0)
             name.add_css_class('syn-welcome-kicker')
             header.append(name)
             header.set_margin_bottom(10)
             hero.append(header)
-            cover_logo = brand_icon(138)
+            cover_logo = brand_icon(96)
             cover_logo.set_halign(Gtk.Align.CENTER)
             hero.append(cover_logo)
-            tagline = Gtk.Label(label=tr('Tu televisión. A tu manera.'))
+            tagline = Gtk.Label(label=tr('Tu televisión, a tu manera.'))
             tagline.add_css_class('syn-welcome-title')
             tagline.set_wrap(True)
             hero.append(tagline)
-            subtitle = Gtk.Label(label=tr('Empecemos por lo esencial: conecta tu primera fuente de canales.'))
+            subtitle = Gtk.Label(label='Añade una fuente para empezar. Solo te pediremos los datos imprescindibles.')
             subtitle.add_css_class('syn-welcome-subtitle')
             subtitle.set_wrap(True)
             subtitle.set_justify(Gtk.Justification.CENTER)
@@ -3821,6 +3822,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             epg_browse = Gtk.Button(label=tr('Seleccionar EPG…'))
             epg_browse.set_halign(Gtk.Align.START)
             epg_group.append(epg_browse)
+            # The XMLTV override is useful, but should not interrupt basic setup.
+            form_shell.remove(epg_group)
+            extras = Gtk.Expander(label='Opciones avanzadas · EPG opcional')
+            extras.set_child(epg_group)
+            form_shell.append(extras)
             notice = Gtk.Label(label='', xalign=0)
             notice.add_css_class('syn-welcome-muted')
             notice.set_wrap(True)
@@ -4796,6 +4802,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.set_fs_osd(True)
 
         def on_video_click(self, _gesture, _n_press, _x, _y):
+            if getattr(self, '_synplus_ui', False) and not self.fullscreen_mode:
+                synplus_layout.reveal_controls(self, True)
+                GLib.timeout_add(600, lambda: (synplus_layout.reveal_controls(self, False), False)[1])
             if self.fullscreen_mode:
                 if self.fs_remote_open:
                     self.set_fs_remote(False)
@@ -6948,7 +6957,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return
             available = max(0, self.get_width())
             self._guide_header_subtitle.set_visible(available >= 1050)
-            self.guide_search.set_visible(available >= 865)
+            self.guide_search.set_visible(available >= 865 and (
+                not getattr(self, '_synplus_ui', False) or
+                getattr(self, '_synplus_full_guide', False)))
 
         def _guide_size_changed(self, _area, width, _height):
             self._guide_adapt_width()
@@ -7349,6 +7360,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.set_fs_osd(True)
 
         def show_guide(self, *_):
+            if getattr(self, '_synplus_ui', False):
+                if getattr(self, '_synplus_full_guide', False):
+                    synplus_layout.set_guide_mode(self, GLib, False)
+                else:
+                    synplus_layout.show_guide_page(self, GLib)
+                return
             self.set_guide_open(not self.guide_open)
 
         def open_settings(self, *_):

@@ -4,6 +4,9 @@ Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
 """
 from __future__ import annotations
+import hashlib
+import time
+import unicodedata
 
 
 def css(theme='system'):
@@ -51,8 +54,9 @@ def css(theme='system'):
         '''
     # Pastillas cromáticas inspiradas por el boceto: estilo, no datos falsos.
     if theme in ('light', 'nord-light', 'gruvbox-light'):
-        epg_colors = ('#b8dfd4', '#d8c4ef', '#c0ddf6', '#f7dbb8', '#c0e9dc', '#e4d5ee')
-        epg_text = '#24333e'
+        # Deep enough for white lettering even in the palest GTK palettes.
+        epg_colors = ('#437e78', '#755b99', '#466f9e', '#9b7042', '#3b826f', '#936171')
+        epg_text = '#ffffff'
     else:
         epg_colors = ('#245d48', '#59317e', '#194c86', '#6a5231', '#266064', '#724653')
         epg_text = '#f9fcfd'
@@ -61,9 +65,10 @@ def css(theme='system'):
         f'{{ background-color:{tone}; }}\n'
         for n, tone in enumerate(epg_colors)
     )
-    palette += ('window.iptv-tv .synplus-guide .syn-guide-program-name, '
-                'window.iptv-tv .synplus-guide .syn-guide-time '
-                '{ color:' + epg_text + '; }')
+    palette += ("window.iptv-tv.synplus-window .synplus-guide .syn-guide-program label, "
+                "window.iptv-tv.synplus-window .synplus-guide .syn-guide-program-name, "
+                "window.iptv-tv.synplus-window .synplus-guide .syn-guide-time "
+                "{ color:#ffffff; text-shadow:0 1px 2px rgba(0,0,0,.2); }")
     return '''
     /* SYN-Plus 2.0: visual workbench of the approved 2026-10-23 mockups. */
     window.iptv-tv .synplus-plus-mark {
@@ -138,7 +143,36 @@ def css(theme='system'):
     window.iptv-tv .synplus-header button, window.iptv-tv .synplus-header dropdown > button {
       min-height:28px; border-radius:13px; padding:3px 8px;
     }
-    ''' + palette
+    ''' + palette + avatar_css() + '''
+    window.iptv-tv.synplus-window .synplus-nav { min-width:124px; }
+    window.iptv-tv.synplus-window .synplus-guide-full {
+      margin:0; border:0; border-radius:0; background-color:@window_bg_color;
+    }
+    window.iptv-tv.synplus-window .synplus-visual-player {
+      border-radius:15px; margin:9px 11px 0 11px; }
+    window.iptv-tv.synplus-window .synplus-video-chrome { border-radius:0 0 14px 14px; }
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-program { border-radius:10px; }
+    window.iptv-tv.synplus-window .synplus-avatar {
+      min-height:38px; min-width:38px; border-radius:14px; padding:4px;
+      background-image:none; border:1px solid alpha(@window_fg_color,.12);
+    }
+    window.iptv-tv.synplus-window .synplus-avatar image { -gtk-icon-size:22px; }
+    window.synplus-welcome .syn-welcome-bg { background-image:none;
+      background-color:@window_bg_color; color:@window_fg_color; }
+    window.synplus-welcome .syn-welcome-title {
+      color:@window_fg_color; font-size:29px; font-weight:780; }
+    window.synplus-welcome .syn-welcome-subtitle,
+    window.synplus-welcome .syn-welcome-muted { color:@window_fg_color; opacity:.72; }
+    window.synplus-welcome .syn-welcome-card {
+      background-image:none; background-color:alpha(@window_fg_color,.045);
+      border:1px solid alpha(@window_fg_color,.11); border-radius:18px;
+      box-shadow:none; padding:14px; }
+    window.synplus-welcome .syn-welcome-card:hover {
+      background-color:alpha(@accent_color,.12); border-color:alpha(@accent_color,.4); }
+    window.synplus-welcome .syn-welcome-card-title { font-size:16px; }
+    window.synplus-welcome .syn-welcome-body { background-color:transparent; }
+    window.synplus-welcome .syn-welcome-cta { border-radius:14px; min-height:40px; }
+    '''
 
 
 def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_header_controls):
@@ -150,8 +184,9 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     if getattr(window, '_synplus_ui', False):
         return
     window._synplus_ui = True
-    window.set_title("SYN-Plus · Alfa 1")
-    window.set_default_size(1440, 960)
+    window._synplus_gtk = Gtk
+    window.set_title("SYN Plus · Alfa 2")
+    window.set_default_size(1370, 920)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
 
@@ -161,7 +196,9 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     workbench.set_hexpand(True)
     workbench.set_vexpand(True)
     nav = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-    nav.set_size_request(146, -1)
+    nav.set_size_request(124, -1)
+    nav.set_hexpand(False)
+    nav.set_halign(Gtk.Align.START)
     nav.add_css_class('synplus-nav')
     window._synplus_nav = nav
     base.remove(window.main_stack)
@@ -171,15 +208,15 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
 
     # Move existing, theme-switching SYN wordmark out of channel list.
     window.sidebar.remove(window._syn_brand_band)
-    window._syn_brand_band_spacer.set_size_request(-1, 77)
-    window.syn_wordmark.set_size_request(126, 60)
-    window.syn_wordmark.set_margin_start(6)
+    window._syn_brand_band_spacer.set_size_request(-1, 65)
+    window.syn_wordmark.set_size_request(103, 50)
+    window.syn_wordmark.set_margin_start(2)
     window.syn_wordmark.set_margin_top(4)
     window._syn_brand_band.add_css_class('synplus-nav-brand')
     nav.append(window._syn_brand_band)
     plus_mark = Gtk.Label(label='P L U S', xalign=0)
     plus_mark.add_css_class('synplus-plus-mark')
-    plus_mark.set_margin_start(17)
+    plus_mark.set_margin_start(7)
     plus_mark.set_margin_bottom(12)
     nav.append(plus_mark)
     window.sidebar.add_css_class('synplus-sidebar')
@@ -203,16 +240,13 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     menu_content.set_margin_bottom(7)
     menu_content.set_margin_start(7)
     menu_content.set_margin_end(7)
+    # No duplicates: the rail already contains Guide, Library and Settings.
     more_items = (
-        ('Añadir fuente IPTV', window.show_welcome),
-        ('Abrir lista M3U', window.open_playlist),
         ('Actualizar canales', window.load_channels),
-        ('Mostrar / ocultar guía EPG', window.show_guide),
-        ('Abrir biblioteca', lambda: window._syn_portal_show('home')),
-        ('Cambiar logo del canal', window.choose_custom_logo),
-        ('Capturar imagen PNG', window._syn_capture_take),
+        ('Abrir archivo M3U', window.open_playlist),
+        ('Personalizar logo del canal', window.choose_custom_logo),
+        ('Capturar PNG', window._syn_capture_take),
         ('Información de reproducción', window.show_info),
-        ('Ajustes', window.open_settings),
     )
     for label, handler in more_items:
         action = Gtk.Button(label=label)
@@ -235,28 +269,31 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
                 btn.remove_css_class('synplus-current')
 
     def _tv(*_, favorites=False):
+        set_guide_mode(window, GLib, False)
         window._syn_portal_hide()
         if window.dvr_view.get_visible():
             window.toggle_dvr_view()
         window.favs.set_active(bool(favorites))
-        if not window.fullscreen_mode:
-            if window.guide_open:
-                window.set_guide_open(False)
+        if not window.fullscreen_mode and not window.guide_open:
             window.set_guide_open(True)
         _select('favoritos' if favorites else 'tv')
 
     def _guide(*_):
-        _tv()
+        window._syn_portal_hide()
+        if window.dvr_view.get_visible():
+            window.toggle_dvr_view()
         if not window.guide_open:
             window.set_guide_open(True)
-        window.guide_surface.grab_focus()
+        set_guide_mode(window, GLib, True)
         _select('guia')
 
     def _portal(mode, section):
+        set_guide_mode(window, GLib, False)
         window._syn_portal_show(mode)
         _select(section)
 
     def _dvr(*_):
+        set_guide_mode(window, GLib, False)
         window._syn_portal_hide()
         if not window.dvr_view.get_visible():
             window.toggle_dvr_view()
@@ -291,10 +328,36 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         buttons[key] = button
     _select('tv')
     window._synplus_nav_buttons = buttons
+    # Existing fallback art uses a Cairo drawing callback. Override only this
+    # instance, so a genuine provider logo still renders through the stable path.
+    window._draw_channel_logo_or_art = lambda area,cr,w,h: draw_editorial_pill(window,area,cr,w,h)
     nav_spacer = Gtk.Box()
     nav_spacer.set_vexpand(True)
     nav.append(nav_spacer)
-    info = Gtk.Label(label='SYN-Plus · alfa 1', xalign=0)
+    # Profile avatars are deterministic: same ID, same icon, same colours.
+    profile_button = Gtk.MenuButton()
+    profile_button.add_css_class('synplus-avatar')
+    profile_button.set_tooltip_text('Perfiles · cambiar o añadir')
+    avatar_image = Gtk.Image.new_from_icon_name('avatar-default-symbolic')
+    avatar_image.set_pixel_size(22)
+    profile_button.set_child(avatar_image)
+    profile_menu = Gtk.Popover()
+    profile_button.set_popover(profile_menu)
+    nav.append(profile_button)
+    window._synplus_avatar_button = profile_button
+    window._synplus_avatar_picture = avatar_image
+    window._synplus_avatar_menu = profile_menu
+    rebuild_profile_menu(window, Gtk)
+    profile_button.connect('notify::active', lambda btn, *_:
+        rebuild_profile_menu(window, Gtk) if btn.get_active() else None)
+    window.profile_picker.connect('notify::selected', lambda *_: refresh_avatar(window))
+    refresh_avatar(window)
+    add_profile = Gtk.Button(label='+  Añadir')
+    add_profile.set_tooltip_text('Añadir perfil IPTV')
+    add_profile.add_css_class('synplus-nav-button')
+    add_profile.connect('clicked', lambda *_: window.show_welcome())
+    nav.append(add_profile)
+    info = Gtk.Label(label='ALFA 2', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -321,6 +384,25 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         chrome.append(child)
     window.overlay.add_overlay(chrome)
     window._synplus_chrome = chrome
+    # Crossfade of all playback text and controls without modifying video GLArea.
+    window.overlay.remove_overlay(chrome)
+    reveal = Gtk.Revealer()
+    reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+    reveal.set_transition_duration(210)
+    reveal.set_reveal_child(True)
+    reveal.set_halign(Gtk.Align.FILL)
+    reveal.set_valign(Gtk.Align.END)
+    reveal.set_child(chrome)
+    window.overlay.add_overlay(reveal)
+    window._synplus_chrome_reveal = reveal
+    motion = Gtk.EventControllerMotion.new()
+    motion.connect('enter', lambda *_: reveal_controls(window, True))
+    motion.connect('motion', lambda *_: reveal_controls(window, True))
+    motion.connect('leave', lambda *_: reveal_controls(window, False))
+    window.overlay.add_controller(motion)
+    window._synplus_mouse_over_video = False
+    window._synplus_reveal_until = 0.0
+    GLib.timeout_add(300, lambda: poll_chrome(window))
     window.footer.set_visible(False)
     window.status.set_visible(False)
     window.play_button.set_label('▶')
@@ -333,50 +415,238 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     video_column.append(window.guide_surface)
     window.guide_surface.add_css_class('synplus-guide')
     window.guide_surface.set_vexpand(False)
-    window.guide_surface.set_size_request(-1, 360)
+    window.guide_surface.set_size_request(-1, 340)
+    window._synplus_guide_home = video_column
+    window._synplus_full_guide = False
     window.guide_categories_scroll.set_visible(False)
     window.guide_search.set_visible(False)
     window._guide_header_subtitle.set_visible(False)
     window._synplus_embedded_guide = True
     window._synplus_guide_requested = True
     window._synplus_in_fullscreen = False
+    # Main content navigates between an embedded 3–5-row EPG and full guide.
+    window._synplus_open_full_guide = _guide
     GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
 
 
 def adapt(window, width):
-    """Responsive version: no features are discarded in small windows."""
-    if not getattr(window, '_synplus_ui', False):
+    """Fixed left rail, responsive 3/4/5-row EPG and compact playback chrome."""
+    if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
-    if getattr(window, '_synplus_in_fullscreen', False):
-        return
-    nav_visible = width >= 850
-    window._synplus_nav.set_visible(nav_visible)
-    # The legacy HeaderBar supplies full-featured compact channel menu.
-    # Keep the menu button accessible even when 3-column layout collapses.
+    window._synplus_nav.set_visible(True)
+    window._synplus_nav.set_size_request(124, -1)
     window.channel_menu.set_visible(width < 1140)
-    if window.paned.get_position() and width < 1140 and not window.compact_sidebar:
-        window.paned.set_position(0)
     window._synplus_more.set_visible(True)
-    # The EPG is user-hideable, and still has a nav affordance at large sizes.
-    # At smaller sizes, allow the full-height player to take priority.
-    height = window.get_height()
-    guide_height = 205 if height < 720 or width < 830 else (275 if height < 900 else 360)
-    window.guide_surface.set_size_request(-1, guide_height)
+    if not getattr(window, '_synplus_full_guide', False):
+        rows = 3 if window.get_height() < 850 else (4 if window.get_height() < 1080 else 5)
+        window._synplus_rows = rows
+        # 70px source rows + header, clock, footer and margins; scrollbar
+        # exposes all other channels without adding a sixth visible row.
+        window.guide_surface.set_size_request(-1, 70 * rows + 119)
+        window.guide_tracks_scroll.set_min_content_height(70 * rows)
+    video_width = window._synplus_player_frame.get_width()
+    window._synplus_compact = width < 1260 or (video_width > 0 and video_width < 690)
+    poll_chrome(window)
 
 
 def fullscreen_changed(window, enabled, GLib):
-    """Fullscreen is true video fullscreen, not a full-screen 3-zone window."""
+    """Video fullscreen must leave GTK GLArea untouched and hide other surfaces."""
     if not getattr(window, '_synplus_ui', False):
         return
     window._synplus_in_fullscreen = bool(enabled)
-    window._synplus_nav.set_visible(False if enabled else window.get_width() >= 850)
+    window._synplus_nav.set_visible(not enabled)
     window._synplus_chrome.set_visible(not enabled)
     window.guide_surface.set_visible(False)
     window.footer.set_visible(False)
     window.status.set_visible(False)
     if not enabled:
-        window._synplus_nav.set_visible(window.get_width() >= 850)
+        window._synplus_nav.set_visible(True)
         if not window.guide_open and window._synplus_guide_requested:
             GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
         elif window.guide_open:
             window.guide_surface.set_visible(True)
+        GLib.idle_add(lambda: (adapt(window, window.get_width()), False)[1])
+
+
+# Icons from the desktop's existing symbolic icon theme: no downloads or
+# external fonts, and the icon remains monochrome over its assigned colour.
+PROFILE_ICONS = (
+    'starred-symbolic', 'weather-clear-symbolic', 'media-playback-start-symbolic',
+    'network-wireless-symbolic', 'camera-photo-symbolic', 'audio-x-generic-symbolic',
+    'folder-videos-symbolic', 'applications-games-symbolic', 'emblem-favorite-symbolic',
+    'view-grid-symbolic', 'mail-unread-symbolic', 'weather-overcast-symbolic',
+    'media-optical-symbolic', 'face-smile-symbolic', 'preferences-desktop-theme-symbolic',
+)
+PROFILE_COLORS = (
+    '#d9bfaa', '#357b75', '#becdd3', '#dcaa73', '#505d84',
+    '#b5cba9', '#80677b', '#e6cc8b', '#60799a', '#a9c6c1',
+    '#967e66', '#d8ada7', '#566f67', '#d4c5da', '#c1b99c',
+)
+
+
+def _rgb(hexval):
+    c=hexval.lstrip('#')
+    return tuple(int(c[i:i+2],16) / 255.0 for i in (0,2,4))
+
+
+def _contrast(hexval):
+    r,g,b = _rgb(hexval)
+    def lin(v): return v/12.92 if v < .04045 else ((v+.055)/1.055)**2.4
+    luminance = .2126*lin(r)+.7152*lin(g)+.0722*lin(b)
+    return '#121619' if luminance >= .36 else '#ffffff'
+
+
+def avatar_style(profile_id):
+    digest=hashlib.sha256(str(profile_id).encode('utf-8')).digest()
+    # Independent positions, stable across machines and launches.
+    idx=digest[0] % len(PROFILE_ICONS)
+    color=PROFILE_COLORS[digest[1] % len(PROFILE_COLORS)]
+    return idx, color, _contrast(color)
+
+
+def avatar_css():
+    return ''.join(
+        'window.iptv-tv.synplus-window .synplus-avatar-c%d { '
+        'background-color:%s; color:%s; } '
+        'window.iptv-tv.synplus-window .synplus-avatar-c%d image { color:%s; }\n' %
+        (i,color,_contrast(color),i,_contrast(color))
+        for i,color in enumerate(PROFILE_COLORS)
+    )
+
+
+def refresh_avatar(window):
+    btn=getattr(window,'_synplus_avatar_button',None)
+    if btn is None: return
+    for i in range(len(PROFILE_COLORS)):
+        btn.remove_css_class('synplus-avatar-c%d' % i)
+    p=getattr(window, 'profile', {}) or {}
+    i,color,ink=avatar_style(p.get('id','synplus'))
+    digest=hashlib.sha256(str(p.get('id','synplus')).encode('utf-8')).digest()
+    btn.add_css_class('synplus-avatar-c%d' % (digest[1] % len(PROFILE_COLORS)))
+    window._synplus_avatar_picture.set_from_icon_name(PROFILE_ICONS[i])
+    btn.set_tooltip_text('Perfiles · %s' % p.get('name','Mi televisión'))
+
+
+def rebuild_profile_menu(window, Gtk):
+    pop=window._synplus_avatar_menu
+    old=pop.get_child()
+    if old is not None: pop.set_child(None)
+    root=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=5)
+    for margin in ('top','bottom','start','end'):
+        getattr(root,'set_margin_'+margin)(10)
+    title=Gtk.Label(label='Perfiles',xalign=0)
+    title.add_css_class('heading')
+    root.append(title)
+    for i,p in enumerate(window.cfg.get('profiles',[])):
+        name=p.get('name','Sin nombre')
+        btn=Gtk.Button(label=('✓  ' if p.get('id')==window.profile.get('id') else '    ')+name)
+        btn.add_css_class('flat')
+        btn.connect('clicked',lambda _b,index=i:(pop.popdown(),window.profile_picker.set_selected(index)))
+        root.append(btn)
+    root.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+    add=Gtk.Button(label='+  Añadir perfil')
+    add.add_css_class('suggested-action')
+    add.connect('clicked',lambda *_:(pop.popdown(),window.show_welcome()))
+    root.append(add)
+    pop.set_child(root)
+
+
+def set_guide_mode(window, GLib, full):
+    """Move the existing EPG widget, never GLArea, to fill all but nav rail."""
+    if not getattr(window,'_synplus_embedded_guide',False): return
+    full=bool(full)
+    if full == getattr(window,'_synplus_full_guide',False): return
+    epg=window.guide_surface
+    home=window._synplus_guide_home
+    if full:
+        if epg.get_parent() == home:
+            home.remove(epg)
+        window.main_stack.add_overlay(epg)
+        window.main_stack.set_clip_overlay(epg, True)
+        epg.set_vexpand(True)
+        epg.set_valign(window._synplus_gtk.Align.FILL)
+        epg.set_halign(window._synplus_gtk.Align.FILL)
+        epg.set_size_request(-1,-1)
+        epg.add_css_class('synplus-guide-full')
+        window.guide_categories_scroll.set_visible(True)
+        window.guide_search.set_visible(True)
+    else:
+        if epg.get_parent() == window.main_stack:
+            window.main_stack.remove_overlay(epg)
+        home.append(epg)
+        epg.set_vexpand(False)
+        epg.set_size_request(-1,70*getattr(window,'_synplus_rows',3)+119)
+        epg.remove_css_class('synplus-guide-full')
+        window.guide_categories_scroll.set_visible(False)
+        window.guide_search.set_visible(False)
+    window._synplus_full_guide=full
+    epg.set_visible(True)
+    def _redraw():
+        if window.guide_open:
+            window._guide_adapt_width()
+            window.guide_render_rows()
+        return False
+    GLib.timeout_add(90,_redraw)
+
+
+def reveal_controls(window, entering=True):
+    if getattr(window,'_synplus_in_fullscreen',False): return
+    window._synplus_mouse_over_video=bool(entering)
+    if entering: window._synplus_reveal_until=time.monotonic()+3.0
+    poll_chrome(window)
+
+
+def poll_chrome(window):
+    if not getattr(window,'_synplus_ui',False): return False
+    reveal=getattr(window,'_synplus_chrome_reveal',None)
+    if reveal is None: return True
+    full=getattr(window,'_synplus_in_fullscreen',False)
+    compact=getattr(window,'_synplus_compact',False)
+    visible=not full and (not compact or
+        getattr(window,'_synplus_mouse_over_video',False) or
+        time.monotonic()<getattr(window,'_synplus_reveal_until',0))
+    reveal.set_reveal_child(bool(visible))
+    return True
+
+
+def show_guide_page(window, GLib):
+    cb=getattr(window,'_synplus_open_full_guide',None)
+    if cb and not getattr(window,'_synplus_in_fullscreen',False): cb()
+
+
+def draw_editorial_pill(window, area, cr, width, height):
+    """Quiet graphic identity for a missing logo. Real provider logos win."""
+    if getattr(area,'_syn_pixbuf',None) is not None:
+        return window._draw_channel_logo(area,cr,width,height)
+    name,group=getattr(area,'_syn_art_id',('SYN','TV'))
+    raw=unicodedata.normalize('NFKD',str(name or 'TV'))
+    normalized=''.join(ch for ch in raw if ord(ch)<128)
+    words=[w for w in normalized.replace('-',' ').split() if w]
+    monogram=(''.join(w[0] for w in words[:2]) or 'TV').upper()
+    code=hashlib.sha256((str(name)+'|'+str(group)).encode('utf-8')).digest()
+    back=(('#273a42','#e7ddc9'),('#4b565e','#f0e8d8'),
+          ('#536a61','#f6efe0'),('#665c60','#eee8e4'),
+          ('#40546e','#f1eee6'),('#7a6957','#f2eadf'))[code[0]%6]
+    bg,fg=back
+    rr,gg,bb=_rgb(bg)
+    cr.set_source_rgb(rr,gg,bb);cr.rectangle(0,0,width,height);cr.fill()
+    # One subtle editorial accent: blocks, arcs, or hairline curves.
+    cr.set_line_width(1.3);cr.set_source_rgba(1,1,1,.22)
+    style=code[1]%3
+    if style==0:
+        cr.arc(width-13,height/2,15,0,6.283);cr.stroke()
+        cr.arc(width-13,height/2,8,0,6.283);cr.stroke()
+    elif style==1:
+        for n in range(3):
+            cr.move_to(width-39+n*8,5);cr.line_to(width-12+n*8,height-5);cr.stroke()
+    else:
+        cr.rectangle(width-37,8,18,18);cr.stroke()
+        cr.move_to(width-33,height-7);cr.line_to(width-8,height-7);cr.stroke()
+    cr.set_source_rgb(*_rgb(fg))
+    cr.select_font_face('Sans',0,1)
+    cr.set_font_size(min(20,max(13,height*.39)))
+    cr.move_to(13,height*.68)
+    cr.show_text(monogram[:3])
+    cr.set_source_rgba(1,1,1,.55)
+    cr.rectangle(12,height-7,min(width-30,17+code[2]%24),1.2)
+    cr.fill()
