@@ -17,13 +17,13 @@ def test_public_build_has_every_module_and_new_branding():
     source=(ROOT/'syn.py').read_text('utf-8')
     assert 'ALFA 2.7' not in ui
     from synplus_layout import css
-    assert 'alpha(#D65D0E,.10)' in css('gruvbox-light', '#D65D0E')
-    assert 'alpha(#5e81ac,.10)' in css('nord-light')
-    assert 'alpha(@accent_color,.10)' in css('system','',False)
-    assert 'background-image:linear-gradient(to bottom, alpha(' not in css('system','',True)
-    assert 'background-image:linear-gradient(to bottom, alpha(' not in css('dark')
+    assert 'alpha(#D65D0E,.08)' in css('gruvbox-light', '#D65D0E')
+    assert 'alpha(#5e81ac,.08)' in css('nord-light')
+    assert 'alpha(@accent_color,.08)' in css('system','',False)
+    assert 'alpha(@accent_color,.035)' in css('system','',True)
+    assert 'alpha(#76c2c2,.035)' in css('dark')
     assert 'window.set_title("SYN")' in ui
-    assert 'SYN_VERSION = "2.0.0"' in source
+    assert 'SYN_VERSION = "2.0.1"' in source
     assert 'SYNPLUS_ALPHA27' not in source
     for p in ('packaging/stage-native.sh','com.mrseivane.Syn.yml'):
         txt=(ROOT/p).read_text('utf-8')

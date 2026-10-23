@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.1" date="2026-10-24">
+      <description>
+        <p>Polished navigation rail with subtle theme-aware accent tint in light and dark schemes; Chromecast menu remains usable when moving outside the mini-player, without hiding its toolbar.</p>
+        <p xml:lang="es">Columna de navegación con tinte suave adaptado al tema y al acento en modos claros y oscuros; el menú Chromecast permanece accesible fuera del minirreproductor sin ocultar los controles.</p>
+      </description>
+    </release>
     <release version="2.0.0" date="2026-10-23">
       <description>
         <p>New SYN interface: fixed navigation rail, live player with optional overlay controls, integrated and full-screen programme guide, monochrome test card and redesigned profiles. Preserves built-in DVR, Chromecast and media libraries.</p>

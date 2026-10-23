@@ -24,9 +24,19 @@ def css(theme='system', accent_hex='', system_dark=False):
     }
     if theme in values:
         bg, nav, surface, fg, hover, accent = values[theme]
+        # Dark rail: blend its surface toward the surrounding background.
+        # Keep the channel sidebar untouched (it uses the original nav tone).
+        rail_nav = nav
+        if theme in ('teal', 'dark', 'nord-dark', 'gruvbox-dark'):
+            def mix(a, b, fraction=.43):
+                aa = (int(a[i:i+2], 16) for i in (1, 3, 5))
+                bb = (int(b[i:i+2], 16) for i in (1, 3, 5))
+                return '#' + ''.join(f'{round(x*(1-fraction) + y*fraction):02x}'
+                                   for x, y in zip(aa, bb))
+            rail_nav = mix(bg, nav)
         palette = f'''
         window.iptv-tv.synplus-window {{ background-color:{bg}; color:{fg}; }}
-        window.iptv-tv .synplus-nav {{ background-color:{nav}; color:{fg}; border-color:alpha({fg},.11); }}
+        window.iptv-tv .synplus-nav {{ background-color:{rail_nav}; color:{fg}; border-color:alpha({fg},.11); }}
         window.iptv-tv .synplus-workbench {{ background-color:{bg}; }}
         window.iptv-tv .synplus-sidebar {{ background-color:{nav}; color:{fg}; border-color:alpha({fg},.09); }}
         window.iptv-tv .synplus-guide {{ background-color:{surface}; color:{fg}; border-color:alpha({fg},.12); }}
@@ -41,7 +51,7 @@ def css(theme='system', accent_hex='', system_dark=False):
         '''
     else:
         palette = '''
-        window.iptv-tv .synplus-nav { background-color: alpha(@window_fg_color,.035);
+        window.iptv-tv .synplus-nav { background-color: alpha(@window_fg_color,.022);
            border-color:alpha(@window_fg_color,.13); }
         window.iptv-tv .synplus-sidebar { background-color:alpha(@window_fg_color,.018);
            border-color:alpha(@window_fg_color,.11); }
@@ -62,17 +72,21 @@ def css(theme='system', accent_hex='', system_dark=False):
     else:
         epg_colors = ('#245d48', '#59317e', '#194c86', '#6a5231', '#266064', '#724653')
         epg_text = '#f9fcfd'
-    if theme in ('light', 'nord-light', 'gruvbox-light') or (theme == 'system' and not system_dark):
-        if isinstance(accent_hex, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', accent_hex):
-            tint_color = accent_hex
-        elif theme in values:
-            tint_color = values[theme][5]
-        else:
-            tint_color = '@accent_color'
-        palette += ("window.iptv-tv.synplus-window .synplus-nav { "
-                    "background-image:linear-gradient(to bottom, "
-                    f"alpha({tint_color},.10), alpha({tint_color},.10)); "
-                    "}")
+    # Always keep the left rail distinct: a soft accent wash in light themes,
+    # and a much quieter one in dark themes. Follow both custom accent and
+    # the selected theme; System mode follows Adwaita/GNOME's dark flag.
+    rail_is_light = theme in ('light', 'nord-light', 'gruvbox-light') or (theme == 'system' and not system_dark)
+    if isinstance(accent_hex, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', accent_hex):
+        tint_color = accent_hex
+    elif theme in values:
+        tint_color = values[theme][5]
+    else:
+        tint_color = '@accent_color'
+    wash = '.08' if rail_is_light else '.035'
+    palette += ("window.iptv-tv.synplus-window .synplus-nav { "
+                "background-image:linear-gradient(to bottom, "
+                f"alpha({tint_color},{wash}), alpha({tint_color},{wash})); "
+                "}")
     palette += ''.join(
         f'window.iptv-tv .synplus-guide .syn-guide-program-{n} '
         f'{{ background-color:{tone}; }}\n'
@@ -577,6 +591,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.overlay.add_controller(motion)
     window._synplus_mouse_over_video = False
     window._synplus_reveal_until = 0.0
+    window._synplus_cast_popover_open = False
+    window._synplus_cast_popover = None
     GLib.timeout_add(300, lambda: poll_chrome(window))
     window.footer.set_visible(False)
     window.status.set_visible(False)
@@ -731,6 +747,10 @@ def fullscreen_changed(window, enabled, GLib):
         if window._synplus_full_guide:
             set_guide_mode(window, GLib, False)
         window._synplus_in_fullscreen = True
+        cast_pop = getattr(window, '_synplus_cast_popover', None)
+        if cast_pop is not None:
+            cast_pop.popdown()
+        window._synplus_cast_popover_open = False
         window._synplus_nav.set_visible(False)
         window._synplus_more.set_visible(False)
         window.guide_surface.set_visible(False)
@@ -982,6 +1002,31 @@ def unmount_fullscreen_guide(window):
     return True
 
 
+def hold_chrome_for_cast(window, pop, Gtk):
+    """Keep the mini-player toolbar mapped until the Cast popup closes.
+
+    The GDK popover can extend outside the video rectangle. Pointer leave is
+    *not* permission to unmap the Gtk.Revealer holding its anchor button.
+    Set the preferred popup direction upward so the controls remain usable in
+    compact windows; GTK may flip it if screen geometry requires.
+    """
+    if not getattr(window, '_synplus_ui', False):
+        return
+    previous = getattr(window, '_synplus_cast_popover', None)
+    if previous is not None and previous is not pop:
+        previous.popdown()
+    window._synplus_cast_popover = pop
+    window._synplus_cast_popover_open = True
+    pop.set_position(Gtk.PositionType.TOP)
+    def _closed(closed_pop):
+        if getattr(window, '_synplus_cast_popover', None) is closed_pop:
+            window._synplus_cast_popover = None
+            window._synplus_cast_popover_open = False
+            poll_chrome(window)
+    pop.connect('closed', _closed)
+    poll_chrome(window)
+
+
 def reveal_controls(window, entering=True):
     """Hover reveals immediately. Leaving hides immediately, at any size."""
     if getattr(window,'_synplus_in_fullscreen',False): return
@@ -1009,11 +1054,15 @@ def poll_chrome(window):
     if not getattr(window,'_synplus_ui',False): return False
     reveal=getattr(window,'_synplus_chrome_reveal',None)
     if reveal is None: return True
-    visible=controls_visible(
-        getattr(window,'_synplus_in_fullscreen',False),
-        getattr(window,'_synplus_mouse_over_video',False),
-        getattr(window,'_synplus_reveal_until',0.0),
+    fullscreen = getattr(window, '_synplus_in_fullscreen', False)
+    visible = controls_visible(
+        fullscreen,
+        getattr(window, '_synplus_mouse_over_video', False),
+        getattr(window, '_synplus_reveal_until', 0.0),
         time.monotonic())
+    # A Cast popover outside the video must not collapse its parent toolbar.
+    if not fullscreen and getattr(window, '_synplus_cast_popover_open', False):
+        visible = True
     reveal.set_reveal_child(visible)
     # SAME state and CROSSFADE duration for shadow + text/buttons.
     gradient=getattr(window,'_synplus_gradient_reveal',None)

@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.0"
+SYN_VERSION = "2.0.1"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -5086,6 +5086,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         def _syn_cast_menu(self, button):
             pop=Gtk.Popover()
             pop.set_parent(button)
+            # 2.0.1: Cast lives inside a hover-only player toolbar. Keep its
+            # anchor mapped while the independent GTK popover is open.
+            if getattr(self, '_synplus_ui', False) and not getattr(self, '_synplus_in_fullscreen', False):
+                synplus_layout.hold_chrome_for_cast(self, pop, Gtk)
             col=Gtk.Box(orientation=Gtk.Orientation.VERTICAL,spacing=9)
             col.set_margin_top(12);col.set_margin_bottom(12)
             col.set_margin_start(13);col.set_margin_end(13)
