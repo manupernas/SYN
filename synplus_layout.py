@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.6 — fullscreen EPG fix; startup 16:9, free resize, linked chrome and retro monochrome standby.
+"""SYN Plus 2.0 alpha2.7 — fullscreen EPG fix; startup 16:9, free resize, linked chrome and retro monochrome standby.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -281,7 +281,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.6")
+    window.set_title("SYN Plus · Alfa 2.7")
     window.set_resizable(True)
     # INITIAL size only; no aspect, fixed size, or window geometry hints.
     window.set_default_size(1370, 950)
@@ -451,7 +451,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.6', xalign=0)
+    info = Gtk.Label(label='ALFA 2.7', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -1013,8 +1013,36 @@ def poll_chrome(window):
 
 
 def show_guide_page(window, GLib):
-    cb=getattr(window,'_synplus_open_full_guide',None)
-    if cb and not getattr(window,'_synplus_in_fullscreen',False): cb()
+    """Route the SAME Guide action to windowed or broadcast fullscreen EPG.
+
+    Alfa 2.6 fixed mounting the EPG, but this helper still silently refused
+    to do anything when _synplus_in_fullscreen=True. The OSD button and G key
+    both call here; use set_guide_open to keep original XMLTV/EPG state,
+    channel filters, Escape, and context actions working.
+    """
+    fullscreen = (getattr(window, '_synplus_in_fullscreen', False)
+                  or bool(window.fullscreen_mode) or bool(window.is_fullscreen()))
+    if fullscreen:
+        # Rare compositor timing case: GTK entered fullscreen before the
+        # SYN Plus layout hook. Synchronize only the visual fullscreen state.
+        if not getattr(window, '_synplus_in_fullscreen', False):
+            fullscreen_changed(window, True, GLib)
+        if getattr(window, '_synplus_fullscreen_guide', False):
+            window.set_guide_open(False)
+            return
+        # An embedded EPG may have remained logically open but is invisible
+        # beneath the hidden player column. Reset before opening over video.
+        if window.guide_open:
+            window.set_guide_open(False)
+        window.set_guide_open(True)
+        # Defensive for already-open state/early theme allocation.
+        if not getattr(window, '_synplus_fullscreen_guide', False):
+            mount_fullscreen_guide(window)
+        window.guide_surface.set_visible(True)
+        return
+    cb=getattr(window, '_synplus_open_full_guide', None)
+    if cb:
+        cb()
 
 
 # SYN classic refined: exactly the original two-line composition and graphic

@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.7"  # SYNPLUS_ALPHA26; experimental, stable 1.3.7 untouched
+SYN_VERSION = "2.0.8"  # SYNPLUS_ALPHA27; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -6967,7 +6967,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._guide_header_subtitle.set_visible(available >= 1050)
             self.guide_search.set_visible(available >= 865 and (
                 not getattr(self, '_synplus_ui', False) or
-                getattr(self, '_synplus_full_guide', False)))
+                getattr(self, '_synplus_full_guide', False) or
+                getattr(self, '_synplus_fullscreen_guide', False)))
 
         def _guide_size_changed(self, _area, width, _height):
             self._guide_adapt_width()
@@ -7378,7 +7379,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def show_guide(self, *_):
             if getattr(self, '_synplus_ui', False):
-                if getattr(self, '_synplus_full_guide', False):
+                # The fullscreen OSD Guide button must use the fullscreen
+                # EPG handler, NOT the windowed navigation handler.
+                if (self.fullscreen_mode or self.is_fullscreen()
+                        or getattr(self, '_synplus_in_fullscreen', False)):
+                    synplus_layout.show_guide_page(self, GLib)
+                elif getattr(self, '_synplus_full_guide', False):
                     synplus_layout.set_guide_mode(self, GLib, False)
                 else:
                     synplus_layout.show_guide_page(self, GLib)
