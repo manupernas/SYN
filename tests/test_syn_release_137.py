@@ -43,7 +43,13 @@ def test_branding_and_software_center_metadata():
 
 def test_readme_showcases_new_brand():
     text=(ROOT/'README.md').read_text('utf-8')
-    assert '**SYN 2.0.0**' in text
+    # Check the headline against the actual current version, not a stale
+    # literal from a previous release. This must remain valid in 2.0.2+.
+    import re
+    source = (ROOT/'syn.py').read_text('utf-8')
+    version = re.search(r'^SYN_VERSION\s*=\s*"([^"]+)"', source, re.M)
+    assert version is not None
+    assert f'**SYN {version.group(1)}**' in text
     for f in ('syn-readme-banner.png','syn-readme-banner-dark.png','syn-readme-banner-light.png'):
         assert (ROOT/'docs/brand'/f).stat().st_size > 100
         assert f in text or f == 'syn-readme-banner.png' and f in text
