@@ -904,6 +904,72 @@ def epg_geometry(programmes, start, pixels_per_minute, duration_minutes=300):
 
 
 
+def syn_popup_theme_css(theme):
+    """Theme every GTK4 popover surface (including detached DropDown popups).
+
+    Deliberately empty in Sistema: the host GTK theme remains authoritative.
+    The provider using this CSS is installed above host USER priority.
+    """
+    palettes = {
+        'light': ('#f8fffc', '#164d43', '#d4efe6', '#a9dfd0', '#acd9cd', '#80b7a9'),
+        'dark': ('#252931', '#edf0f5', '#3b4350', '#4d5c70', '#555c68', '#7b8595'),
+        'teal': ('#10332f', '#f1faf5', '#24534b', '#2e6e5f', '#315c55', '#6db5a1'),
+        'nord-light': ('#ECEFF4', '#2E3440', '#D8DEE9', '#D8DEE9', '#C6CFDA', '#4C566A'),
+        'nord-dark': ('#434C5E', '#ECEFF4', '#4C566A', '#5E81AC', '#4C566A', '#88C0D0'),
+        'gruvbox-light': ('#fbf1c7', '#3c3836', '#d5c4a1', '#d5c4a1', '#bdae93', '#7c6f64'),
+        'gruvbox-dark': ('#504945', '#ebdbb2', '#665c54', '#7c6f64', '#7c6f64', '#a89984'),
+    }
+    if theme not in palettes:
+        return ''
+    bg, fg, hover, selected, border, scroll = palettes[theme]
+    return f"""
+    /* GTK4 DropDown menus are GtkPopover surfaces, often detached in Wayland.
+       Do not scope them under window.iptv-tv or dropdown ancestors. */
+    popover, popover.background, popover.menu {{ color: {fg}; }}
+    popover > contents, popover.background > contents,
+    popover.menu > contents {{
+        background-color: {bg}; color: {fg};
+        border: 1px solid {border}; border-radius: 12px;
+    }}
+    popover listview, popover listbox, popover scrolledwindow,
+    popover listview row, popover listbox row {{
+        background-color: {bg}; color: {fg};
+    }}
+    popover listview row:hover, popover listbox row:hover,
+    popover listview row:focus, popover listbox row:focus {{
+        background-color: {hover}; color: {fg};
+    }}
+    popover listview row:selected, popover listbox row:selected,
+    popover listview row:selected:hover, popover listbox row:selected:hover {{
+        background-color: {selected}; color: {fg};
+    }}
+    popover listview row label, popover listview row image,
+    popover listbox row label, popover modelbutton,
+    popover modelbutton label, popover button label {{ color: {fg}; }}
+    popover scrollbar slider {{ background-color: {scroll}; }}
+    popover entry, popover searchentry {{
+        background-color: {bg}; color: {fg}; border-color: {border};
+    }}
+    popover entry text, popover searchentry text {{ color: {fg}; }}
+    """
+
+
+def epg_axis_ink(theme):
+    """Return (grid RGBA, hour-label RGBA) for the actual EPG background.
+
+    Sistema retains SYN's dark cinematic guide even on a light desktop.
+    Only the three explicit *light* themes use a dark hour-label ink.
+    """
+    if theme == 'light':
+        return ((.19, .42, .37, .34), (.10, .27, .24, 1.0))
+    if theme == 'nord-light':
+        return ((.30, .35, .43, .34), (.18, .20, .25, 1.0))
+    if theme == 'gruvbox-light':
+        return ((.48, .43, .32, .34), (.24, .22, .21, 1.0))
+    return ((.58, .80, .75, .35), (.82, .94, .91, .98))
+
+
+
 def run_gui(playlist):
     # Compatibilidad selectiva con Parallels/VirGL. No imponer flags a
     # todas las distribuciones, GPUs y compositores por defecto.
@@ -6731,6 +6797,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             start = self._guide_axis_start
             scale = self._guide_axis_scale
             scroll_x = self.guide_tracks_scroll.get_hadjustment().get_value()
+            # Cairo bypasses GTK CSS; choose ink explicitly for each palette.
+            theme = getattr(self.get_application(), '_current_theme', 'system')
+            grid_ink, hour_ink = epg_axis_ink(theme)
             ctx.set_line_width(1.0)
             ctx.set_font_size(12)
             for instant, minutes in epg_axis_sections(start, duration_minutes=720):
@@ -6739,11 +6808,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 x = epg_x_at(instant, start, scale) - scroll_x
                 if x < -80 or x > width + 20:
                     continue
-                ctx.set_source_rgba(.58, .80, .75, .35)
+                ctx.set_source_rgba(*grid_ink)
                 ctx.move_to(x + .5, 0)
                 ctx.line_to(x + .5, height)
                 ctx.stroke()
-                ctx.set_source_rgba(.82, .94, .91, .98)
+                ctx.set_source_rgba(*hour_ink)
                 ctx.move_to(x + 9, 25)
                 ctx.show_text(format_time(instant))
 
@@ -7503,11 +7572,17 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         palette_css = dvr_palette_css(base) + gruvbox_css(theme, getattr(self, '_accent_hex', ''))
                     else:
                         palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
-                    self.teal_theme_provider.load_from_data((palette_css + epg_gradient_css()).encode('utf-8'))
+                    self.teal_theme_provider.load_from_data(
+                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme)).encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,
                         Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
                     self._teal_provider_active = True
+                # Repaint the Cairo hour ruler immediately after changing themes.
+                for window in self.get_windows():
+                    axis = getattr(window, 'guide_axis', None)
+                    if axis is not None:
+                        axis.queue_draw()
             finally:
                 self._theme_guard = False
 
