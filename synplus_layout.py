@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.3 — refined overlay and near-borderless video frame.
+"""SYN Plus 2.0 alpha2.4 — persistent soft player gradient and unrestricted window sizing.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -96,20 +96,27 @@ def css(theme='system'):
     window.iptv-tv .synplus-sidebar .syn-channel-display-name { font-size:12px; font-weight:580; }
     window.iptv-tv .synplus-sidebar .syn-heart-filter { min-width:34px; min-height:31px; }
     window.iptv-tv .synplus-visual-player { background-color:#03080b; }
-    /* A longer, continuous tonal ramp; no sudden black foot at the bottom. */
-    window.iptv-tv .synplus-video-chrome {
+    /* Persistent video gradient on its OWN non-interactive overlay.
+       It is independent of the chrome revealer so it remains on screen
+       when playback controls and titles are hidden. */
+    window.iptv-tv.synplus-window .synplus-video-gradient {
+      background-color:transparent;
       background-image:linear-gradient(to bottom,
-          rgba(5,11,17,.015) 0%,
-          rgba(5,11,17,.045) 20%,
-          rgba(5,11,17,.105) 40%,
-          rgba(5,11,17,.19) 60%,
-          rgba(5,11,17,.30) 80%,
-          rgba(5,11,17,.42) 100%);
-      color:#f6f8fa; padding:76px 11px 7px 11px;
+          rgba(5,11,17,0) 0%,
+          rgba(5,11,17,.015) 16%,
+          rgba(5,11,17,.055) 35%,
+          rgba(5,11,17,.13) 53%,
+          rgba(5,11,17,.23) 70%,
+          rgba(5,11,17,.36) 85%,
+          rgba(5,11,17,.50) 100%);
+      box-shadow:none; border:0; border-radius:0;
     }
-    /* Small player: keep the same steady ramp without covering all the image. */
+    window.iptv-tv.synplus-window .synplus-video-chrome {
+      background-color:transparent; background-image:none;
+      color:#f6f8fa; padding:24px 11px 7px 11px;
+    }
     window.iptv-tv.synplus-window.synplus-compact-player .synplus-video-chrome {
-      padding-top:53px;
+      padding-top:14px;
     }
     window.iptv-tv .synplus-video-chrome label { color:#f6f8fa; }
     window.iptv-tv .synplus-video-chrome .iptv-details { color:#d8e0e8; }
@@ -163,6 +170,8 @@ def css(theme='system'):
       border-radius:0; margin:0; padding:0; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-chrome {
       background-image:none; padding:0; }
+    window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-gradient {
+      background-image:none; }
     window.iptv-tv.synplus-window .synplus-video-chrome { border-radius:0 0 5px 5px; }
     window.iptv-tv.synplus-window .synplus-guide .syn-guide-program { border-radius:10px; }
     window.iptv-tv.synplus-window .synplus-avatar {
@@ -198,7 +207,9 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.3")
+    window.set_title("SYN Plus · Alfa 2.4")
+    window.set_resizable(True)
+    # INITIAL size only; no aspect, fixed size, or window geometry hints.
     window.set_default_size(1370, 920)
     window.add_css_class('synplus-window')
     window.header.add_css_class('synplus-header')
@@ -366,18 +377,18 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.3', xalign=0)
+    info = Gtk.Label(label='ALFA 2.4', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
     # Existing video stays inside the Gtk.Overlay. We only move the overlay
     # before the first realization and overlay an unobtrusive playback chrome.
     video_column.remove(window.overlay)
-    frame = Gtk.AspectFrame.new(0.5, 0.5, 16 / 9, False)
-    # GTK AspectFrame constrains the CHILD, not the frame. Normal-window
-    # geometry can be wider than 16:9; the ratio follows each allocation.
-    # On fullscreen the frame expands to fill the display without reparenting
-    # Gtk.GLArea or recreating the libmpv OpenGL context.
+    # Gtk.Frame deliberately does NOT impose a child aspect ratio.
+    # Resizing is free; player_geometry alone limits HEIGHT to 9/16 width.
+    # libmpv handles the input stream's own aspect ratio (no stretching).
+    # Gtk.GLArea stays attached to its original Gtk.Overlay throughout.
+    frame = Gtk.Frame.new(None)
     frame.set_hexpand(False)
     frame.set_vexpand(False)
     frame.set_halign(Gtk.Align.CENTER)
@@ -403,6 +414,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
+    # We never use Gtk.AspectFrame or Gdk surface geometry hints: the user's
+    # window can be portrait, square or ultrawide independently of the video.
     # SYN 1.3.7's one-shot startup 16:9 WINDOW resize is not wanted here:
     # user dimensions must remain free from the very first launch.
     window._syn_startup_ratio_pending = False
@@ -418,7 +431,21 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         chrome.append(child)
     window.overlay.add_overlay(chrome)
     window._synplus_chrome = chrome
-    # Crossfade of all playback text and controls without modifying video GLArea.
+    # The gradient is NOT a child of the revealer: it must remain visible
+    # over the video even when the mouse is outside the mini-player.
+    # It covers the allocated video canvas, not the small toolbar rectangle.
+    persistent_gradient = Gtk.Box()
+    persistent_gradient.add_css_class('synplus-video-gradient')
+    persistent_gradient.set_halign(Gtk.Align.FILL)
+    persistent_gradient.set_valign(Gtk.Align.FILL)
+    persistent_gradient.set_hexpand(True)
+    persistent_gradient.set_vexpand(True)
+    persistent_gradient.set_can_target(False)  # Mouse motion reaches the player.
+    window.overlay.add_overlay(persistent_gradient)
+    window.overlay.set_measure_overlay(persistent_gradient, False)
+    window._synplus_video_gradient = persistent_gradient
+
+    # Crossfade of ALL playback text and controls (not the gradient).
     window.overlay.remove_overlay(chrome)
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
@@ -524,12 +551,14 @@ def adapt(window, width):
             # instead of the thick insets introduced in the previous alpha.
             wanted = player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
             if wanted and wanted != getattr(window,'_synplus_requested_video',None):
-                # AspectFrame must follow the actual requested frame ratio.
-                # Leaving this fixed at 16:9 would introduce a dead letterbox
-                # inside the widget when the user made the window panoramic.
-                frame.set_ratio(wanted[0] / wanted[1])
+                # Not a rigid AspectFrame: arbitrary window aspect ratios are
+                # supported. Only the player canvas is limited to >=16:9.
                 frame.set_size_request(*wanted)
                 window._synplus_requested_video=wanted
+        elif (full_guide or cw < 16 or ch < 16) and getattr(window,'_synplus_requested_video',None):
+            # Avoid keeping stale dimensions after a very small resize.
+            frame.set_size_request(-1, -1)
+            window._synplus_requested_video=None
     player_w = getattr(window,'_synplus_requested_video',(0,0))
     displayed_w = player_w[0] if player_w else 0
     window._synplus_compact = width < 1260 or (0 < displayed_w < 690)
@@ -574,11 +603,11 @@ def fullscreen_changed(window, enabled, GLib):
         window.footer.set_visible(False)
         window.status.set_visible(False)
         window.add_css_class('synplus-pure-fullscreen')
-        # Gtk.AspectFrame spans the screen, its CHILD is video-shaped and
-        # GTK/libmpv letterbox the source if the physical screen isn't 16:9.
+        # The player frame stretches to the physical fullscreen surface.
+        # libmpv, not GTK, letterboxes nonmatching broadcast aspect ratios.
         # No toolbar/rail/channel-list/EPG occupies space.
+        window._synplus_video_gradient.set_visible(False)
         frame.set_size_request(-1, -1)
-        frame.set_ratio(16 / 9)
         frame.set_halign(align.FILL)
         frame.set_valign(align.FILL)
         frame.set_hexpand(True)
@@ -601,6 +630,7 @@ def fullscreen_changed(window, enabled, GLib):
     window._synplus_more.set_visible(True)
     window._synplus_chrome.set_visible(True)
     window._synplus_chrome_reveal.set_visible(True)
+    window._synplus_video_gradient.set_visible(True)
     if not window.guide_open and window._synplus_guide_requested:
         GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
     elif window.guide_open:
