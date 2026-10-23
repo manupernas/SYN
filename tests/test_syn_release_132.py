@@ -12,7 +12,7 @@ class Release132Tests(unittest.TestCase):
         cls.syn = (ROOT / 'syn.py').read_text(encoding='utf-8')
 
     def test_version_and_proven_rev6_scroll(self):
-        self.assertIn('SYN_VERSION = "1.3.6"', self.syn)
+        self.assertIn('SYN_VERSION = "1.3.7"', self.syn)
         for feature in (
             'SYN_REV6_EXTERNAL_SCROLL',
             'Gtk.PolicyType.NEVER, Gtk.PolicyType.EXTERNAL',
@@ -46,7 +46,7 @@ class Release132Tests(unittest.TestCase):
             self.assertIn(token, ci)
         self.assertIn('test_syn_release_132.py', ci)
         self.assertTrue((ROOT / 'docs/RELEASE_1.3.2.md').is_file())
-        self.assertIn('**SYN 1.3.6**', (ROOT / 'README.md').read_text(encoding='utf-8'))
+        self.assertIn('**SYN 1.3.7**', (ROOT / 'README.md').read_text(encoding='utf-8'))
         self.assertIn('<release version="1.3.2"', (ROOT / 'com.mrseivane.Syn.metainfo.xml').read_text(encoding='utf-8'))
 
     def test_no_included_user_data(self):

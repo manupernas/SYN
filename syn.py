@@ -47,7 +47,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.6"
+SYN_VERSION = "1.3.7"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -2312,8 +2312,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # Beta5: Gtk.Picture con PNG REAL de 46×28; sin Gtk.Image ni tamaño intrínseco gigante.
             syn_brand_icon = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'icono_header_ui.png'))
             syn_brand_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-            syn_brand_icon.set_can_shrink(False)
-            syn_brand_icon.set_size_request(46, 28)
+            syn_brand_icon.set_can_shrink(True)
+            syn_brand_icon.set_size_request(50, 30)
             brand.append(syn_brand_icon)
             title = Gtk.Label(xalign=0)
             title.set_markup('<b>SYN</b>')
@@ -2403,12 +2403,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # Beta5: logo 194×77 recortado realmente, con aire deliberado alrededor.
             self.syn_wordmark = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'logo_dark_ui.png'))
             self.syn_wordmark.set_content_fit(Gtk.ContentFit.CONTAIN)
-            self.syn_wordmark.set_can_shrink(False)
-            self.syn_wordmark.set_size_request(194, 77)
+            self.syn_wordmark.set_can_shrink(True)
+            self.syn_wordmark.set_size_request(206, 108)
             self.syn_wordmark.set_halign(Gtk.Align.START)
             self.syn_wordmark.set_valign(Gtk.Align.START)
             self.syn_wordmark.set_margin_start(19)
-            self.syn_wordmark.set_margin_top(16)
+            self.syn_wordmark.set_margin_top(5)
             # BETA6: altura fija de la zona de marca, independiente de la
             # altura natural de Gtk.Picture y del tamaño de la ventana.
             # No modifica la imagen física 194×77 ni su margen horizontal.
@@ -2418,7 +2418,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_brand_band.set_hexpand(True)
             self._syn_brand_band.set_vexpand(False)
             self._syn_brand_band_spacer = Gtk.Box()
-            self._syn_brand_band_spacer.set_size_request(-1, 116)
+            self._syn_brand_band_spacer.set_size_request(-1, 122)
             self._syn_brand_band.set_child(self._syn_brand_band_spacer)
             self._syn_brand_band.add_overlay(self.syn_wordmark)
             self._syn_brand_band.set_measure_overlay(self.syn_wordmark, False)
