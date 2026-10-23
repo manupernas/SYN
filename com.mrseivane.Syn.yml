@@ -92,6 +92,7 @@ modules:
     build-commands:
       - install -Dm755 syn-flatpak /app/bin/syn-flatpak
       - install -Dm755 syn.py /app/share/syn/syn.py
+      - install -Dm644 synplus_layout.py /app/share/syn/synplus_layout.py
       - install -Dm644 syn_dvr.py /app/share/syn/syn_dvr.py
       - install -Dm644 syn_service_setup.py /app/share/syn/syn_service_setup.py
       - install -Dm755 syn-dvr-worker /app/bin/syn-dvr-worker

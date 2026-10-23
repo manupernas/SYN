@@ -35,6 +35,7 @@ import syn_multistream
 import syn_timeshift
 import syn_favoritos
 import syn_fav_sort
+import synplus_layout
 import syn_service_setup
 from syn_i18n import translate as tr, format_time, format_day_time, LANGUAGE, locale_description
 from pathlib import Path
@@ -46,8 +47,8 @@ def syn_capture_filename(value):
             .strip(' ._') or 'Canal')[:75]
 
 APP_ID = "com.mrseivane.Syn"
-APP_TITLE = "SYN"
-SYN_VERSION = "1.3.7"
+APP_TITLE = "SYN-Plus"
+SYN_VERSION = "2.0.0"  # SYN-Plus alpha1, no publicación estable
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -2626,6 +2627,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # ligera de ancho, cada 180ms, evita tocar GLArea/GL mientras
             # Wayland envía varios tamaños durante el arrastre.
             GLib.timeout_add(180, self._check_responsive_layout)
+            # SYNPLUS_WORKBENCH: activate the user-approved three-column mockup.
+            # All GTK widgets are moved BEFORE the first window presentation.
+            synplus_layout.install_synplus_layout(
+                self, Gtk, GLib, video_column, base, brand,
+                (open_list, welcome_btn, logo_btn, settings_btn, refresh,
+                 self.epg_btn, self.dvr_nav_button, self.syn_profile_button))
             if self._needs_welcome:
                 self.status.set_text(tr('SYN · Elige una fuente para empezar'))
                 self.blank_label.set_text(tr('Bienvenido a SYN\n\nConfigura tu primera lista para empezar'))
@@ -5394,7 +5401,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             for widget, column, row, span in layout:
                 self.strip.attach(widget, column, row, span, 1)
             self.volume.set_hexpand(compact)
-            self.play_button.set_label(tr("▶ Ver") if compact else tr("▶  Reproducir"))
+            self.play_button.set_label(
+                '▶' if getattr(self, '_synplus_ui', False)
+                else (tr("▶ Ver") if compact else tr("▶  Reproducir")))
             self._update_pause_label()
             if hasattr(self, 'cast_button'):
                 if self.cast_button.get_parent() == self.strip:
@@ -5406,6 +5415,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def _update_pause_label(self):
             paused = bool(self.area.player and self.area.player.paused())
+            if getattr(self, '_synplus_ui', False):
+                self.pause_button.set_label('▶' if paused else '⏸')
+                return
             if self.compact_controls:
                 self.pause_button.set_label("▶" if paused else "⏸")
             else:
@@ -5463,7 +5475,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # para que no parpadeen al arrastrar junto al umbral.
             # La anchura real del video también importa si el usuario
             # arrastra el divisor dejando una zona de reproducción mínima.
-            next_sidebar = (width < (990 if not self.compact_sidebar else 1010))
+            next_sidebar = (width < (
+                (1120 if not self.compact_sidebar else 1140)
+                if getattr(self, '_synplus_ui', False)
+                else (990 if not self.compact_sidebar else 1010)))
             next_controls = (width < (740 if not self.compact_controls else 760)
                              or (not next_sidebar and 0 < video_width < 520))
             if next_sidebar != self.compact_sidebar:
@@ -5492,6 +5507,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self.resolution.set_visible(not tiny)
             self._last_window_width = width
             self._last_video_width = video_width
+            if getattr(self, '_synplus_ui', False):
+                synplus_layout.adapt(self, width)
             return True
 
         def player_ready(self):
@@ -6516,6 +6533,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             else:
                 self.paned.set_position(0 if self.compact_sidebar else self._saved_paned_position)
                 GLib.idle_add(lambda: (self._check_responsive_layout(), False)[1])
+            if getattr(self, '_synplus_ui', False):
+                synplus_layout.fullscreen_changed(self, enabled, GLib)
             # El nuevo tamano del framebuffer puede llegar en varios pasos.
             # queue_render() no crea ni destruye ningun contexto libmpv.
             GLib.idle_add(self._queue_video_frame)
@@ -7112,6 +7131,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return
             self.set_guide_open(False)
             self.start_channel(channel)
+            if getattr(self, '_synplus_embedded_guide', False) and not self.fullscreen_mode:
+                GLib.idle_add(lambda: (self.set_guide_open(True), False)[1])
             if self.fullscreen_mode:
                 self.set_fs_osd(True)
 
@@ -7554,7 +7575,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if display and getattr(self, '_teal_provider_active', False):
                     Gtk.StyleContext.remove_provider_for_display(display, self.teal_theme_provider)
                     self._teal_provider_active = False
-                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css()
+                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css() + synplus_layout.css(theme)
                 self.theme_provider.load_from_data(css.encode('utf-8'))
                 # The accent CSS is loaded separately at higher priority so
                 # Adwaita and all bundled color schemes cannot override it.
@@ -7573,7 +7594,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     else:
                         palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
                     self.teal_theme_provider.load_from_data(
-                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme)).encode('utf-8'))
+                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme) + synplus_layout.css(theme)).encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,
                         Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
