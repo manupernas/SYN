@@ -1,4 +1,4 @@
-"""SYN Plus 2.0 alpha2.5 — startup 16:9, free resize, linked chrome and retro monochrome standby.
+"""SYN Plus 2.0 alpha2.6 — fullscreen EPG fix; startup 16:9, free resize, linked chrome and retro monochrome standby.
 
 Preserves the existing Gtk.GLArea, libmpv, DVR, Cast, profile, EPG, and
 channel handlers. This file changes placement and presentation, not backends.
@@ -281,7 +281,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         return
     window._synplus_ui = True
     window._synplus_gtk = Gtk
-    window.set_title("SYN Plus · Alfa 2.5")
+    window.set_title("SYN Plus · Alfa 2.6")
     window.set_resizable(True)
     # INITIAL size only; no aspect, fixed size, or window geometry hints.
     window.set_default_size(1370, 950)
@@ -451,7 +451,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     add_profile.add_css_class('synplus-nav-button')
     add_profile.connect('clicked', lambda *_: window.show_welcome())
     nav.append(add_profile)
-    info = Gtk.Label(label='ALFA 2.5', xalign=0)
+    info = Gtk.Label(label='ALFA 2.6', xalign=0)
     info.add_css_class('synplus-nav-note')
     nav.append(info)
 
@@ -895,6 +895,81 @@ def set_guide_mode(window, GLib, full):
             window.guide_render_rows()
         return False
     GLib.timeout_add(90,_redraw)
+
+
+
+
+def mount_fullscreen_guide(window):
+    """Expose the EXISTING EPG above libmpv, only in broadcast fullscreen.
+
+    SYN Plus normally keeps guide_surface below its windowed video; the
+    original fullscreen EPG button calls set_guide_open(True). Without this
+    reparent, GTK makes the hidden, offscreen guide 'visible' but shows nothing.
+
+    Only the guide widget is moved. Never unparent Gtk.GLArea, video overlay,
+    mpv GL context, DVR worker, or any stream.
+    """
+    if not (getattr(window, '_synplus_ui', False)
+            and getattr(window, '_synplus_in_fullscreen', False)):
+        return False
+    epg = window.guide_surface
+    if getattr(window, '_synplus_fullscreen_guide', False):
+        return True
+    home = window._synplus_guide_home
+    parent = epg.get_parent()
+    if parent == home:
+        home.remove(epg)
+    elif parent == window.main_stack:
+        window.main_stack.remove_overlay(epg)
+    elif parent != window.overlay:
+        # Unknown parent: do not destroy somebody else's layout.
+        raise RuntimeError('SYN Plus: parent de la guía inesperado en fullscreen')
+    if epg.get_parent() != window.overlay:
+        window.overlay.add_overlay(epg)
+        window.overlay.set_clip_overlay(epg, True)
+        window.overlay.set_measure_overlay(epg, False)
+    align = window._synplus_gtk.Align
+    epg.set_vexpand(True)
+    epg.set_hexpand(True)
+    epg.set_halign(align.FILL)
+    epg.set_valign(align.FILL)
+    epg.set_size_request(-1, -1)
+    epg.add_css_class('synplus-guide-full')
+    window.guide_categories_scroll.set_visible(True)
+    window.guide_search.set_visible(True)
+    window._synplus_fullscreen_guide = True
+    return True
+
+
+def unmount_fullscreen_guide(window):
+    """Return the EPG to its exact ordinary windowed home after Close/Escape.
+
+    Hooked from set_guide_open(False), so *all* close routes restore it,
+    including the header close button, Escape and leaving fullscreen.
+    """
+    if not getattr(window, '_synplus_fullscreen_guide', False):
+        return False
+    epg = window.guide_surface
+    if epg.get_parent() == window.overlay:
+        window.overlay.remove_overlay(epg)
+    elif epg.get_parent() == window.main_stack:
+        window.main_stack.remove_overlay(epg)
+    home = window._synplus_guide_home
+    if epg.get_parent() is None:
+        home.append(epg)
+    align = window._synplus_gtk.Align
+    epg.set_vexpand(False)
+    epg.set_hexpand(True)
+    epg.set_halign(align.FILL)
+    epg.set_valign(align.FILL)
+    rows = getattr(window, '_synplus_rows', 3)
+    epg.set_size_request(-1, 70 * rows + 119)
+    epg.remove_css_class('synplus-guide-full')
+    window.guide_categories_scroll.set_visible(False)
+    window.guide_search.set_visible(False)
+    window._guide_header_subtitle.set_visible(False)
+    window._synplus_fullscreen_guide = False
+    return True
 
 
 def reveal_controls(window, entering=True):

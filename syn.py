@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN-Plus"
-SYN_VERSION = "2.0.6"  # SYNPLUS_ALPHA25; experimental, stable 1.3.7 untouched
+SYN_VERSION = "2.0.7"  # SYNPLUS_ALPHA26; experimental, stable 1.3.7 untouched
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -7327,6 +7327,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
 
         def set_guide_open(self, visible):
+            # The fullscreen EPG lives over the actual video, not in the
+            # windowed 3–5-row guide underneath the player.
+            if (visible and getattr(self, '_synplus_ui', False)
+                    and getattr(self, '_synplus_in_fullscreen', False)):
+                synplus_layout.mount_fullscreen_guide(self)
             if self.guide_open == bool(visible): return
             self.guide_open = bool(visible)
             if visible:
@@ -7363,6 +7368,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     GLib.source_remove(self._guide_resize_timer)
                     self._guide_resize_timer = 0
                 self.guide_surface.set_visible(False)
+                # This also runs when the EPG is closed via Escape, its close
+                # button, or leaving fullscreen. The original view is restored.
+                if getattr(self, '_synplus_fullscreen_guide', False):
+                    synplus_layout.unmount_fullscreen_guide(self)
                 self.area.grab_focus()
                 if self.fullscreen_mode:
                     self.set_fs_osd(True)
