@@ -116,6 +116,10 @@ modules:
       - install -Dm755 instalar-servicio-cast.sh /app/share/syn/instalar-servicio-cast.sh
       - install -Dm644 syn_settings_rev3.py /app/share/syn/syn_settings_rev3.py
       - install -Dm644 syn_locale_rev3.py /app/share/syn/syn_locale_rev3.py
+      - install -Dm644 syn_fallback_art.py /app/share/syn/syn_fallback_art.py
+      - install -Dm644 syn_nord_palette.py /app/share/syn/syn_nord_palette.py
+      - install -Dm644 syn_epg_pop.py /app/share/syn/syn_epg_pop.py
+      - install -Dm644 syn_gruvbox_palette.py /app/share/syn/syn_gruvbox_palette.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo
       - install -Dm644 locale/en_GB/LC_MESSAGES/syn.mo /app/share/locale/en_GB/LC_MESSAGES/syn.mo
       - install -Dm644 com.mrseivane.Syn.desktop /app/share/applications/com.mrseivane.Syn.desktop

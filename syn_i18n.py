@@ -35,8 +35,11 @@ def detect_language(environ=None):
 
 LANGUAGE = detect_language()
 _LOCALE_PATH = _Path(__file__).parent / 'locale'
-if not _LOCALE_PATH.is_dir() and _Path('/app/share/locale').is_dir():
-    _LOCALE_PATH = _Path('/app/share/locale')
+if not (_LOCALE_PATH / LANGUAGE / 'LC_MESSAGES' / 'syn.mo').is_file():
+    for candidate in (_Path('/app/share/locale'), _Path('/usr/share/locale')):
+        if (candidate / LANGUAGE / 'LC_MESSAGES' / 'syn.mo').is_file():
+            _LOCALE_PATH = candidate
+            break
 _TRANSLATOR = _gettext.translation('syn', localedir=str(_LOCALE_PATH),
                                    languages=[LANGUAGE], fallback=True)
 

@@ -7,6 +7,7 @@ mkdir -p "$DEST/usr/share/syn" "$DEST/usr/bin" "$DEST/usr/share/applications" \
 install -m755 syn.py "$DEST/usr/share/syn/syn.py"
 install -m644 syn_sources.py syn_i18n.py syn_dvr.py syn_service_setup.py syn_favoritos.py syn_settings_rev3.py syn_locale_rev3.py "$DEST/usr/share/syn/"
 install -m644 syn_catalog.py syn_poster.py syn_reconnect.py syn_multistream.py syn_timeshift.py syn_fav_sort.py syn_cast_host.py syn_cast_autostart.py "$DEST/usr/share/syn/"
+install -m644 syn_fallback_art.py syn_nord_palette.py syn_epg_pop.py syn_gruvbox_palette.py "$DEST/usr/share/syn/"
 install -m644 syn_idle_screen.png "$DEST/usr/share/syn/syn_idle_screen.png"
 mkdir -p "$DEST/usr/share/syn/branding"
 cp -a branding/. "$DEST/usr/share/syn/branding/"

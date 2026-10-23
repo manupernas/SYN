@@ -13,7 +13,7 @@ class CastStable133Tests(unittest.TestCase):
     def test_python_syntax_and_version(self):
         ast.parse(self.app)
         ast.parse(self.bridge)
-        self.assertIn('SYN_VERSION = "1.3.5"', self.app)
+        self.assertIn('SYN_VERSION = "1.3.6"', self.app)
 
     def test_original_approved_features_preserved(self):
         for marker in ('SYN_CAST_BETA6', 'SYN_CAST_ORANGE_VISUAL_6_2',

@@ -1,4 +1,4 @@
-name: SYN · 8 Linux packages + GitHub Release
+name: SYN · 6 native packages + 2 Flathub Flatpaks + GitHub Release
 
 on:
   workflow_dispatch:
@@ -16,11 +16,11 @@ concurrency:
 jobs:
   verify:
     name: Validate source and release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.release_meta.outputs.version }}
       tag: ${{ steps.release_meta.outputs.tag }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install test tooling
@@ -28,8 +28,8 @@ jobs:
       - name: Compile Python and run release checks
         run: |
           set -euo pipefail
-          python3 -m compileall -q syn.py syn_catalog.py syn_poster.py syn_dvr.py syn_service_setup.py syn_sources.py syn_i18n.py syn_cast_autostart.py syn_multistream.py syn_reconnect.py syn_timeshift.py syn_fav_sort.py syn_cast_host.py
-          python3 -m pytest -q tests/test_syn_dvr_release.py tests/test_syn_service_setup.py tests/test_syn_release_132.py tests/test_syn_release_133.py tests/test_syn_cast_plug_play.py tests/test_syn_cast_133.py tests/test_syn_release_134.py tests/test_syn_release_135.py
+          python3 -m compileall -q syn.py syn_catalog.py syn_poster.py syn_dvr.py syn_service_setup.py syn_sources.py syn_i18n.py syn_cast_autostart.py syn_multistream.py syn_reconnect.py syn_timeshift.py syn_fav_sort.py syn_cast_host.py syn_nord_palette.py syn_gruvbox_palette.py syn_fallback_art.py syn_epg_pop.py syn_settings_rev3.py syn_locale_rev3.py
+          python3 -m pytest -q tests/test_syn_dvr_release.py tests/test_syn_service_setup.py tests/test_syn_release_132.py tests/test_syn_release_133.py tests/test_syn_cast_plug_play.py tests/test_syn_cast_133.py tests/test_syn_release_134.py tests/test_syn_release_135.py tests/test_syn_release_136.py
           bash -n packaging/build-native.sh packaging/build-flatpak.sh packaging/stage-native.sh
           python3 packaging/prepare-release.py --self-test
       - name: Determine release version from SYN_VERSION and validate tag
@@ -42,9 +42,8 @@ jobs:
           import os
           import re
           from pathlib import Path
-
           src = Path('syn.py').read_text(encoding='utf-8')
-          match = re.search(r'^SYN_VERSION\s*=\s*[\'"]([^\'"]+)', src, re.M)
+          match = re.search(r'^SYN_VERSION\s*=\s*[\'\"]([^\'\"]+)', src, re.M)
           if not match:
               raise SystemExit('SYN_VERSION missing from syn.py')
           version = match.group(1)
@@ -54,8 +53,7 @@ jobs:
               raise SystemExit('Invalid SYN_VERSION: ' + version)
           tag = 'v' + version
           if os.environ['REF_TYPE'] == 'tag' and os.environ['REF_NAME'] != tag:
-              raise SystemExit('Tag/source mismatch: expected ' + tag +
-                               ', received ' + os.environ['REF_NAME'])
+              raise SystemExit('Tag/source mismatch: expected ' + tag + ', received ' + os.environ['REF_NAME'])
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
               print('version=' + version, file=output)
               print('tag=' + tag, file=output)
@@ -68,52 +66,34 @@ jobs:
             exit 1
           fi
 
-  build:
-    name: ${{ matrix.format }} / ${{ matrix.arch }}
+  build_native:
+    name: Native ${{ matrix.format }} / ${{ matrix.arch }}
     needs: verify
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    timeout-minutes: 240
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        format: [rpm, deb, pacman, flatpak]
+        format: [rpm, deb, pacman]
         arch: [x86_64, aarch64]
     env:
       RELEASE_VERSION: ${{ needs.verify.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Confirm native runner architecture
-        shell: bash
+      - name: Verify native CPU architecture
         run: |
           set -euo pipefail
           test "$(uname -m)" = '${{ matrix.arch }}'
-          echo 'Native CPU:' "$(uname -m)"
-          df -h .
       - name: Install native packaging tools
-        if: matrix.format != 'flatpak'
         run: |
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev build-essential rpm libarchive-tools zstd
           sudo gem install --no-document fpm -v 1.18.0
       - name: Build native package
-        if: matrix.format != 'flatpak'
         run: bash packaging/build-native.sh '${{ matrix.format }}' "$RELEASE_VERSION" '${{ matrix.arch }}'
-      - name: Install Flatpak packaging tools
-        if: matrix.format == 'flatpak'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder git python3-pip
-          flatpak --version
-          flatpak-builder --version
-      - name: Build native-architecture Flatpak bundle
-        if: matrix.format == 'flatpak'
-        run: bash packaging/build-flatpak.sh "$RELEASE_VERSION" '${{ matrix.arch }}'
-      - name: Validate output count and nonempty package
-        shell: bash
+      - name: Validate package
         run: |
           set -euo pipefail
-          test -d dist
-          find dist -maxdepth 1 -type f -printf '%f\t%k KiB\n'
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 1
           test "$(find dist -maxdepth 1 -type f -size +1024c | wc -l)" -eq 1
           ls -lh dist/*
@@ -124,10 +104,70 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build_flatpak_flathub:
+    name: Flathub GNOME 49 Flatpak / ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 240
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-49
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    env:
+      RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native CPU architecture (no emulation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = '${{ matrix.arch }}'
+      - name: Set up Python for the GNOME 49 SDK wheelhouse
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Download architecture-specific PyChromecast wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packaging/flatpak-cast-wheels
+          python3 -m pip download --disable-pip-version-check \
+            --only-binary=:all: --python-version 3.13 \
+            --implementation cp --abi cp313 \
+            --platform 'manylinux2014_${{ matrix.arch }}' --platform any \
+            --dest packaging/flatpak-cast-wheels 'pychromecast==14.0.10'
+      - name: Build Flatpak inside the Flathub GNOME 49 image
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: com.mrseivane.Syn.yml
+          bundle: SYN-${{ env.RELEASE_VERSION }}-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          branch: master
+          cache: true
+          build-bundle: true
+          upload-artifact: false
+      - name: Validate Flatpak output
+        shell: bash
+        run: |
+          set -euo pipefail
+          f="SYN-${RELEASE_VERSION}-${{ matrix.arch }}.flatpak"
+          test -s "$f"
+          test "$(wc -c < "$f")" -gt 1024
+          ls -lh "$f"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: syn-flatpak-${{ matrix.arch }}
+          path: SYN-${{ env.RELEASE_VERSION }}-${{ matrix.arch }}.flatpak
+          if-no-files-found: error
+          retention-days: 14
+
   release:
-    name: Publish all 8 packages and SHA256
-    needs: [verify, build]
-    if: ${{ github.ref_type == 'tag' && needs.verify.result == 'success' && needs.build.result == 'success' }}
+    name: Publish exactly 8 packages and SHA256
+    needs: [verify, build_native, build_flatpak_flathub]
+    if: ${{ github.ref_type == 'tag' && needs.verify.result == 'success' && needs.build_native.result == 'success' && needs.build_flatpak_flathub.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -139,17 +179,14 @@ jobs:
           pattern: syn-*
           path: release-assets
           merge-multiple: true
-      - name: Require exactly 8 complete assets; create checksums and English notes
+      - name: Verify all eight packages, calculate checksums and render English notes
         env:
           SYN_RELEASE_VERSION: ${{ needs.verify.outputs.tag }}
           RELEASE_VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
           NOTES="docs/RELEASE_${RELEASE_VERSION}.md"
-          if [[ ! -f "$NOTES" ]]; then
-            NOTES="release-notes-generated.md"
-            printf '# SYN %s — Linux release\n\nEight architecture-specific Linux packages: RPM, DEB, Pacman and Flatpak for x86_64 and ARM64.\n' "$RELEASE_VERSION" > "$NOTES"
-          fi
+          test -s "$NOTES"
           python3 packaging/prepare-release.py release-assets "$NOTES" release-body.md
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

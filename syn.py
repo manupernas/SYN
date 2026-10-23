@@ -47,8 +47,8 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "1.3.5"
-SYN_PORTAL_BUILD = "1.3.5"
+SYN_VERSION = "1.3.6"
+SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
 LOG_DIR = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))) / "syn"
@@ -932,6 +932,8 @@ def run_gui(playlist):
         print(f"Instala python3-gobject, gtk4 y libadwaita: {exc}", file=sys.stderr)
         return 1
 
+    from syn_epg_pop import epg_gradient_css
+
     TEAL_CSS = """
     /* TEAL: petróleo profundo / mandarina, heredando la identidad SYN. */
     window.iptv-tv .syn-portal-root {background:#091f20; color:#f1faf6;}
@@ -1257,6 +1259,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
     .syn-brand-logo { margin-right: 8px; }
     .syn-logo-pill { min-height: 36px; border-radius: 11px;
        border: 1px solid rgba(255,255,255,.15); padding: 2px 5px; }
+    window.iptv-tv .syn-logo-pill.syn-art-fullbleed {
+        padding: 0; border: 0; min-height: 0; min-width: 0;
+        border-radius: 11px;
+    }
     .syn-logo-fallback { font-size: 10px; font-weight: 850; }
     .syn-channel-display-name { font-size: 12px; font-weight: 600; opacity: .84; }
     .syn-favorite-display-name { font-size: 11px; font-weight: 650; opacity: .82; }
@@ -2237,10 +2243,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             brand = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
             # SYN_135D_APP_ICON: icono_3 in the actual header.
             # SYN_135D_R3: bounded 40x28 PNG, Gtk.Picture preserves real rendered size.
-            syn_brand_icon = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'icono_3.png'))
+            # Beta5: Gtk.Picture con PNG REAL de 46×28; sin Gtk.Image ni tamaño intrínseco gigante.
+            syn_brand_icon = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'icono_header_ui.png'))
             syn_brand_icon.set_content_fit(Gtk.ContentFit.CONTAIN)
-            syn_brand_icon.set_can_shrink(True)
-            syn_brand_icon.set_size_request(40, 28)
+            syn_brand_icon.set_can_shrink(False)
+            syn_brand_icon.set_size_request(46, 28)
             brand.append(syn_brand_icon)
             title = Gtk.Label(xalign=0)
             title.set_markup('<b>SYN</b>')
@@ -2318,7 +2325,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             base.append(self.main_stack)
             self._syn_portal_build()
 
-            self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
             self.sidebar.add_css_class("iptv-sidebar")
             self.sidebar.set_size_request(280, -1)
             self.sidebar.set_margin_start(0)
@@ -2327,16 +2334,30 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
             # SYN_135D_WORDMARK: branding above the channel search.
             # SYN_135D_R3: bounded 180x65 PNG shown at real size, not 16px icon size.
-            self.syn_wordmark = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'logo_dark.png'))
+            # Beta5: logo 194×77 recortado realmente, con aire deliberado alrededor.
+            self.syn_wordmark = Gtk.Picture.new_for_filename(str(Path(__file__).resolve().parent / 'branding' / 'logo_dark_ui.png'))
             self.syn_wordmark.set_content_fit(Gtk.ContentFit.CONTAIN)
-            self.syn_wordmark.set_can_shrink(True)
-            self.syn_wordmark.set_size_request(180, 65)
+            self.syn_wordmark.set_can_shrink(False)
+            self.syn_wordmark.set_size_request(194, 77)
             self.syn_wordmark.set_halign(Gtk.Align.START)
-            self.syn_wordmark.set_valign(Gtk.Align.CENTER)
-            self.syn_wordmark.set_margin_start(16)
-            self.syn_wordmark.set_margin_top(12)
-            self.syn_wordmark.set_margin_bottom(2)
-            self.sidebar.append(self.syn_wordmark)
+            self.syn_wordmark.set_valign(Gtk.Align.START)
+            self.syn_wordmark.set_margin_start(19)
+            self.syn_wordmark.set_margin_top(16)
+            # BETA6: altura fija de la zona de marca, independiente de la
+            # altura natural de Gtk.Picture y del tamaño de la ventana.
+            # No modifica la imagen física 194×77 ni su margen horizontal.
+            self.syn_wordmark.set_margin_bottom(0)
+            self.syn_wordmark.set_vexpand(False)
+            self._syn_brand_band = Gtk.Overlay()
+            self._syn_brand_band.set_hexpand(True)
+            self._syn_brand_band.set_vexpand(False)
+            self._syn_brand_band_spacer = Gtk.Box()
+            self._syn_brand_band_spacer.set_size_request(-1, 116)
+            self._syn_brand_band.set_child(self._syn_brand_band_spacer)
+            self._syn_brand_band.add_overlay(self.syn_wordmark)
+            self._syn_brand_band.set_measure_overlay(self.syn_wordmark, False)
+            self._syn_brand_band.set_clip_overlay(self.syn_wordmark, True)
+            self.sidebar.append(self._syn_brand_band)
             Adw.StyleManager.get_default().connect(
                 'notify::dark', lambda *_: self._syn_135d_refresh_wordmark())
             self._syn_135d_refresh_wordmark()
@@ -2344,7 +2365,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.search = Gtk.SearchEntry(placeholder_text=tr("Buscar canales…"))
             self.search.set_margin_start(12)
             self.search.set_margin_end(12)
-            self.search.set_margin_top(15)
+            self.search.set_margin_top(5)
             self.search.add_css_class("iptv-search")
             self.search.connect("search-changed", lambda *_: self.render_list())
             self.search.connect("activate", lambda *_: self.play_selected())
@@ -2551,7 +2572,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # The GTK theme manager drives system/light/dark/teal and changes live.
             dark = Adw.StyleManager.get_default().get_dark()
             name = 'logo_light.png' if dark else 'logo_dark.png'
-            self.syn_wordmark.set_filename(str(Path(__file__).resolve().parent / 'branding' / name))
+            self.syn_wordmark.set_filename(str(Path(__file__).resolve().parent / 'branding' / ('logo_light_ui.png' if dark else 'logo_dark_ui.png')))
 
         # SYN_135B_PORTAL: independent navigation surface; video GLArea stays realized.
         def _syn_portal_build(self):
@@ -2591,7 +2612,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_portal_title.set_ellipsize(Pango.EllipsizeMode.END)
             heading.append(self._syn_portal_title)
             top.append(heading)
-            self._syn_portal_search = Gtk.SearchEntry(placeholder_text='Buscar títulos…')
+            self._syn_portal_search = Gtk.SearchEntry(placeholder_text=tr('Buscar títulos…'))
             self._syn_portal_search.set_size_request(220, -1)
             self._syn_portal_search.add_css_class('syn-portal-search')
             self._syn_portal_search.connect('search-changed', self._syn_portal_search_changed)
@@ -2616,7 +2637,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             home.set_margin_end(22)
             home.set_margin_top(35)
             home.set_margin_bottom(36)
-            label = Gtk.Label(label='¿Qué te apetece ver?')
+            label = Gtk.Label(label=tr('¿Qué te apetece ver?'))
             label.add_css_class('syn-portal-hero')
             home.append(label)
             subtitle = Gtk.Label(label='Todo tu contenido, en un solo lugar')
@@ -2672,7 +2693,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 button.set_child(content)
                 button.connect('clicked', lambda _btn, target=kind: self._syn_portal_open(target))
                 tiles.append(button)
-            note = Gtk.Label(label='Selecciona una categoría para explorar tu contenido')
+            note = Gtk.Label(label=tr('Selecciona una categoría para explorar tu contenido'))
             note.add_css_class('syn-portal-subtitle')
             home.append(note)
             home_scroll.set_child(home)
@@ -2699,7 +2720,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             gallery_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             gallery_container.set_hexpand(True)
             gallery_container.append(self._syn_portal_gallery)
-            self._syn_portal_more = Gtk.Button(label='Ver más títulos')
+            self._syn_portal_more = Gtk.Button(label=tr('Ver más títulos'))
             self._syn_portal_more.add_css_class('syn-portal-more')
             self._syn_portal_more.set_halign(Gtk.Align.CENTER)
             self._syn_portal_more.set_margin_top(8)
@@ -2837,7 +2858,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 label.add_css_class('syn-portal-empty')
                 box.append(label)
                 if mode in self._syn_catalog_errors:
-                    msg = Gtk.Label(label='No se pudo consultar el catálogo del servidor. Revisa tu fuente Xtream.')
+                    msg = Gtk.Label(label=tr('No se pudo consultar el catálogo del servidor. Revisa tu fuente Xtream.'))
                     msg.add_css_class('syn-portal-muted')
                     box.append(msg)
                 gallery.append(box)
@@ -2847,7 +2868,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             count = min(len(items), getattr(self, '_syn_portal_visible_limit', 48))
             self._syn_portal_more.set_visible(count < len(items))
             if count < len(items):
-                self._syn_portal_more.set_label(f'Ver más títulos  ·  {count} de {len(items)}')
+                self._syn_portal_more.set_label(tr('Ver más títulos') + f'  ·  {count} ' + tr('de') + f' {len(items)}')
             import hashlib
             for item in items[:count]:
                 button = Gtk.Button()
@@ -3318,7 +3339,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             popover.set_parent(target)
             popover.set_has_arrow(True)
             popover.set_position(Gtk.PositionType.BOTTOM)
-            button = Gtk.Button(label='● Programar grabación')
+            button = Gtk.Button(label=tr('● Programar grabación'))
             button.add_css_class('syn-dvr-action-record')
             button.set_margin_top(7)
             button.set_margin_bottom(7)
@@ -4099,12 +4120,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             db = self.dvr_store.read()
             # Don't make a second provider request to an already recorded channel.
             if any(j.get('url') == ch.url for j in syn_multistream.active_jobs(db, self.profile.get('id'))):
-                self.status.set_text('Timeshift: no disponible durante una grabación de este canal.')
+                self.status.set_text(tr('Timeshift: no disponible durante una grabación de este canal.'))
                 self._syn_ts_stop()
                 return
             if syn_multistream.should_release_playback(db, self.profile.get('id'),
                                                        syn_multistream.profile_limit(self.profile), ch.url):
-                self.status.set_text('Timeshift: todas las conexiones están ocupadas por el DVR.')
+                self.status.set_text(tr('Timeshift: todas las conexiones están ocupadas por el DVR.'))
                 self._syn_ts_stop()
                 return
             # Release the original provider connection before FFmpeg opens one.
@@ -4126,7 +4147,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self.status.set_text('Timeshift: ' + str(exc)[:120])
                 self._syn_ts_stop(restore=True)
                 return
-            self.status.set_text('Timeshift: preparando búfer temporal…')
+            self.status.set_text(tr('Timeshift: preparando búfer temporal…'))
             if self.fullscreen_mode: self.set_fs_osd(True)
             self._syn_ts_poll_id = GLib.timeout_add(450, self._syn_ts_poll)
             self._syn_ts_ui_guard = True
@@ -4149,7 +4170,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return False
             if (not self._syn_ts_ready and
                     time.monotonic() - getattr(self, '_syn_ts_started_at', time.monotonic()) > 20):
-                self.status.set_text('Timeshift: sin señal inicial; regreso al directo.')
+                self.status.set_text(tr('Timeshift: sin señal inicial; regreso al directo.'))
                 self._syn_ts_stop(restore=True)
                 return False
             if not self._syn_ts_ready and session.ready():
@@ -4165,7 +4186,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if self._syn_ts_ready:
                 self._syn_ts_render()
                 if session.disk_bytes() > syn_timeshift.MAX_DISK_BYTES:
-                    self.status.set_text('Timeshift: límite de almacenamiento; regresando al directo.')
+                    self.status.set_text(tr('Timeshift: límite de almacenamiento; regresando al directo.'))
                     self._syn_ts_stop(restore=True)
                     return False
             return True
@@ -4990,7 +5011,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             title=Gtk.Label(label='Retransmitir a un televisor',xalign=0)
             title.add_css_class('heading');col.append(title)
             row=Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,spacing=12)
-            row.append(Gtk.Label(label='Conexiones máximas del perfil'))
+            row.append(Gtk.Label(label=tr('Conexiones máximas del perfil')))
             spin=Gtk.SpinButton.new_with_range(1,8,1)
             spin.set_value(self._syn_cast_limit())
             def limit_changed(s):
@@ -5066,7 +5087,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         def _syn_cast_rejoin_shared(self, channel):
             local_url=getattr(self,'_syn_cast_shared_url',None)
             if not isinstance(local_url,str) or not local_url.startswith('http://127.0.0.1:18977/'):
-                self.status.set_text('Cast: relay compartido no disponible; no se abrirá una conexión duplicada.')
+                self.status.set_text(tr('Cast: relay compartido no disponible; no se abrirá una conexión duplicada.'))
                 return
             if getattr(self,'_syn_cast_busy',False):
                 return
@@ -5083,7 +5104,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.status.set_text('Cast: no se pudo cerrar el timeshift: '+type(exc).__name__)
                     return
             if self.area.player:self.area.player.stop()
-            self.status.set_text('Cast: recuperando canal compartido sin otra conexión IPTV…')
+            self.status.set_text(tr('Cast: recuperando canal compartido sin otra conexión IPTV…'))
             def done(result,error):
                 self._syn_cast_busy=False
                 if error or not result or not result.get('ok'):
@@ -5102,9 +5123,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.area.player.play(Channel(channel.name,channel.group,
                                                   local_url,channel.logo))
                 else:
-                    self.status.set_text('Cast: libmpv no está listo para abrir el relay local.')
+                    self.status.set_text(tr('Cast: libmpv no está listo para abrir el relay local.'))
                     return False
-                self.status.set_text('Cast: mismo canal en SYN y Chromecast · una conexión IPTV')
+                self.status.set_text(tr('Cast: mismo canal en SYN y Chromecast · una conexión IPTV'))
                 self._update_pause_label()
                 self.update_programme()
                 return False
@@ -5150,14 +5171,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self._syn_cast_show_card()
                 if restore and channel:
                     self.start_channel(channel)
-                self.status.set_text('Cast finalizado; DVR y reproducción local protegidos.')
+                self.status.set_text(tr('Cast finalizado; DVR y reproducción local protegidos.'))
                 return False
             self._syn_cast_call({'action':'status'},done)
             return True
 
         def _syn_cast_play(self, device, channel=None):
             if getattr(self, '_syn_cast_busy', False):
-                self.status.set_text('Cast: espera a que termine la operación anterior.')
+                self.status.set_text(tr('Cast: espera a que termine la operación anterior.'))
                 return
             channel = channel or self.current
             if not channel:
@@ -5172,7 +5193,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return
             capacity=self._syn_cast_limit()
             if occupied>=capacity:
-                self.status.set_text('Cast: todas las conexiones están ocupadas por el DVR.')
+                self.status.set_text(tr('Cast: todas las conexiones están ocupadas por el DVR.'))
                 return
             local_playing = bool(self.current is not None)
             old_cast_only=bool(getattr(self,'_syn_cast_only',False))
@@ -5191,7 +5212,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_cast_shared_local=False
             self._syn_cast_only=exclusive
             self._syn_cast_show_card()
-            self.status.set_text('Cast: preparando retransmisión compartida…')
+            self.status.set_text(tr('Cast: preparando retransmisión compartida…'))
             ua=getattr(syn_dvr,'VLC_UA','VLC/3.0.21 LibVLC/3.0.21')
             # A relay/remux is needed for .ts and provider-specific User-Agent.
             self._syn_cast_busy=True
@@ -5207,7 +5228,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 local_url=result.get('local_url')
                 if not exclusive and not (isinstance(local_url,str) and
                         local_url.startswith('http://127.0.0.1:18977/')):
-                    self.status.set_text('Cast: puente antiguo, falta el relay local. Detén Cast.')
+                    self.status.set_text(tr('Cast: puente antiguo, falta el relay local. Detén Cast.'))
                     # Do not open an extra provider session; stop Cast safely.
                     self._syn_cast_target_uuid=device['id']
                     self._syn_cast_stop()
@@ -5252,7 +5273,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def _syn_cast_stop(self):
             if getattr(self,'_syn_cast_busy',False):
-                self.status.set_text('Cast: operación en curso.')
+                self.status.set_text(tr('Cast: operación en curso.'))
                 return
             restore=bool(getattr(self,'_syn_cast_only',False))
             shared=bool(getattr(self,'_syn_cast_shared_local',False))
@@ -5435,7 +5456,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
 
         def change_profile(self, dropdown, *_):
             if getattr(self,'_syn_cast_target_uuid',None):
-                self.status.set_text('Detén Cast antes de cambiar de perfil IPTV.')
+                self.status.set_text(tr('Detén Cast antes de cambiar de perfil IPTV.'))
                 ix=next((i for i,p in enumerate(self.cfg['profiles'])
                          if p.get('id')==self.profile.get('id')),None)
                 if ix is not None and dropdown.get_selected()!=ix:
@@ -5804,6 +5825,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         GLib.timeout_add(650, _after_layout)
                         self._logo_debug_count += 1
                 if pill:
+                    # A real logo replaces the full-bleed art and restores
+                    # the original logo's 108x38 interior and margins.
+                    pill.remove_css_class('syn-art-fullbleed')
+                    image.set_content_width(108)
+                    image.set_content_height(38)
+                    image.set_size_request(108, 38)
                     label = getattr(pill, 'fallback_label', None)
                     if label: label.set_visible(False)
                     prior = getattr(pill, 'hue_class', 'syn-logo-pill-h6')
@@ -5819,6 +5846,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             except (GLib.Error, OSError, ValueError):
                 pass
             return False
+
+        def _draw_channel_logo_or_art(self, area, cr, width, height):
+            # El logo real gana SIEMPRE; el fallback solo cubre su ausencia.
+            if getattr(area, '_syn_pixbuf', None) is not None:
+                return self._draw_channel_logo(area, cr, width, height)
+            from syn_fallback_art import draw_art_pill
+            name, group = getattr(area, '_syn_art_id', ('SYN', 'TV'))
+            draw_art_pill(cr, width, height, name, group)
 
         def channel_pill(self, ch, width=120, height=46):
             # Unico tamano para TODOS los canales, con o sin filtro favorito.
@@ -5853,7 +5888,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             pic.set_valign(Gtk.Align.CENTER)
             pic.set_visible(False)
             pic.set_can_target(False)
-            pic.set_draw_func(self._draw_channel_logo)
+            pic.set_draw_func(self._draw_channel_logo_or_art)
             pill.append(pic)
             short = display_channel_name(ch.name)
             short = short if len(short) <= 22 else short[:19] + '…'
@@ -5863,6 +5898,15 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             fallback.set_max_width_chars(16)
             pill.append(fallback)
             pill.fallback_label = fallback
+            # BETA8_POP: imagen artística inicial, reemplazada por logo real al llegar.
+            pic._syn_art_id = (display_channel_name(ch.name), ch.group)
+            # Make only ART fill the entire outer 120x46 pill. Logos remain 108x38.
+            pill.add_css_class('syn-art-fullbleed')
+            pic.set_content_width(120)
+            pic.set_content_height(46)
+            pic.set_size_request(120, 46)
+            fallback.set_visible(False)
+            pic.set_visible(True)
             custom = self._channel_logo_path(ch)
             if custom:
                 self._fill_logo_image(custom, pic, pill)
@@ -6193,7 +6237,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                                                         slots, self.current.url)
                     and player.active_url == self.current.url):
                 player.stop()
-                self.status.set_text('DVR: conexiones ocupadas. Selecciona uno de los canales que se están grabando.')
+                self.status.set_text(tr('DVR: conexiones ocupadas. Selecciona uno de los canales que se están grabando.'))
 
         # SYN_DVR_SHARED_124: no second IPTV session while viewing a recording.
         def _syn_dvr_playback_target(self, channel):
@@ -6308,7 +6352,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                             self.dvr_store.read(), self.profile.get('id'),
                             syn_multistream.profile_limit(self.profile), channel.url):
                         player.stop()
-                        self.status.set_text('DVR: connection limit reached.' if LANGUAGE.startswith('en') else 'DVR: límite de conexiones alcanzado.')
+                        self.status.set_text(tr('DVR: límite de conexiones alcanzado.'))
                     else:
                         if self._syn_ts_auto_enabled(channel):
                             # FFmpeg takes over this provider slot; do NOT open
@@ -6645,7 +6689,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             for drag_surface in (self.guide_tracks_scroll, self.guide_axis):
                 drag = Gtk.GestureDrag.new()
                 drag.set_button(1)
-                drag.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+                drag.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
                 drag.connect('drag-begin', self._guide_touch_begin)
                 drag.connect('drag-update', self._guide_touch_update)
                 drag.connect('drag-end', self._guide_touch_end)
@@ -6724,7 +6768,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             y = self.guide_tracks_scroll.get_vadjustment().get_value()
             first = max(0, ((int(y) // 70) // 12) * 12 - 12)
             if first != self._guide_virtual_first:
-                self._guide_virtual_timer = GLib.timeout_add(80, self._guide_virtual_refresh)
+                self._guide_virtual_timer = GLib.timeout_add(135, self._guide_virtual_refresh)
 
         def _guide_virtual_refresh(self):
             self._guide_virtual_timer = 0
@@ -6734,15 +6778,22 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             return False
 
         def _guide_time_scroll_changed(self, *_):
-            if (not self.guide_open or self._guide_render_busy
-                    or self._guide_rebase_timer):
+            if not self.guide_open or self._guide_render_busy:
                 return
             self.guide_axis.queue_draw()
-            self._guide_rebase_timer = GLib.timeout_add(70, self._guide_rebase_if_needed)
+            # Debounce instead of rebuilding 36+ GTK rows while live video
+            # and continuous touch/trackpad movement compete on the main loop.
+            if self._guide_rebase_timer:
+                GLib.source_remove(self._guide_rebase_timer)
+                self._guide_rebase_timer = 0
+            if not self._guide_dragging:
+                self._guide_rebase_timer = GLib.timeout_add(260, self._guide_rebase_if_needed)
 
         def _guide_rebase_if_needed(self):
             self._guide_rebase_timer = 0
-            if not self.guide_open or self._guide_render_busy:
+            if not self.guide_open or self._guide_render_busy or self._guide_dragging:
+                return False
+            if time.monotonic() < getattr(self, '_guide_rebase_cooldown_until', 0.0):
                 return False
             adj = self.guide_tracks_scroll.get_hadjustment()
             scale = max(0.1, self._guide_axis_scale)
@@ -6752,8 +6803,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             value = adj.get_value()
             threshold = 85 * scale
             if value < threshold:
+                self._guide_rebase_cooldown_until = time.monotonic() + 0.5
                 self._guide_rebase_time(-180)
             elif value > right - threshold:
+                self._guide_rebase_cooldown_until = time.monotonic() + 0.5
                 self._guide_rebase_time(180)
             return False
 
@@ -6785,14 +6838,22 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return
             if abs(offset_x) < 7 or abs(offset_x) <= abs(offset_y) * 1.15:
                 return
+            if not self._guide_dragging:
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)
             self._guide_dragging = True
             self._guide_horizontal_move(self._guide_drag_last - offset_x)
             self._guide_drag_last = offset_x
 
         def _guide_touch_end(self, _gesture, _x, _y):
-            if self._guide_dragging:
+            was_horizontal = self._guide_dragging
+            if was_horizontal:
                 self._guide_drag_until = time.monotonic() + 0.28
             self._guide_dragging = False
+            # Continue past the edge after release, never from drag-update.
+            if was_horizontal and self.guide_open:
+                if self._guide_rebase_timer:
+                    GLib.source_remove(self._guide_rebase_timer)
+                self._guide_rebase_timer = GLib.timeout_add(260, self._guide_rebase_if_needed)
 
         def _guide_adapt_width(self):
             if not hasattr(self, '_guide_header_subtitle'):
@@ -6954,7 +7015,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             adj = self.guide_tracks_scroll.get_vadjustment()
             lo = adj.get_lower()
             hi = max(lo, adj.get_upper() - adj.get_page_size())
-            step = max(-3.5, min(3.5, dy)) * 58
+            step = dy * 48.0
             adj.set_value(max(lo, min(hi, adj.get_value() + step)))
             if os.environ.get('SYN_EPG_DEBUG') == '1':
                 print(f'SYN EPG rueda: dy={dy:.3f} range={lo:.0f}..{hi:.0f} '
@@ -7345,7 +7406,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         def theme_description(self):
             name = self._host_theme()[0] or 'Adwaita'
             if self._current_theme != 'system':
-                return tr('Claro = Teal pastel, Oscuro = gris/negro, Teal SYN = petróleo original. El CSS GTK4 del anfitrión solo se incorpora en Sistema.')
+                return tr('Sistema, Claro, Oscuro, Teal SYN, Nord claro/oscuro y Gruvbox claro/oscuro. Acentos Frost, Aurora y Gruvbox en Apariencia.')
             css = getattr(self, '_host_theme_css_path', None)
             accent = getattr(self, '_accent_hex','') or tr('del portal/libadwaita')
             if css:
@@ -7384,7 +7445,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 print(f'SYN: CSS GTK4 no aplicable ({path}): {exc}', file=sys.stderr)
 
         def apply_theme(self, theme, accent_hex=None):
-            if theme not in ('system','light','dark','teal'):
+            if theme not in ('system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark'):
                 theme = 'system'
             if accent_hex is not None:
                 try: self._accent_hex = normalize_accent_hex(accent_hex)
@@ -7411,7 +7472,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         # Si GTK no expresa claramente claro/oscuro, dejar que
                         # el portal XDG/GNOME/KDE determine el esquema real.
                         mode = Adw.ColorScheme.DEFAULT
-                elif theme == 'light':
+                elif theme in ('light', 'nord-light', 'gruvbox-light'):
                     mode = Adw.ColorScheme.FORCE_LIGHT
                 else:
                     mode = Adw.ColorScheme.FORCE_DARK
@@ -7424,15 +7485,25 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if display and getattr(self, '_teal_provider_active', False):
                     Gtk.StyleContext.remove_provider_for_display(display, self.teal_theme_provider)
                     self._teal_provider_active = False
-                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme == 'light'), teal=(theme == 'teal'))
+                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css()
                 self.theme_provider.load_from_data(css.encode('utf-8'))
                 # The accent CSS is loaded separately at higher priority so
                 # Adwaita and all bundled color schemes cannot override it.
                 self.accent_provider.load_from_data(
                     accent_css(getattr(self, '_accent_hex', '')).encode('utf-8'))
-                if theme in ('teal','light','dark') and display:
-                    palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
-                    self.teal_theme_provider.load_from_data(palette_css.encode('utf-8'))
+                if theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark') and display:
+                    if theme in ('nord-light', 'nord-dark'):
+                        from syn_nord_palette import nord_css
+                        base = 'light' if theme == 'nord-light' else 'dark'
+                        # Nord CSS last: Nord takes priority over DVR fallbacks.
+                        palette_css = dvr_palette_css(base) + nord_css(theme, getattr(self, '_accent_hex', ''))
+                    elif theme in ('gruvbox-light', 'gruvbox-dark'):
+                        from syn_gruvbox_palette import gruvbox_css
+                        base = 'light' if theme == 'gruvbox-light' else 'dark'
+                        palette_css = dvr_palette_css(base) + gruvbox_css(theme, getattr(self, '_accent_hex', ''))
+                    else:
+                        palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
+                    self.teal_theme_provider.load_from_data((palette_css + epg_gradient_css()).encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,
                         Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)

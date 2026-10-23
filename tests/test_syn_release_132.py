@@ -12,7 +12,7 @@ class Release132Tests(unittest.TestCase):
         cls.syn = (ROOT / 'syn.py').read_text(encoding='utf-8')
 
     def test_version_and_proven_rev6_scroll(self):
-        self.assertIn('SYN_VERSION = "1.3.5"', self.syn)
+        self.assertIn('SYN_VERSION = "1.3.6"', self.syn)
         for feature in (
             'SYN_REV6_EXTERNAL_SCROLL',
             'Gtk.PolicyType.NEVER, Gtk.PolicyType.EXTERNAL',
@@ -41,12 +41,12 @@ class Release132Tests(unittest.TestCase):
 
     def test_tag_runs_8_package_release(self):
         ci = (ROOT / '.github/workflows/release-10-packages.yml').read_text(encoding='utf-8')
-        for token in ("'v[0-9]*.[0-9]*.[0-9]*'", 'format: [rpm, deb, pacman, flatpak]',
-                      'arch: [x86_64, aarch64]', 'Publish GitHub Release'):
+        for token in ("'v[0-9]*.[0-9]*.[0-9]*'", 'format: [rpm, deb, pacman]',
+                      'arch: [x86_64, aarch64]', 'Publish exactly 8 packages and SHA256'):
             self.assertIn(token, ci)
         self.assertIn('test_syn_release_132.py', ci)
         self.assertTrue((ROOT / 'docs/RELEASE_1.3.2.md').is_file())
-        self.assertIn('**SYN 1.3.5**', (ROOT / 'README.md').read_text(encoding='utf-8'))
+        self.assertIn('**SYN 1.3.6**', (ROOT / 'README.md').read_text(encoding='utf-8'))
         self.assertIn('<release version="1.3.2"', (ROOT / 'com.mrseivane.Syn.metainfo.xml').read_text(encoding='utf-8'))
 
     def test_no_included_user_data(self):
