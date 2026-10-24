@@ -34,6 +34,14 @@ static int setup_homebrew_gi(const char *lib_dir) {
         "libgobject-2.0.0.dylib",
         "libgmodule-2.0.0.dylib",
         "libgio-2.0.0.dylib",
+        /* GTK typelibs refer to bare dylib names. Preload bundled dylibs
+         * so GIRepository does not fall back to external Homebrew paths. */
+        "libpango-1.0.0.dylib",
+        "libpangocairo-1.0.0.dylib",
+        "libgdk_pixbuf-2.0.0.dylib",
+        "libgraphene-1.0.0.dylib",
+        "libgtk-4.1.dylib",
+        "libadwaita-1.0.dylib",
         NULL
     };
     int loaded = 0;
