@@ -157,16 +157,53 @@ fi
 /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName SYN' "$APP/Contents/Info.plist"
 
 # Sign ad hoc only (not Apple Developer ID/notarization).
-# Sign inner executables first to avoid invalidating signatures of containers.
+# IMPORTANT: Mach-O extensions in Resources/python-site (PyGObject, pycairo,
+# zeroconf, protobuf, etc.) must be signed individually, not just bundled.
+# A clean DMG can pass --deep while dyld kills an unsigned Python .so on
+# the installed Mac with CODESIGNING/Invalid Page.
+# Make a manifest of EVERY native Mach-O, independent of filename suffix.
+NATIVE_MANIFEST="$TMP/syn-native-machos.bin"
+"$PYBIN" - "$APP" "$NATIVE_MANIFEST" <<'PY_NATIVE_MANIFEST'
+from pathlib import Path
+import os, sys
+app, manifest = Path(sys.argv[1]), Path(sys.argv[2])
+MAGIC = {b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe',
+         b'\xfe\xed\xfa\xcf', b'\xcf\xfa\xed\xfe',
+         b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca'}
+with manifest.open('wb') as out:
+    for p in sorted(app.rglob('*')):
+        if p.is_symlink() or not p.is_file():
+            continue
+        with p.open('rb') as f:
+            if f.read(4) in MAGIC:
+                out.write(os.fsencode(p) + b'\0')
+print('STANDALONE_NATIVE_MANIFEST_OK')
+PY_NATIVE_MANIFEST
+
+signed_count=0
 while IFS= read -r -d '' binary; do
-  codesign --force --sign - --timestamp=none "$binary" >/dev/null 2>&1 || true
-done < <(find "$APP/Contents/Frameworks" "$APP/Contents/Resources/bin" -type f \
- \( -name '*.so' -o -name '*.dylib' -o -name ffmpeg -o -name Python \) -print0)
+  # Never suppress signing failures: missing signatures become runtime crashes.
+  codesign --force --sign - --timestamp=none "$binary" >/dev/null
+  signed_count=$((signed_count + 1))
+done < "$NATIVE_MANIFEST"
+test "$signed_count" -gt 150 || {
+  echo "❌ Solo $signed_count binarios nativos; empaquetado incompleto" >&2
+  exit 1
+}
 for helper in "$APP/Contents/Helpers"/*.app; do
   codesign --force --deep --sign - --timestamp=none "$helper"
 done
 codesign --force --deep --sign - --timestamp=none "$APP"
-codesign --verify --deep "$APP"
+codesign --verify --deep --strict "$APP"
+# Check every binary's CodeDirectory, not just the enclosing app seal.
+while IFS= read -r -d '' binary; do
+  if ! codesign --verify --strict "$binary" >/dev/null 2>&1; then
+    echo "❌ Firma nativa inválida: $binary" >&2
+    codesign --verify --strict --verbose=2 "$binary" >&2 || true
+    exit 1
+  fi
+done < "$NATIVE_MANIFEST"
+printf 'STANDALONE_NATIVE_SIGNATURES_OK %s\n' "$signed_count"
 "$APP/Contents/MacOS/SYN" --syn-bootstrap-check | grep SYN_NATIVE_GTK_OK
 # The bootstrap must not mutate any resource after signing.
 codesign --verify --deep --verbose=2 "$APP"
@@ -188,7 +225,17 @@ PY
 mkdir -p dist "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/SYN.app"
 # Recheck the precise bytes that will go into the disk image.
-codesign --verify --deep --verbose=2 "$TMP/dmg/SYN.app"
+codesign --verify --deep --strict --verbose=2 "$TMP/dmg/SYN.app"
+# Verify also every Mach-O in the exact copied payload that goes into the DMG.
+while IFS= read -r -d '' binary; do
+  copied="$TMP/dmg/SYN.app/${binary#"$APP"/}"
+  if ! codesign --verify --strict "$copied" >/dev/null 2>&1; then
+    echo "❌ Firma inválida en DMG: $copied" >&2
+    codesign --verify --strict --verbose=2 "$copied" >&2 || true
+    exit 1
+  fi
+done < "$NATIVE_MANIFEST"
+echo STANDALONE_DMG_NATIVE_SIGNATURES_OK
 echo STANDALONE_DMG_CONTENT_SIGNATURE_OK
 ln -s /Applications "$TMP/dmg/Applications"
 DMG="$ROOT/dist/SYN-1.0-macOS-arm64-autonomo-beta.dmg"
