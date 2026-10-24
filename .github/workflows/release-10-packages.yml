@@ -29,7 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m compileall -q synplus_layout.py syn.py syn_catalog.py syn_poster.py syn_dvr.py syn_service_setup.py syn_sources.py syn_i18n.py syn_cast_autostart.py syn_multistream.py syn_reconnect.py syn_timeshift.py syn_fav_sort.py syn_cast_host.py syn_nord_palette.py syn_gruvbox_palette.py syn_fallback_art.py syn_epg_pop.py syn_settings_rev3.py syn_locale_rev3.py
-          python3 -m pytest -q tests/test_synplus_200.py tests/test_syn_201.py tests/test_syn_202.py tests/test_syn_dvr_release.py tests/test_syn_service_setup.py tests/test_syn_release_132.py tests/test_syn_release_133.py tests/test_syn_cast_plug_play.py tests/test_syn_cast_133.py tests/test_syn_release_134.py tests/test_syn_release_135.py tests/test_syn_release_136.py tests/test_syn_theme_popovers.py tests/test_syn_release_137.py tests/test_syn_branding_137_hotfix.py
+          python3 -m pytest -q tests/test_synplus_200.py tests/test_syn_201.py tests/test_syn_202.py tests/test_syn_203.py tests/test_syn_dvr_release.py tests/test_syn_service_setup.py tests/test_syn_release_132.py tests/test_syn_release_133.py tests/test_syn_cast_plug_play.py tests/test_syn_cast_133.py tests/test_syn_release_134.py tests/test_syn_release_135.py tests/test_syn_release_136.py tests/test_syn_theme_popovers.py tests/test_syn_release_137.py tests/test_syn_branding_137_hotfix.py
           bash -n packaging/build-native.sh packaging/build-flatpak.sh packaging/stage-native.sh
           python3 packaging/prepare-release.py --self-test
       - name: Determine release version from SYN_VERSION and validate tag

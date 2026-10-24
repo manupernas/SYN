@@ -11,6 +11,39 @@ import re
 from syn_i18n import translate as tr
 
 
+def choose_system_scheme(gtk_theme_name='', prefer_dark=False, desktop_preference=''):
+    """Pure GNOME/GTK fallback used by native and sandboxed builds.
+
+    A real GNOME selection wins; when unset, respect explicit GTK variants.
+    In an ambiguous case let libadwaita follow the portal. Never infer
+    the desktop theme from GTK3 palette files.
+    """
+    if desktop_preference in ('prefer-dark', 'prefer-light'):
+        return 'follow-system'
+    if prefer_dark or re.search(r'(?:^|[-_:])dark(?:$|[-_:])', str(gtk_theme_name).lower()):
+        return 'dark'
+    if re.search(r'(?:^|[-_:])light(?:$|[-_:])', str(gtk_theme_name).lower()):
+        return 'light'
+    return 'follow-system'
+
+
+def native_system_css():
+    """Scoped native-only bridge against GTK USER stylesheets.
+
+    Keeps the host's semantic @window colors and limits priority to SYN's
+    workbench/navigation, without changing Flatpak's System appearance.
+    """
+    return """
+    window.iptv-tv.synplus-window .synplus-workbench {
+        background-color:@window_bg_color; color:@window_fg_color;
+    }
+    window.iptv-tv.synplus-window .synplus-nav {
+        background-color:@window_bg_color; color:@window_fg_color;
+        border-color:alpha(@window_fg_color,.13);
+    }
+    """
+
+
 def cast_popover_css(theme='system'):
     """Strong scoped styling: readable Cast popup even with host GTK USER CSS.
 

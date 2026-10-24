@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.2"
+SYN_VERSION = "2.0.3"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -7604,15 +7604,26 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                             prefer_dark = bool(gtk_settings.get_property(
                                 'gtk-application-prefer-dark-theme'))
                         except (TypeError, ValueError): pass
-                    dark_gtk = gtk_theme_prefers_dark(name, prefer_dark or host_dark)
-                    if dark_gtk:
-                        mode = Adw.ColorScheme.FORCE_DARK
-                    elif re.search(r'(?:^|[-_:])light(?:$|[-_:])', str(name or '').lower()):
-                        mode = Adw.ColorScheme.FORCE_LIGHT
-                    else:
-                        # Si GTK no expresa claramente claro/oscuro, dejar que
-                        # el portal XDG/GNOME/KDE determine el esquema real.
-                        mode = Adw.ColorScheme.DEFAULT
+                    # GNOME's actual light/dark preference takes precedence
+                    # over the GTK theme *name*. Flatpak also follows the
+                    # portal; native installations can read GSettings directly.
+                    # If GNOME does not specify a preference, honour dark/light
+                    # GTK theme variants as a backward-compatible fallback.
+                    desktop_pref = ''
+                    if not os.path.exists('/.flatpak-info'):
+                        try:
+                            schema_source = Gio.SettingsSchemaSource.get_default()
+                            if schema_source and schema_source.lookup('org.gnome.desktop.interface', True):
+                                desktop_pref = Gio.Settings.new('org.gnome.desktop.interface').get_string('color-scheme')
+                        except (GLib.Error, AttributeError, ValueError):
+                            desktop_pref = ''
+                    choice = synplus_layout.choose_system_scheme(
+                        name, prefer_dark or host_dark, desktop_pref)
+                    mode = {
+                        'follow-system': Adw.ColorScheme.PREFER_LIGHT,
+                        'dark': Adw.ColorScheme.FORCE_DARK,
+                        'light': Adw.ColorScheme.FORCE_LIGHT,
+                    }[choice]
                 elif theme in ('light', 'nord-light', 'gruvbox-light'):
                     mode = Adw.ColorScheme.FORCE_LIGHT
                 else:
@@ -7641,8 +7652,18 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         self._syn_cast_popover_provider = cast_provider
                     cast_provider.load_from_data(
                         synplus_layout.cast_popover_css(theme).encode('utf-8'))
-                if theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark') and display:
-                    if theme in ('nord-light', 'nord-dark'):
+                # Native GTK loads ~/.config/gtk-4.0/gtk.css at USER,
+                # above the APPLICATION-level SYN workbench. Protect only
+                # SYN's layout in native System mode at USER+1 while keeping
+                # generic host widget styling and the chosen accent intact.
+                native_system = (theme == 'system' and
+                                 not os.path.exists('/.flatpak-info'))
+                if display and (native_system or theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark')):
+                    if native_system:
+                        palette_css = (synplus_layout.css(
+                            'system', getattr(self, '_accent_hex', ''), manager.get_dark()) +
+                            synplus_layout.native_system_css())
+                    elif theme in ('nord-light', 'nord-dark'):
                         from syn_nord_palette import nord_css
                         base = 'light' if theme == 'nord-light' else 'dark'
                         # Nord CSS last: Nord takes priority over DVR fallbacks.
@@ -7653,8 +7674,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         palette_css = dvr_palette_css(base) + gruvbox_css(theme, getattr(self, '_accent_hex', ''))
                     else:
                         palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
-                    self.teal_theme_provider.load_from_data(
-                        (palette_css + epg_gradient_css() + syn_popup_theme_css(theme) + synplus_layout.css(theme, getattr(self, "_accent_hex", ""), manager.get_dark())).encode('utf-8'))
+                    effective_css = (palette_css if native_system else
+                        palette_css + epg_gradient_css() +
+                        syn_popup_theme_css(theme) +
+                        synplus_layout.css(theme, getattr(self, '_accent_hex', ''), manager.get_dark()))
+                    self.teal_theme_provider.load_from_data(effective_css.encode('utf-8'))
                     Gtk.StyleContext.add_provider_for_display(
                         display, self.teal_theme_provider,
                         Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)

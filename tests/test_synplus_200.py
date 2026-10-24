@@ -23,7 +23,7 @@ def test_public_build_has_every_module_and_new_branding():
     assert 'alpha(@accent_color,.035)' in css('system','',True)
     assert 'alpha(#76c2c2,.035)' in css('dark')
     assert 'window.set_title("SYN")' in ui
-    assert 'SYN_VERSION = "2.0.2"' in source
+    assert 'SYN_VERSION = "2.0.3"' in source
     assert 'SYNPLUS_ALPHA27' not in source
     for p in ('packaging/stage-native.sh','com.mrseivane.Syn.yml'):
         txt=(ROOT/p).read_text('utf-8')

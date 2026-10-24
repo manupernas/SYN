@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.3" date="2026-10-24">
+      <description>
+        <p>Native RPM, DEB and Arch packages now follow the desktop light/dark selection and keep SYN's custom navigation and guide surfaces consistent with native GTK themes. No changes to playback, DVR or Chromecast.</p>
+        <p xml:lang="es">Los paquetes RPM, DEB y Arch respetan la elección claro/oscuro del escritorio y mantienen fondos y textos coherentes con los temas GTK nativos. Sin cambios en reproducción, DVR o Chromecast.</p>
+      </description>
+    </release>
     <release version="2.0.2" date="2026-10-24">
       <description>
         <p>Chromecast menu now has a readable, compact, theme-matched popup in light, dark and System modes, without changing the casting engine.</p>
