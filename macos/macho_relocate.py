@@ -33,28 +33,45 @@ def macho(path):
         return False
 
 
+def otool_rows(path, output):
+    """Skip otool headers from thin AND fat/universal Mach-O slices.
+
+    On a universal2 file, otool repeats the filename with an architecture
+    suffix before each slice. Those lines are NOT library dependencies/IDs.
+    """
+    path = str(path)
+    for raw in output.splitlines():
+        value = raw.strip()
+        if not value:
+            continue
+        if value == path + ':' or (value.startswith(path + ' (architecture ') and value.endswith('):')):
+            continue
+        yield value
+
+
 def deps(path):
-    out = run('/usr/bin/otool', '-L', str(path)).splitlines()
-    return [line.strip().split(' (compatibility version', 1)[0]
-            .split(' (current version', 1)[0]
-            for line in out[1:] if line.strip()]
+    """Import names for every architecture; never treat slice headers as dylibs."""
+    output = run('/usr/bin/otool', '-L', str(path))
+    unique = dict.fromkeys(
+        row.split(' (compatibility version', 1)[0]
+           .split(' (current version', 1)[0]
+        for row in otool_rows(path, output)
+    )
+    return list(unique)
 
 
-def macho_id(path):
-    """LC_ID_DYLIB, if present (otool -L also lists this *as the first line*).
+def macho_ids(path):
+    """All LC_ID_DYLIB values, possibly different across universal2 slices.
 
-    The ID is not an imported dependency. install_name_tool -change cannot
-    rewrite it: -id must be used, even if the file is named *.so (GTK loaders).
+    Some pip wheels (e.g. protobuf/_message.abi3.so) ship two architecture
+    slices with distinct Bazel build paths. install_name_tool -id rewrites
+    the identity for all slices in one operation.
     """
     result = subprocess.run(['/usr/bin/otool', '-D', str(path)],
                             capture_output=True, text=True)
     if result.returncode != 0:
-        return None  # executables and Mach-O bundles have no dylib ID
-    values = [line.strip() for line in result.stdout.splitlines()[1:]
-              if line.strip()]
-    if len(values) > 1:
-        raise RuntimeError(f'Unexpected otool -D for {path}: {values!r}')
-    return values[0] if values else None
+        return set()  # Thin executable/bundle with no LC_ID_DYLIB
+    return set(otool_rows(path, result.stdout))
 
 
 def portable_id(dest, fw, python_fw):
@@ -139,9 +156,9 @@ class Bundler:
             before = self.count
             for dest in self.all_binaries():
                 original = self.orig.get(dest)
-                identity = macho_id(dest)
+                identities = macho_ids(dest)
                 for dep in deps(dest):
-                    if dep == identity:
+                    if dep in identities:
                         continue  # LC_ID_DYLIB is not a library to import
                     if 'Python.framework/' in dep and ('/opt/homebrew/' in dep or dep.startswith('@rpath/')):
                         continue  # Copied as a full framework; handled below.
@@ -159,9 +176,9 @@ class Bundler:
 
         for dest in self.all_binaries():
             original = self.orig.get(dest)
-            identity = macho_id(dest)
+            identities = macho_ids(dest)
             for dep in deps(dest):
-                if dep == identity:
+                if dep in identities:
                     continue  # An install ID needs -id, never -change
                 target = None
                 if 'Python.framework/' in dep and (dep.startswith('/opt/homebrew/') or dep.startswith('@rpath/')):
@@ -181,9 +198,9 @@ class Bundler:
                     dest.chmod(dest.stat().st_mode | 0o200)
                     run('/usr/bin/install_name_tool', '-change', dep, new, str(dest))
                     self.rewrites += 1
-            if identity is not None:
+            if identities:
                 name = portable_id(dest, self.fw, python_fw)
-                if identity != name:
+                if identities != {name}:
                     dest.chmod(dest.stat().st_mode | 0o200)
                     run('/usr/bin/install_name_tool', '-id', name, str(dest))
                     self.rewrites += 1
@@ -192,7 +209,7 @@ class Bundler:
         # whether the file is a .dylib, .so, or Python.framework.
 
         for dest in self.all_binaries():
-            for dep in deps(dest):
+            for dep in set(deps(dest)) | macho_ids(dest):
                 if dep.startswith('/opt/homebrew/'):
                     raise RuntimeError(f'Homebrew reference remains in {dest}: {dep}')
         print(f'BUNDLED_MACHO_OK libraries={self.count} rewrites={self.rewrites}')
