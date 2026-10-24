@@ -20,6 +20,7 @@ test -x "$PYCONFIG"
 
 # Staging is always temporary; no modifications to the installed /Applications/SYN.app.
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/syn1-standalone.XXXXXX")"
+TMP="$(cd "$TMP" && pwd -P)"
 trap 'rm -rf "$TMP"' EXIT
 APP="$TMP/SYN.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" \
@@ -240,7 +241,9 @@ while IFS= read -r -d '' binary; do
     *.dylib|*.so|"$APP/Contents/Resources/bin/ffmpeg") ;;
     *) continue ;;
   esac
-  copied="$TMP/dmg/SYN.app/${binary#"$APP"/}"
+  relative="${binary#"$APP"/}"
+  test "$relative" != "$binary" || { echo "ERROR: ruta fuera de SYN.app: $binary" >&2; exit 1; }
+  copied="$TMP/dmg/SYN.app/$relative"
   if ! codesign --verify --strict "$copied" >/dev/null 2>&1; then
     echo "❌ Firma inválida en DMG: $copied" >&2
     codesign --verify --strict --verbose=2 "$copied" >&2 || true
