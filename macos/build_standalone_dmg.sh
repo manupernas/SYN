@@ -195,8 +195,16 @@ for helper in "$APP/Contents/Helpers"/*.app; do
 done
 codesign --force --deep --sign - --timestamp=none "$APP"
 codesign --verify --deep --verbose=2 "$APP"
-# Check every binary's CodeDirectory, not just the enclosing app seal.
+# Bundle executables (SYN, helpers and Python.framework) are validated
+# by codesign --verify --deep on the enclosing .app. Verify loadable leaf
+# libraries individually: these are dlopen()-ed and were invalid on the Mac.
+# Never run bare-file --strict verification on a framework's main executable:
+# codesign treats it as bundle code and may return ENOENT spuriously.
 while IFS= read -r -d '' binary; do
+  case "$binary" in
+    *.dylib|*.so|"$APP/Contents/Resources/bin/ffmpeg") ;;
+    *) continue ;;
+  esac
   if ! codesign --verify --strict "$binary" >/dev/null 2>&1; then
     echo "❌ Firma nativa inválida: $binary" >&2
     codesign --verify --strict --verbose=2 "$binary" >&2 || true
@@ -228,6 +236,10 @@ ditto "$APP" "$TMP/dmg/SYN.app"
 codesign --verify --deep --verbose=2 "$TMP/dmg/SYN.app"
 # Verify also every Mach-O in the exact copied payload that goes into the DMG.
 while IFS= read -r -d '' binary; do
+  case "$binary" in
+    *.dylib|*.so|"$APP/Contents/Resources/bin/ffmpeg") ;;
+    *) continue ;;
+  esac
   copied="$TMP/dmg/SYN.app/${binary#"$APP"/}"
   if ! codesign --verify --strict "$copied" >/dev/null 2>&1; then
     echo "❌ Firma inválida en DMG: $copied" >&2
