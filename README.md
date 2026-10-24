@@ -17,15 +17,22 @@
   <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
   <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
   <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
-  <a href="docs/RELEASE_2.0.3.md">What's new in SYN 2.0.3</a>
+  <a href="docs/RELEASE_2.0.4.md">What's new in SYN 2.0.4</a>
 </p>
 
-**SYN 2.0.3** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
+**SYN 2.0.4** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
 
 The new interface uses the approved **icono_3** colour-bars icon in every launcher and package, plus the new SYN wordmark in light and dark variants. It offers **System, Light, Dark, SYN Teal, Nord Light/Dark and Gruvbox Light/Dark** themes, with optional custom accent colours. SYN starts on **live TV**, not the library landing page.
 
 > [!IMPORTANT]
 > **Bring your own legal IPTV sources.** SYN does not include playlists, credentials, channels or media. Films, series, artwork and EPG depend on what **your provider actually supplies**. SYN is distributed through GitHub Releases and **is not currently listed on Flathub**.
+
+### Updated in SYN 2.0.4
+
+The first-run welcome and source setup dialog now has explicit, high-contrast
+text, cards, inputs and buttons in Light, Nord Light, Gruvbox Light and System
+light mode, including Ubuntu Yaru. Dark themes, the player, Cast and DVR are
+unchanged.
 
 ### Updated in SYN 2.0.3
 

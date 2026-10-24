@@ -7,7 +7,7 @@ ROOT=Path(__file__).resolve().parent.parent
 class Release133Tests(unittest.TestCase):
     def test_features(self):
         s=(ROOT/'syn.py').read_text('utf-8')
-        self.assertIn('SYN_VERSION = "2.0.3"',s)
+        self.assertIn('SYN_VERSION = "2.0.4"',s)
         for marker in ('SYN_CAST_BETA6','SYN_CAST_ORANGE_VISUAL_6_2',
                        'SYN_FAVORITOS_DRAG_BETA7','SYN_FAVORITOS_VISUAL_BETA7_1',
                        'Gtk.WidgetPaintable.new(row)','SYN_TIMESHIFT_BETA2_HTTP_SNAPSHOT'):

@@ -36,7 +36,7 @@ def test_native_system_workbench_has_matching_foreground_and_background():
 
 def test_native_custom_css_is_scoped_and_existing_flatpak_kept():
     source=(ROOT/'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "2.0.3"' in source
+    assert 'SYN_VERSION = "2.0.4"' in source
     assert "if native_system:" in source
     assert "not os.path.exists('/.flatpak-info')" in source
     assert "synplus_layout.choose_system_scheme(" in source

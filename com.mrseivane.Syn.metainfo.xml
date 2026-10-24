@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.4" date="2026-10-24">
+      <description>
+        <p>Improved readability of the first-run and profile setup dialog in light themes, including Ubuntu Yaru. No changes to playback, DVR, Chromecast or dark themes.</p>
+        <p xml:lang="es">Mejor contraste de la bienvenida y el asistente de perfiles en temas claros, incluido Ubuntu Yaru. Sin cambios en reproducción, DVR, Chromecast ni temas oscuros.</p>
+      </description>
+    </release>
     <release version="2.0.3" date="2026-10-24">
       <description>
         <p>Native RPM, DEB and Arch packages now follow the desktop light/dark selection and keep SYN's custom navigation and guide surfaces consistent with native GTK themes. No changes to playback, DVR or Chromecast.</p>

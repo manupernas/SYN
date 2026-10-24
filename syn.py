@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.3"
+SYN_VERSION = "2.0.4"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -7652,6 +7652,18 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         self._syn_cast_popover_provider = cast_provider
                     cast_provider.load_from_data(
                         synplus_layout.cast_popover_css(theme).encode('utf-8'))
+                    # SYN 2.0.4: the welcome is a separate window and needs
+                    # LIGHT-theme ink at a priority above host GTK/Yaru CSS.
+                    # Keep the provider even when the desktop changes to dark:
+                    # an empty stylesheet clears only the welcome overrides.
+                    welcome_provider = getattr(self, '_syn_welcome_theme_provider', None)
+                    if welcome_provider is None:
+                        welcome_provider = Gtk.CssProvider()
+                        Gtk.StyleContext.add_provider_for_display(
+                            display, welcome_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 5)
+                        self._syn_welcome_theme_provider = welcome_provider
+                    welcome_provider.load_from_data(
+                        synplus_layout.welcome_light_css(theme, manager.get_dark()).encode('utf-8'))
                 # Native GTK loads ~/.config/gtk-4.0/gtk.css at USER,
                 # above the APPLICATION-level SYN workbench. Protect only
                 # SYN's layout in native System mode at USER+1 while keeping

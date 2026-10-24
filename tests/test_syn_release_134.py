@@ -11,7 +11,7 @@ class Release134Tests(unittest.TestCase):
         cls.cast=(ROOT/'syn_cast_host.py').read_text('utf-8')
 
     def test_version_and_sources(self):
-        self.assertIn('SYN_VERSION = "2.0.3"',self.gui)
+        self.assertIn('SYN_VERSION = "2.0.4"',self.gui)
         self.assertIn('<release version="1.3.4"', (ROOT/'com.mrseivane.Syn.metainfo.xml').read_text())
         self.assertTrue((ROOT/'docs/RELEASE_1.3.4.md').is_file())
 

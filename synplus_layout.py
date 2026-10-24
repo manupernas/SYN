@@ -101,6 +101,99 @@ def cast_popover_css(theme='system'):
     """
 
 
+def welcome_light_css(theme='system', system_dark=False):
+    """Isolated readable first-run palette for GTK4 welcome dialog on LIGHT desktops.
+
+    Covers every welcome subwidget, including buttons/icons and form fields.
+    The provider using this CSS is scoped to ``window.synplus-welcome`` and
+    installed at USER+5 so host GTK/Yaru CSS cannot undo the dialog contrast.
+    Dark schemes deliberately return empty CSS and remain unchanged.
+    """
+    light_schemes = {
+        #               background  foreground  muted       card        stroke      hover       accent      button_fg
+        'system':       ('#f6f9f8', '#183b39', '#405f5c', '#ffffff', '#c3d9d3', '#e3f2ed', '#236961', '#ffffff'),
+        'light':        ('#f1f8f6', '#17413b', '#43645e', '#ffffff', '#bfdcd1', '#ddf1eb', '#177e79', '#ffffff'),
+        'nord-light':   ('#eceff4', '#293b4c', '#455c70', '#ffffff', '#c7d1dc', '#dae6f0', '#416a93', '#ffffff'),
+        'gruvbox-light':('#fbf1c7', '#3c3836', '#625a4b', '#fff9e9', '#d5c8aa', '#f0e5cb', '#346a68', '#ffffff'),
+    }
+    if theme == 'system' and system_dark:
+        return ''
+    if theme not in light_schemes:
+        return ''
+    bg, fg, muted, card, stroke, hover, accent, accent_fg = light_schemes[theme]
+    return f"""
+    /* SYN 2.0.4: welcome is a separate Gtk.Window, not the player window.
+       Never allow dark legacy .syn-welcome-* styles to wash out light text. */
+    window.synplus-welcome,
+    window.synplus-welcome .syn-welcome-bg,
+    window.synplus-welcome .syn-welcome-hero,
+    window.synplus-welcome .syn-welcome-body,
+    window.synplus-welcome scrolledwindow,
+    window.synplus-welcome viewport {{
+        background-image:none; background-color:{bg}; color:{fg};
+    }}
+    window.synplus-welcome label,
+    window.synplus-welcome .syn-welcome-bg label,
+    window.synplus-welcome .syn-welcome-bg image,
+    window.synplus-welcome .syn-welcome-body label,
+    window.synplus-welcome .syn-welcome-kicker,
+    window.synplus-welcome .syn-welcome-title,
+    window.synplus-welcome .syn-welcome-card-title,
+    window.synplus-welcome .syn-welcome-card image {{
+        color:{fg}; opacity:1; text-shadow:none;
+    }}
+    window.synplus-welcome .syn-welcome-subtitle,
+    window.synplus-welcome .syn-welcome-card-subtitle,
+    window.synplus-welcome .syn-welcome-muted {{
+        color:{muted}; opacity:1; text-shadow:none;
+    }}
+    window.synplus-welcome button.syn-welcome-card {{
+        background-image:none; background-color:{card}; color:{fg};
+        border:1px solid {stroke}; border-radius:17px;
+        box-shadow:none;
+    }}
+    window.synplus-welcome button.syn-welcome-card:hover,
+    window.synplus-welcome button.syn-welcome-card:focus {{
+        background-image:none; background-color:{hover};
+        border-color:{accent}; color:{fg};
+    }}
+    window.synplus-welcome .syn-welcome-symbol,
+    window.synplus-welcome button.syn-welcome-card image.syn-welcome-symbol {{
+        color:{accent}; opacity:1;
+    }}
+    window.synplus-welcome .syn-welcome-body entry,
+    window.synplus-welcome .syn-welcome-body passwordentry,
+    window.synplus-welcome .syn-welcome-body entry text,
+    window.synplus-welcome .syn-welcome-body passwordentry text {{
+        background-image:none; background-color:{card}; color:{fg};
+        border-color:{stroke};
+    }}
+    window.synplus-welcome .syn-welcome-body button:not(.syn-welcome-cta) {{
+        background-image:none; background-color:{card}; color:{fg};
+        border:1px solid {stroke};
+    }}
+    window.synplus-welcome .syn-welcome-body button:not(.syn-welcome-cta) image,
+    window.synplus-welcome .syn-welcome-body button:not(.syn-welcome-cta) label {{
+        color:{fg};
+    }}
+    window.synplus-welcome button.syn-welcome-cta {{
+        background-image:none; background-color:{accent}; color:{accent_fg};
+        border:1px solid {accent}; font-weight:800;
+    }}
+    window.synplus-welcome button.syn-welcome-cta label {{
+        color:{accent_fg}; opacity:1;
+    }}
+    window.synplus-welcome button.syn-welcome-cta:hover {{
+        background-image:none; background-color:{accent};
+        border-color:{fg};
+    }}
+    window.synplus-welcome .syn-welcome-body expander,
+    window.synplus-welcome .syn-welcome-body expander label {{
+        color:{fg};
+    }}
+    """
+
+
 def css(theme='system', accent_hex='', system_dark=False):
     """Theme-neutral GTK CSS, with small scoped overrides for bundled palettes."""
     values = {

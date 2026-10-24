@@ -40,6 +40,6 @@ def test_cast_popover_scoped_and_does_not_change_broadcast():
     assert "self._syn_cast_call({'action':'devices'},done)" in popup
     assert 'self._syn_cast_play(d)' in popup
     assert 'self._syn_cast_stop()' in popup
-    assert 'SYN_VERSION = "2.0.3"' in source
+    assert 'SYN_VERSION = "2.0.4"' in source
     assert 'STYLE_PROVIDER_PRIORITY_USER + 4' in source
     assert 'syn-dvr-worker' in (ROOT/'packaging/stage-native.sh').read_text('utf-8')
