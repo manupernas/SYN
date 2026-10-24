@@ -40,6 +40,31 @@ def deps(path):
             for line in out[1:] if line.strip()]
 
 
+def macho_id(path):
+    """LC_ID_DYLIB, if present (otool -L also lists this *as the first line*).
+
+    The ID is not an imported dependency. install_name_tool -change cannot
+    rewrite it: -id must be used, even if the file is named *.so (GTK loaders).
+    """
+    result = subprocess.run(['/usr/bin/otool', '-D', str(path)],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        return None  # executables and Mach-O bundles have no dylib ID
+    values = [line.strip() for line in result.stdout.splitlines()[1:]
+              if line.strip()]
+    if len(values) > 1:
+        raise RuntimeError(f'Unexpected otool -D for {path}: {values!r}')
+    return values[0] if values else None
+
+
+def portable_id(dest, fw, python_fw):
+    if dest == python_fw:
+        return '@rpath/Python.framework/Versions/3.15/Python'
+    # Dependency load commands are changed to @loader_path, so these portable
+    # IDs mainly describe the library without linking it back to Homebrew.
+    return '@rpath/' + dest.name
+
+
 def reloc_name(target, source):
     relative = os.path.relpath(target, source.parent)
     return '@loader_path/' + relative.replace(os.sep, '/')
@@ -114,7 +139,10 @@ class Bundler:
             before = self.count
             for dest in self.all_binaries():
                 original = self.orig.get(dest)
+                identity = macho_id(dest)
                 for dep in deps(dest):
+                    if dep == identity:
+                        continue  # LC_ID_DYLIB is not a library to import
                     if 'Python.framework/' in dep and ('/opt/homebrew/' in dep or dep.startswith('@rpath/')):
                         continue  # Copied as a full framework; handled below.
                     resolved = self.find_homebrew(dep, original)
@@ -131,7 +159,10 @@ class Bundler:
 
         for dest in self.all_binaries():
             original = self.orig.get(dest)
+            identity = macho_id(dest)
             for dep in deps(dest):
+                if dep == identity:
+                    continue  # An install ID needs -id, never -change
                 target = None
                 if 'Python.framework/' in dep and (dep.startswith('/opt/homebrew/') or dep.startswith('@rpath/')):
                     target = python_fw
@@ -150,22 +181,15 @@ class Bundler:
                     dest.chmod(dest.stat().st_mode | 0o200)
                     run('/usr/bin/install_name_tool', '-change', dep, new, str(dest))
                     self.rewrites += 1
-            if dest.parent == self.fw and dest.suffix == '.dylib':
-                run('/usr/bin/install_name_tool', '-id', '@rpath/' + dest.name, str(dest))
-        # Python.framework has an LC_ID_DYLIB of its own. Unlike a linked
-        # dependency (LC_LOAD_DYLIB), this ID cannot be changed with -change.
-        # Homebrew sets it to /opt/homebrew/... and the final scan correctly
-        # rejects it unless we rewrite it explicitly with -id.
-        python_ids = deps(python_fw)
-        if not python_ids:
-            raise RuntimeError('Missing Python.framework install name')
-        portable_id = '@rpath/Python.framework/Versions/3.15/Python'
-        if python_ids[0].startswith('/opt/homebrew/'):
-            python_fw.chmod(python_fw.stat().st_mode | 0o200)
-            run('/usr/bin/install_name_tool', '-id', portable_id, str(python_fw))
-            self.rewrites += 1
-        elif python_ids[0] != portable_id:
-            raise RuntimeError('Unexpected Python.framework install name: ' + python_ids[0])
+            if identity is not None:
+                name = portable_id(dest, self.fw, python_fw)
+                if identity != name:
+                    dest.chmod(dest.stat().st_mode | 0o200)
+                    run('/usr/bin/install_name_tool', '-id', name, str(dest))
+                    self.rewrites += 1
+
+        # A true portable application has no absolute Homebrew install names,
+        # whether the file is a .dylib, .so, or Python.framework.
 
         for dest in self.all_binaries():
             for dep in deps(dest):
