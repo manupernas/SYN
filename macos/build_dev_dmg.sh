@@ -40,7 +40,7 @@ PY
 [ -n "$PYCONF" ] || { echo 'Falta python-config del mismo intérprete'; exit 1; }
 PYEXE="$("$PYBIN" -c 'import sys;print(sys.executable)')"
 PYHOME="$("$PYBIN" -c 'import sys;print(sys.prefix)')"
-GLIBDIR="$(brew --prefix glib)/lib"
+GLIBDIR="$(brew --prefix)/lib"
 [ -f "$GLIBDIR/libglib-2.0.0.dylib" ] || { echo 'Falta GLib dylib'; exit 1; }
 
 ROOT_TMP="$(mktemp -d "${TMPDIR:-/tmp}/syn1-build.XXXXXX")"
@@ -61,7 +61,7 @@ LDFLAGS="$("$PYCONF" --embed --ldflags)"
 # shellcheck disable=SC2086
 clang -O2 -arch arm64 -mmacosx-version-min=14.0 \
  -DSYN_PYTHON_HOME=\"$PYHOME\" -DSYN_PYTHON_EXE=\"$PYEXE\" -DSYN_GLIB_DIR=\"$GLIBDIR\" \
- $CFLAGS macos/native/syn_launcher.c -o "$APP/Contents/MacOS/SYN" $LDFLAGS
+ $CFLAGS macos/native/syn_launcher.c -o "$APP/Contents/MacOS/SYN" $LDFLAGS -Wl,-rpath,"$GLIBDIR"
 chmod 755 "$APP/Contents/MacOS/SYN"
 "$APP/Contents/MacOS/SYN" --syn-bootstrap-check | grep -q SYN_NATIVE_GTK_OK || {
   echo 'El nuevo lanzador no puede cargar GTK en el runner'; exit 1;
