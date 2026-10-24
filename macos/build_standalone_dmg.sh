@@ -64,20 +64,20 @@ test -f "$APP/Contents/Resources/girepository-1.0/GLib-2.0.typelib"
 mkdir -p "$APP/Contents/Resources/share/glib-2.0" "$APP/Contents/Resources/lib"
 for component in icons gtk-4.0; do
   test -d "$PREFIX/share/$component" && \
-    ditto "$PREFIX/share/$component" "$APP/Contents/Resources/share/$component"
+    cp -RL "$PREFIX/share/$component" "$APP/Contents/Resources/share/$component"
 done
 if test -d "$PREFIX/share/glib-2.0/schemas"; then
-  ditto "$PREFIX/share/glib-2.0/schemas" "$APP/Contents/Resources/share/glib-2.0/schemas"
+  cp -RL "$PREFIX/share/glib-2.0/schemas" "$APP/Contents/Resources/share/glib-2.0/schemas"
   "$PREFIX/bin/glib-compile-schemas" "$APP/Contents/Resources/share/glib-2.0/schemas"
 fi
 if test -d "$PREFIX/lib/gdk-pixbuf-2.0/2.10.0/loaders"; then
   mkdir -p "$APP/Contents/Resources/lib/gdk-pixbuf-2.0/2.10.0"
-  ditto "$PREFIX/lib/gdk-pixbuf-2.0/2.10.0/loaders" \
+  cp -RL "$PREFIX/lib/gdk-pixbuf-2.0/2.10.0/loaders" \
     "$APP/Contents/Resources/lib/gdk-pixbuf-2.0/2.10.0/loaders"
 fi
 if test -d "$PREFIX/lib/gio/modules"; then
   mkdir -p "$APP/Contents/Resources/lib/gio"
-  ditto "$PREFIX/lib/gio/modules" "$APP/Contents/Resources/lib/gio/modules"
+  cp -RL "$PREFIX/lib/gio/modules" "$APP/Contents/Resources/lib/gio/modules"
 fi
 # Bundled transcoder/recorder. The worker and Chromecast will discover it on PATH.
 ditto "$PREFIX/bin/ffmpeg" "$APP/Contents/Resources/bin/ffmpeg"

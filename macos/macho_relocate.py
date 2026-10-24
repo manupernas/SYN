@@ -152,6 +152,21 @@ class Bundler:
                     self.rewrites += 1
             if dest.parent == self.fw and dest.suffix == '.dylib':
                 run('/usr/bin/install_name_tool', '-id', '@rpath/' + dest.name, str(dest))
+        # Python.framework has an LC_ID_DYLIB of its own. Unlike a linked
+        # dependency (LC_LOAD_DYLIB), this ID cannot be changed with -change.
+        # Homebrew sets it to /opt/homebrew/... and the final scan correctly
+        # rejects it unless we rewrite it explicitly with -id.
+        python_ids = deps(python_fw)
+        if not python_ids:
+            raise RuntimeError('Missing Python.framework install name')
+        portable_id = '@rpath/Python.framework/Versions/3.15/Python'
+        if python_ids[0].startswith('/opt/homebrew/'):
+            python_fw.chmod(python_fw.stat().st_mode | 0o200)
+            run('/usr/bin/install_name_tool', '-id', portable_id, str(python_fw))
+            self.rewrites += 1
+        elif python_ids[0] != portable_id:
+            raise RuntimeError('Unexpected Python.framework install name: ' + python_ids[0])
+
         for dest in self.all_binaries():
             for dep in deps(dest):
                 if dep.startswith('/opt/homebrew/'):
