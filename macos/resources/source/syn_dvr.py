@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""DVR for SYN: independent FFmpeg recorder and persistent local scheduler.
+
+All network streams are user supplied; no streams or credentials are bundled.
+The DVR worker runs in an independent Flatpak instance where permitted.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
+import fcntl
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+import syn_multistream
+
+APP_ID = 'com.mrseivane.Syn'
+VLC_UA = 'VLC/3.0.21 LibVLC/3.0.21'
+DATA = Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'syn'
+DB_PATH = DATA / 'dvr.json'
+DB_LOCK = DATA / 'dvr-data.lock'
+WORKER_LOCK = DATA / 'dvr-worker.lock'
+
+
+def video_directory():
+    """Use the host's XDG video directory, including localized paths (Vídeos)."""
+    try:
+        from gi.repository import GLib
+        p = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_VIDEOS)
+        if p:
+            return Path(p) / 'SYN'
+    except (ImportError, ValueError, AttributeError):
+        pass
+    for root in (Path.home() / 'Vídeos', Path.home() / 'Videos'):
+        if root.is_dir():
+            return root / 'SYN'
+    return Path.home() / 'Videos' / 'SYN'
+
+
+def filename_safe(value):
+    value = re.sub(r'[\x00-\x1f\\/:*?"<>|]', '_', str(value))
+    value = re.sub(r'\s+', ' ', value).strip(' ._')
+    return (value or 'Canal')[:90]
+
+
+def allowed_stream_url(url):
+    parsed = urlparse(str(url))
+    return parsed.scheme.lower() in ('http', 'https') and bool(parsed.netloc)
+
+
+@contextmanager
+def lock_file(path):
+    DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        with os.fdopen(fd, 'r+') as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        pass
+
+
+class DVRStore:
+    def _read(self):
+        try:
+            db = json.loads(DB_PATH.read_text(encoding='utf-8'))
+            if not isinstance(db, dict) or not isinstance(db.get('jobs', []), list):
+                raise ValueError('Invalid DVR database')
+            return db
+        except (OSError, ValueError, TypeError):
+            return {'jobs': [], 'folder': str(video_directory()), 'heartbeat': 0}
+
+    def read(self):
+        with lock_file(DB_LOCK):
+            return self._read()
+
+    def change(self, callback):
+        with lock_file(DB_LOCK):
+            db = self._read()
+            result = callback(db)
+            DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd, tmp = tempfile.mkstemp(prefix='.dvr-', suffix='.json', dir=DATA)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(db, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, DB_PATH)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            return result
+
+    def add(self, name, url, start, end=None, user_agent=VLC_UA, programme=None,
+            profile_id=None, max_connections=1):
+        # SYN_DUAL_TIMESHIFT_BETA_132: admit bookings under an atomic lock.
+        if not allowed_stream_url(url):
+            raise ValueError('La URL del canal debe ser HTTP o HTTPS.')
+        start = float(start)
+        if end is not None and float(end) <= start:
+            raise ValueError('La hora final debe ser posterior a la inicial.')
+        now = time.time()
+        if end is not None and float(end) <= now:
+            raise ValueError('La grabación ya habría terminado.')
+        job = {'id': uuid.uuid4().hex[:14], 'channel': str(name),
+               'url': str(url), 'start': start,
+               'end': float(end) if end is not None else None,
+               'user_agent': str(user_agent or VLC_UA),
+               'status': 'scheduled', 'path': '', 'error': '',
+               'stop_requested': False, 'created': now,
+               'programme': str(programme or '')[:250],
+               'profile_id': str(profile_id or ''),
+               'max_connections': syn_multistream.profile_limit({'max_connections': max_connections})}
+        def admit(db):
+            # Avoid accidental duplicate recordings and UDP relay-port collisions.
+            for other in syn_multistream.admitted_jobs(db, job['profile_id']):
+                if (other.get('url') == job['url'] and
+                        syn_multistream.intervals_overlap(
+                            start, end, other.get('start', 0), other.get('end'))):
+                    raise ValueError('Este canal ya tiene una grabación coincidente.')
+            used_ports = {syn_relay_port(j['id']) for j in db.get('jobs', [])
+                          if isinstance(j, dict) and j.get('id') and
+                          j.get('status') in ('running','scheduled')}
+            for _attempt in range(64):
+                if syn_relay_port(job['id']) not in used_ports: break
+                job['id'] = uuid.uuid4().hex[:14]
+            else: raise ValueError('Sin puertos libres para relay DVR.')
+            if not syn_multistream.can_schedule(db, job['profile_id'], start, end,
+                                                job['max_connections']):
+                raise ValueError('Límite de conexiones simultáneas del perfil. '
+                                 'Modifica el límite en Ajustes > Perfil.')
+            db.setdefault('jobs', []).append(job)
+        self.change(admit)
+        return job
+
+    def stop(self, job_id):
+        def edit(db):
+            for j in db.get('jobs', []):
+                if j['id'] != job_id:
+                    continue
+                if j['status'] == 'scheduled':
+                    j['status'] = 'cancelled'
+                elif j['status'] == 'running':
+                    j['stop_requested'] = True
+                return True
+            return False
+        return self.change(edit)
+
+    def choose_directory(self, folder):
+        path = Path(folder).expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        if not path.is_dir():
+            raise OSError('La carpeta de grabaciones no existe.')
+        # Check write access inside Flatpak before persisting a destination.
+        fd, temporary = tempfile.mkstemp(prefix='.syn-write-test-', dir=path)
+        os.close(fd)
+        os.unlink(temporary)
+        self.change(lambda db: db.update(folder=str(path)))
+
+
+# SYN_DVR_SHARED_124: port is stable across worker reconnections.
+def syn_relay_port(job_id):
+    # Job identifiers are created as hexadecimal UUID fragments by SYN.
+    # 30000-59999: separate UDP receiver per simultaneous recording.
+    return 30000 + (int(str(job_id), 16) % 30000)
+
+
+def syn_relay_url(job_id):
+    # Never expose input IPTV URL to the player when a recording is active.
+    return ('udp://127.0.0.1:' + str(syn_relay_port(job_id)) +
+            '?fifo_size=16384&overrun_nonfatal=1')
+
+
+def ffmpeg_command(job, path):
+    """Copy streams without transcoding. VLC UA is applied before the input URL."""
+    if not allowed_stream_url(job['url']):
+        raise ValueError('Invalid stream URL')
+    cmd = [shutil.which('ffmpeg') or '/app/bin/ffmpeg', '-hide_banner',
+           '-loglevel', 'warning', '-nostdin', '-y',
+           '-user_agent', str(job.get('user_agent') or VLC_UA),
+           '-i', job['url'], '-map', '0:v:0?', '-map', '0:a?',
+           '-c', 'copy']
+    if job.get('end') is not None:
+        duration = max(1, int(float(job['end']) - time.time()))
+        cmd += ['-t', str(duration)]
+    # SYN_DVR_DUAL_125: FFmpeg's tee muxer can preserve incompatible MPEG-TS
+    # codec tags (for example H.264 tag 0x1b) when writing a Matroska slave.
+    # Separate normal output groups avoid this failure while keeping ONE input
+    # and ONE provider connection. Both outputs copy packets; no recoding.
+    # The first output is the MKV, so it remains the primary recording.
+    additional = ['-map', '0:v:0?', '-map', '0:a?', '-c', 'copy']
+    if job.get('end') is not None:
+        # The initial cmd already includes the duration for the first output.
+        # Replicate it for the second output to avoid unbounded retransmission.
+        duration = max(1, int(float(job['end']) - time.time()))
+        additional.extend(['-t', str(duration)])
+    return (cmd + ['-f', 'matroska', str(path)] + additional +
+            ['-f', 'mpegts', 'udp://127.0.0.1:' +
+             str(syn_relay_port(job['id'])) + '?pkt_size=1316'])
+
+
+def notify_transient(message):
+    """One best-effort OS notification per real DVR event, never per poll.
+
+    Works for native RPM/DEB/Pacman and self-contained Flatpak worker.
+    The independent worker remains functional without a notification daemon.
+    """
+    args = ['notify-send', '--transient', '--expire-time=4500',
+            '--urgency=normal', '--app-name=SYN', '-i', APP_ID,
+            'SYN DVR', str(message)]
+    if Path('/.flatpak-info').exists():
+        if not shutil.which('flatpak-spawn'):
+            return False
+        args = ['flatpak-spawn', '--host'] + args
+    elif not shutil.which('notify-send'):
+        return False
+    try:
+        subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True
+    except OSError:
+        return False
+
+
+def notify_recording_worker(message):
+    """Only the independent scheduler announces start/finish; never fallback."""
+    if threading.current_thread() is threading.main_thread():
+        notify_transient(message)
+
+
+def background_worker_confirmed(data=None, max_age=8):
+    """Check an actual separate worker heartbeat (not a spawn attempt).
+
+    worker_mode=background is only written by the foreground run_worker()
+    invocation in syn-dvr-worker, never the GUI's former fallback thread.
+    Avoid PID comparisons: different Flatpak namespaces may reuse numeric PIDs.
+    """
+    if data is None:
+        data = DVRStore().read()
+    try:
+        heartbeat = float(data.get('heartbeat', 0))
+        pid = int(data.get('worker_pid', 0))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    delta = time.time() - heartbeat
+    return (data.get('worker_mode') == 'background' and pid > 0
+            and 0 <= delta < max_age)
+
+
+def _set_job(db, job_id, **updates):
+    for job in db.get('jobs', []):
+        if job.get('id') == job_id:
+            job.update(updates)
+            return
+
+
+def run_worker(poll_seconds=2):
+    """Only one scheduler is active across GUI and independently spawned Flatpaks."""
+    DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(WORKER_LOCK, 'a+') as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Retry from systemd when the old in-app worker still holds the lock.
+            return 75
+        store = DVRStore()
+        active = {}
+        # Recover jobs from a crashed DVR worker without claiming false success.
+        def recover(db):
+            for job in db.get('jobs', []):
+                if job.get('status') == 'running':
+                    job['status'] = 'interrupted'
+                    job['error'] = 'El servicio de grabación se cerró inesperadamente.'
+        store.change(recover)
+        while True:
+            now = time.time()
+            data = store.read()
+            for job in data.get('jobs', []):
+                key = job['id']
+                if key in active:
+                    proc, output, log_handle, stopping = active[key]
+                    done = proc.poll()
+                    if done is None and (job.get('stop_requested') or (
+                            job.get('end') and now >= float(job['end']))):
+                        if not stopping:
+                            proc.send_signal(signal.SIGINT)
+                            active[key] = (proc, output, log_handle, now)
+                        elif now - stopping > 12:
+                            proc.kill()
+                    if done is not None:
+                        try:
+                            log_handle.flush()
+                            with open(log_handle.name, 'rb') as f:
+                                f.seek(max(0, os.fstat(f.fileno()).st_size - 1800))
+                                diagnostics = f.read().decode('utf-8', 'replace')
+                        except OSError:
+                            diagnostics = ''
+                        log_handle.close()
+                        # SYN_DVR_RETRY_V123: An unrequested EOF is NOT a completed live recording.
+                        # Never overwrite earlier MKV parts. The next attempt starts in a new file.
+                        db_now = store.read()
+                        latest = next((j for j in db_now.get('jobs', []) if j.get('id') == key), job)
+                        requested = bool(latest.get('stop_requested'))
+                        expired = bool(latest.get('end') and time.time() >= float(latest['end']))
+                        if requested or expired:
+                            store.change(lambda d, k=key: _set_job(
+                                d, k, status='completed', error='', finished=time.time(),
+                                stop_requested=requested))
+                            notify_recording_worker(('Grabación detenida: ' if requested else 'Grabación finalizada: ') + job['channel'])
+                        else:
+                            attempt = int(latest.get('reconnect_count', 0)) + 1
+                            # Throttle persistent 403/expired-URL errors; no CPU/HTTP storm.
+                            delay = min(60, 5 * 2 ** min(attempt - 1, 4))
+                            message = 'FFmpeg terminó inesperadamente (código ' + str(done) + '). Reintento ' + str(attempt) + ' en ' + str(delay) + 's.'
+                            # Do not persist the raw FFmpeg log: it can contain IPTV credentials.
+                            def retry_update(db, k=key, a=attempt, d=delay, msg=message):
+                                for row in db.get('jobs', []):
+                                    if row.get('id') == k:
+                                        if row.get('stop_requested'):
+                                            row.update(status='completed', finished=time.time())
+                                            return
+                                        segments = row.setdefault('segments', [])
+                                        if row.get('path') and row['path'] not in segments:
+                                            segments.append(row['path'])
+                                        row.update(status='scheduled', start=time.time() + d,
+                                                   reconnect_count=a, last_disconnect=msg,
+                                                   error='', finished=None)
+                                        return
+                            store.change(retry_update)
+                        del active[key]
+                    continue
+                if job.get('status') != 'scheduled' or float(job.get('start', 0)) > now:
+                    continue
+                if job.get('end') and float(job['end']) <= now:
+                    store.change(lambda d, k=key: _set_job(d, k, status='missed', error='El horario programado ya terminó.'))
+                    continue
+                # Admission races are checked again in the single worker.
+                # The worker never starts an extra IPTV connection.
+                busy = sum(1 for j in data.get('jobs', [])
+                           if j.get('id') in active and
+                           syn_multistream.same_profile(j, job.get('profile_id')))
+                if not syn_multistream.can_start_now(data, job, busy):
+                    continue
+                try:
+                    folder = Path(data.get('folder') or video_directory()).expanduser()
+                    folder.mkdir(parents=True, exist_ok=True)
+                    part = int(job.get('reconnect_count', 0)) + 1
+                    outname = (filename_safe(job['channel']) + ' - ' +
+                               datetime.fromtimestamp(job.get('created', now)).strftime('%Y-%m-%d %H-%M-%S') +
+                               ' - ' + key[:6] + ' - parte-' + f'{part:03d}' + '.mkv')
+                    output = folder / outname
+                    logname = DATA / ('dvr-' + key + '.log')
+                    log_handle = open(logname, 'ab')
+                    proc = subprocess.Popen(ffmpeg_command(job, output), stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.DEVNULL, stderr=log_handle)
+                    active[key] = (proc, output, log_handle, None)
+                    store.change(lambda d, k=key, p=str(output):
+                                 _set_job(d, k, status='running', path=p, error='', stop_requested=False,
+                                          relay_url=syn_relay_url(k)))
+                    notify_recording_worker('Grabación iniciada: ' + job['channel'] +
+                                             ' · continúa con SYN cerrado.')
+                except (OSError, ValueError) as exc:
+                    store.change(lambda d, k=key, e=str(exc): _set_job(d, k, status='failed', error=e))
+                    notify_recording_worker('Error al iniciar grabación: ' + job['channel'])
+            # A fresh heartbeat alone cannot tell whether the worker will
+            # survive the GTK window closing. Persist its owner and mode.
+            worker_mode = ('background' if threading.current_thread() is threading.main_thread()
+                           else 'embedded')
+            store.change(lambda db: db.update(heartbeat=time.time(),
+                                             worker_pid=os.getpid(), worker_mode=worker_mode))
+            time.sleep(poll_seconds)
+
+
+def ensure_worker(force_local=False):
+    """Never start an embedded fallback that would die with the GUI.
+
+    Background worker lifecycle is managed by systemd --user, installed and
+    activated on the host. Retain force_local for backwards API compatibility.
+    """
+    return 'background' if background_worker_confirmed() else 'unavailable'
+
+
+def recorded_files():
+    data = DVRStore().read()
+    folder = Path(data.get('folder') or video_directory())
+    try:
+        return sorted([f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in ('.mkv', '.ts', '.mp4')],
+                      key=lambda f: f.stat().st_mtime, reverse=True)
+    except OSError:
+        return []
+
+
+if __name__ == '__main__':
+    sys.exit(run_worker())
