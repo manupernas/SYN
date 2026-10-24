@@ -12,7 +12,7 @@ class Release132Tests(unittest.TestCase):
         cls.syn = (ROOT / 'syn.py').read_text(encoding='utf-8')
 
     def test_version_and_proven_rev6_scroll(self):
-        self.assertIn('SYN_VERSION = "2.0.5"', self.syn)
+        self.assertIn('SYN_VERSION = "2.0.6"', self.syn)
         for feature in (
             'SYN_REV6_EXTERNAL_SCROLL',
             'Gtk.PolicyType.NEVER, Gtk.PolicyType.EXTERNAL',

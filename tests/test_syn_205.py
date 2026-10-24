@@ -42,7 +42,7 @@ def test_guide_edges_use_own_palette_in_all_eight_themes():
 
 def test_native_and_flatpak_packages_get_the_exact_same_fix():
     syn = (ROOT/'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "2.0.5"' in syn
+    assert 'SYN_VERSION = "2.0.6"' in syn
     assert 'synplus_layout.css(theme,' in syn
     native = (ROOT/'packaging/stage-native.sh').read_text('utf-8')
     flatpak = (ROOT/'com.mrseivane.Syn.yml').read_text('utf-8')

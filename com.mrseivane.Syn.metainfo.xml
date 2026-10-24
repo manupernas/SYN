@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.6" date="2026-10-24">
+      <description>
+        <p>Optimized initial channel rendering in incremental batches, restored centred logos and illustrated no-logo placeholders in Favorites and channel lists, and added Debian Cairo integration dependency.</p>
+        <p xml:lang="es">Carga gradual de canales sin bloquear la interfaz, logotipos centrados, ilustraciones alternativas y Favoritos corregidos; nueva dependencia Cairo para Debian/Ubuntu.</p>
+      </description>
+    </release>
     <release version="2.0.5" date="2026-10-24">
       <description>
         <p>Fixed Appearance theme saving independently of IPTV profile validation and corrected embedded EPG border colours on native GTK desktops.</p>

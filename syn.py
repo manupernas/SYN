@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.5"
+SYN_VERSION = "2.0.6"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -4892,6 +4892,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             popover = Gtk.Popover()
             popover.set_has_arrow(True)
             self.channel_popover = popover
+            popover.connect('notify::visible',
+                lambda _w, _prop: self.render_quick_channels() if popover.get_visible() else None)
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             content.set_margin_start(10)
             content.set_margin_end(10)
@@ -4920,10 +4922,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.channel_menu.set_popover(popover)
 
         def render_quick_channels(self):
-            if not hasattr(self, "quick_listbox"):
+            if not hasattr(self, 'quick_listbox'):
                 return
+            self._syn_beta_quick_token = getattr(self, '_syn_beta_quick_token', 0) + 1
+            token = self._syn_beta_quick_token
             while row := self.quick_listbox.get_first_child():
                 self.quick_listbox.remove(row)
+            if not self.channel_popover.get_visible():
+                return
             query = norm(self.quick_search.get_text())
             channels = [ch for ch in self.channels
                         if (not query or query in norm(ch.name) or query in norm(ch.group))
@@ -4931,24 +4937,32 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if self.quick_favs.get_active():
                 channels = syn_fav_sort.order_channels(
                     channels, self.profile.get('favorites', []))
-            for ch in channels[:160]:
-                row = Gtk.ListBoxRow()
-                row.channel = ch
-                line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                line.set_margin_start(9)
-                line.set_margin_end(9)
-                line.set_margin_top(7)
-                line.set_margin_bottom(7)
-                line.append(self.channel_pill(ch, 92, 37))
-                label = Gtk.Label(label=display_channel_name(ch.name), xalign=0)
-                label.set_hexpand(True)
-                label.set_ellipsize(Pango.EllipsizeMode.END)
-                line.append(label)
-                fav = self._favorite_heart_button(ch)
-                line.append(fav)
-                row.set_child(line)
-                self.quick_listbox.append(row)
-            self.quick_count.set_text(f"{min(len(channels), 160)} de {len(channels)} canales")
+            self.quick_count.set_text(f'{min(len(channels), 160)} de {len(channels)} canales')
+            portion = channels[:160]
+            position = 0
+            def add_batch():
+                nonlocal position
+                if token != self._syn_beta_quick_token or not self.channel_popover.get_visible():
+                    return False
+                for ch in portion[position:position + 18]:
+                    row = Gtk.ListBoxRow()
+                    row.channel = ch
+                    line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                    line.set_margin_start(9)
+                    line.set_margin_end(9)
+                    line.set_margin_top(7)
+                    line.set_margin_bottom(7)
+                    line.append(self.channel_pill(ch, 92, 37))
+                    label = Gtk.Label(label=display_channel_name(ch.name), xalign=0)
+                    label.set_hexpand(True)
+                    label.set_ellipsize(Pango.EllipsizeMode.END)
+                    line.append(label)
+                    line.append(self._favorite_heart_button(ch))
+                    row.set_child(line)
+                    self.quick_listbox.append(row)
+                position += 18
+                return position < len(portion)
+            GLib.timeout_add(18, add_batch)
 
         def quick_channel_activated(self, _listbox, row):
             self.channel_popover.popdown()
@@ -5627,6 +5641,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self.channels = tv
                 self._syn_local_movies = syn_catalog.local_entries(movies, 'movies')
                 self._syn_local_series = syn_catalog.local_series_catalog(series)
+            if os.environ.get('SYN_LOGO_DEBUG') == '1':
+                test_visible = self.channels[:250]
+                has_logo = [ch.logo for ch in test_visible
+                            if ch.logo.startswith(('http://', 'https://'))]
+                in_cache = sum(sources.logo_path(url).is_file() for url in has_logo)
+                print(f'SYN_BETA_LOGO_RESUMEN: total={len(self.channels)} '
+                      f'primeros_250_con_url={len(has_logo)} cache={in_cache}',
+                      file=sys.stderr, flush=True)
             self.dvr_update_channels()
             self._refresh_categories()
             self._syn_portal_catalog_refresh()
@@ -5902,60 +5924,83 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             Gdk.cairo_set_source_pixbuf(cr, pix, x, y)
             cr.paint()
 
-        def _fill_logo_image(self, path, image, pill=None):
+        def _prepare_logo_pixbuf(self, path):
+            # Off the GTK main loop. Keep the fitted content and alpha trimming.
+            pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 160, 160, True)
+            x, y, w, h = logo_visible_bounds(
+                pix.get_pixels(), pix.get_width(), pix.get_height(),
+                pix.get_rowstride(), pix.get_n_channels())
+            if (0 < w < pix.get_width()) or (0 < h < pix.get_height()):
+                pix = GdkPixbuf.Pixbuf.new_subpixbuf(pix, x, y, w, h)
+            size = (pix.get_width(), pix.get_height())
+            fitted = fitted_logo_size(*size)
+            if fitted != size:
+                pix = pix.scale_simple(*fitted, GdkPixbuf.InterpType.BILINEAR)
+            return pix
+
+        def _publish_logo_pixbuf(self, pix, image, pill):
+            # Run ONLY on GTK main loop. Gtk.Picture stays inside the fixed pill.
             try:
-                # Procesamos la imagen a resolucion suficiente, recortamos
-                # los bordes transparentes y ajustamos el contenido a 108x38.
-                pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(path), 256, 256, True)
-                x, y, w, h = logo_visible_bounds(
-                    pix.get_pixels(), pix.get_width(), pix.get_height(),
-                    pix.get_rowstride(), pix.get_n_channels())
-                if 0 < w < pix.get_width() or 0 < h < pix.get_height():
-                    pix = GdkPixbuf.Pixbuf.new_subpixbuf(pix, x, y, w, h)
-                source_size = (pix.get_width(), pix.get_height())
-                fitted = fitted_logo_size(*source_size)
-                if fitted != source_size:
-                    pix = pix.scale_simple(*fitted, GdkPixbuf.InterpType.BILINEAR)
-                # La pixbuf NO se entrega a Gtk.Picture/Gtk.Image: ambos
-                # podrian influir en la negociacion de tamano de la fila.
+                if pix is None or pill is None:
+                    return False
+                picture = getattr(pill, '_syn_async_logo_picture', None)
+                if picture is None:
+                    picture = Gtk.Picture()
+                    picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+                    picture.set_can_shrink(True)
+                    picture.set_size_request(108, 38)
+                    picture.set_hexpand(False)
+                    picture.set_vexpand(False)
+                    picture.set_halign(Gtk.Align.CENTER)
+                    picture.set_valign(Gtk.Align.CENTER)
+                    picture.set_visible(False)
+                    # Overlay, NEVER Gtk.Box.append: the previous beta placed
+                    # the logo beside the artwork and could shift Favorites.
+                    pill.add_overlay(picture)
+                    pill.set_measure_overlay(picture, False)
+                    pill.set_clip_overlay(picture, True)
+                    pill._syn_async_logo_picture = picture
+                picture.set_paintable(Gdk.Texture.new_for_pixbuf(pix))
                 image._syn_pixbuf = pix
-                if os.environ.get('SYN_LOGO_DEBUG') == '1':
-                    if not hasattr(self, '_logo_debug_count'):
-                        self._logo_debug_count = 0
-                    if self._logo_debug_count < 8:
-                        print(f'SYN_LOGO: recortado={source_size[0]}x{source_size[1]} '
-                              f'final={fitted[0]}x{fitted[1]} '
-                              'lienzo=108x38 pastilla=120x46',
-                              file=sys.stderr, flush=True)
-                        def _after_layout():
-                            dims = f'lienzo={image.get_width()}x{image.get_height()}'
-                            if pill:
-                                dims += f' pastilla={pill.get_width()}x{pill.get_height()}'
-                            print('SYN_LOGO_WIDGET: ' + dims, file=sys.stderr, flush=True)
-                            return False
-                        GLib.timeout_add(650, _after_layout)
-                        self._logo_debug_count += 1
-                if pill:
-                    # A real logo replaces the full-bleed art and restores
-                    # the original logo's 108x38 interior and margins.
-                    pill.remove_css_class('syn-art-fullbleed')
-                    image.set_content_width(108)
-                    image.set_content_height(38)
-                    image.set_size_request(108, 38)
-                    label = getattr(pill, 'fallback_label', None)
-                    if label: label.set_visible(False)
+                pill.remove_css_class('syn-art-fullbleed')
+                label = getattr(pill, 'fallback_label', None)
+                if label:
+                    label.set_visible(False)
+                # Palette sampling is cheap on the final 108x38 thumbnail.
+                try:
                     prior = getattr(pill, 'hue_class', 'syn-logo-pill-h6')
                     pill.remove_css_class(prior)
-                    new_class = ('syn-logo-pill-h' + str(self._logo_palette_index(pix))
-                                 + '-' + logo_contrast_variant(self._logo_samples(pix)))
+                    samples = self._logo_samples(pix)
+                    new_class = ('syn-logo-pill-h' + str(logo_color_bucket(samples))
+                                 + '-' + logo_contrast_variant(samples))
                     pill.add_css_class(new_class)
                     pill.hue_class = new_class
-                # Publicar el widget solo después de ocultar el fallback;
-                # evita una negociación de tamaños con ambos simultáneos.
-                image.set_visible(True)
-                image.queue_draw()
-            except (GLib.Error, OSError, ValueError):
-                pass
+                except Exception:
+                    pass  # visual palette is optional; never suppress the logo
+                image.set_visible(False)
+                picture.set_visible(True)
+                if os.environ.get('SYN_LOGO_DEBUG') == '1':
+                    count = getattr(self, '_syn_beta_logo_shown', 0) + 1
+                    self._syn_beta_logo_shown = count
+                    if count <= 5:
+                        print('SYN_BETA_LOGO: imagen mostrada; '
+                              f'{pix.get_width()}x{pix.get_height()}',
+                              file=sys.stderr, flush=True)
+            except Exception as exc:
+                if os.environ.get('SYN_LOGO_DEBUG') == '1':
+                    print('SYN_BETA_LOGO_ERROR: ' + type(exc).__name__,
+                          file=sys.stderr, flush=True)
+            return False
+
+        def _fill_logo_image(self, path, image, pill=None):
+            # Custom logos are few; provider logos use the worker queue below.
+            try:
+                pix = self._prepare_logo_pixbuf(path)
+                return self._publish_logo_pixbuf(pix, image, pill)
+            except Exception as exc:
+                if os.environ.get('SYN_LOGO_DEBUG') == '1':
+                    print('SYN_BETA_LOGO_PREP_ERROR: ' + type(exc).__name__,
+                          file=sys.stderr, flush=True)
             return False
 
         def _draw_channel_logo_or_art(self, area, cr, width, height):
@@ -5969,7 +6014,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         def channel_pill(self, ch, width=120, height=46):
             # Unico tamano para TODOS los canales, con o sin filtro favorito.
             width, height = 120, 46
-            pill = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+            pill = Gtk.Overlay()
             pill.add_css_class('syn-logo-pill')
             pill.add_css_class('syn-logo-pill-h6')
             pill.hue_class = 'syn-logo-pill-h6'
@@ -6000,14 +6045,20 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             pic.set_visible(False)
             pic.set_can_target(False)
             pic.set_draw_func(self._draw_channel_logo_or_art)
-            pill.append(pic)
+            # Cairo artwork is the base layer, including channels without a logo.
+            # Gtk.Overlay paints it in the whole fixed-size 120×46 area.
+            pill.set_child(pic)
             short = display_channel_name(ch.name)
             short = short if len(short) <= 22 else short[:19] + '…'
             fallback = Gtk.Label(label=short)
             fallback.add_css_class('syn-logo-fallback')
             fallback.set_ellipsize(Pango.EllipsizeMode.END)
             fallback.set_max_width_chars(16)
-            pill.append(fallback)
+            # Preserve the old label as a hidden backup, without affecting
+            # Gtk.Overlay's minimum size or any Favorites row width.
+            pill.add_overlay(fallback)
+            pill.set_measure_overlay(fallback, False)
+            pill.set_clip_overlay(fallback, True)
             pill.fallback_label = fallback
             # BETA8_POP: imagen artística inicial, reemplazada por logo real al llegar.
             pic._syn_art_id = (display_channel_name(ch.name), ch.group)
@@ -6018,6 +6069,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             pic.set_size_request(120, 46)
             fallback.set_visible(False)
             pic.set_visible(True)
+            # Force the original SYN artistic substitute to render on map,
+            # also for favorites and broken/nonexistent provider URLs.
+            pic.connect('map', lambda area: area.queue_draw())
             custom = self._channel_logo_path(ch)
             if custom:
                 self._fill_logo_image(custom, pic, pill)
@@ -6199,11 +6253,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             return row
 
         def render_list(self):
+            self._syn_beta_list_token = getattr(self, '_syn_beta_list_token', 0) + 1
+            token = self._syn_beta_list_token
             current = self.listbox.get_selected_row()
             selected_id = current.channel.favorite_id if current else None
             query = norm(self.search.get_text().strip())
             cat_idx = self.category.get_selected()
-            cat = self.category_names[cat_idx] if cat_idx < len(self.category_names) else self.category_names[0]
+            cat = (self.category_names[cat_idx]
+                   if cat_idx < len(self.category_names) else self.category_names[0])
             self.filtered = [ch for ch in self.channels if
                              (cat == 'Todas las categorías' or ch.group == cat) and
                              (not self.favs.get_active() or ch.favorite_id in self.favorites) and
@@ -6213,22 +6270,34 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.filtered, self.profile.get('favorites', []))
             while (row := self.listbox.get_row_at_index(0)) is not None:
                 self.listbox.remove(row)
-            restore = None
-            for ch in self.filtered[:250]:
-                # SAME builder for all channels, in or out of favorites filter.
-                row = self._channel_sidebar_row(ch)
-                self.listbox.append(row)
-                if selected_id and ch.favorite_id == selected_id:
-                    restore = row
-            if restore:
-                self.listbox.select_row(restore)
-            elif self.filtered:
-                self.listbox.select_row(self.listbox.get_row_at_index(0))
-            self.count.set_text(f"{tr('Showing')} {min(250, len(self.filtered))} {tr('of')} {len(self.channels)} · {tr('search to filter')}")
+            self.count.set_text(f"{tr('Showing')} {min(250, len(self.filtered))} "
+                                f"{tr('of')} {len(self.channels)} · {tr('search to filter')}")
             self.render_quick_channels()
-            if os.environ.get('SYN_LAYOUT_DEBUG') == '1' and not getattr(self, '_layout_probe_pending', False):
-                self._layout_probe_pending = True
-                GLib.timeout_add(900, self._debug_sidebar_geometry)
+            portion = self.filtered[:250]
+            position = 0
+            selected = False
+            def add_batch():
+                nonlocal position, selected
+                if token != self._syn_beta_list_token:
+                    return False
+                for ch in portion[position:position + 18]:
+                    row = self._channel_sidebar_row(ch)
+                    self.listbox.append(row)
+                    if selected_id and ch.favorite_id == selected_id:
+                        self.listbox.select_row(row)
+                        selected = True
+                position += 18
+                if not selected and (not selected_id or position >= len(portion)):
+                    first = self.listbox.get_row_at_index(0)
+                    if first:
+                        self.listbox.select_row(first)
+                        selected = True
+                if position >= len(portion):
+                    if os.environ.get('SYN_LAYOUT_DEBUG') == '1':
+                        GLib.timeout_add(900, self._debug_sidebar_geometry)
+                    return False
+                return True
+            GLib.timeout_add(18, add_batch)
 
         def _debug_sidebar_geometry(self):
             self._layout_probe_pending = False
@@ -6254,23 +6323,32 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if local:
                     self._fill_logo_image(local, widget, pill)
                     return
-            if not url or not url.startswith(('http://', 'https://')): return
+            if not url or not url.startswith(('http://', 'https://')):
+                return
+            key = (url, id(widget))
+            if key in self._logo_requested:
+                return
+            self._logo_requested.add(key)
+            def worker():
+                try:
+                    # HTTP and CPU thumbnail generation BOTH run off GTK.
+                    path = sources.get_logo(
+                        url, user_agent=sources.metadata_user_agent(self.player_options))
+                    pix = self._prepare_logo_pixbuf(path)
+                    GLib.idle_add(self._publish_logo_pixbuf, pix, widget, pill)
+                except Exception as exc:
+                    if os.environ.get('SYN_LOGO_DEBUG') == '1':
+                        count = getattr(self, '_syn_beta_logo_errors', 0) + 1
+                        self._syn_beta_logo_errors = count
+                        if count <= 8:
+                            print('SYN_BETA_LOGO_FETCH_ERROR: ' + type(exc).__name__,
+                                  file=sys.stderr, flush=True)
+                finally:
+                    self._logo_requested.discard(key)
             try:
-                cached = sources.logo_path(url)
-                if cached.is_file():
-                    self._fill_logo_image(cached, widget, pill)
-                    return
-                key = (url, id(widget))
-                if key in self._logo_requested: return
-                self._logo_requested.add(key)
-                def worker():
-                    try:
-                        path = sources.get_logo(url, user_agent=sources.metadata_user_agent(self.player_options))
-                        GLib.idle_add(self._fill_logo_image, path, widget, pill)
-                    except Exception: pass
-                    finally: self._logo_requested.discard(key)
                 self._logo_pool.submit(worker)
-            except Exception: pass
+            except RuntimeError:
+                self._logo_requested.discard(key)
 
         def _favorite_heart_button(self, channel):
             active = channel.favorite_id in self.favorites

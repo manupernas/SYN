@@ -22,7 +22,7 @@ case "$FORMAT" in
   deb)
     case "$ARCH" in x86_64) pkgarch=amd64;; aarch64) pkgarch=arm64;; esac
     outfile="dist/syn-iptv_${VERSION}-1_${pkgarch}.deb"
-    deps=(python3 python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libmpv2 ffmpeg python3-pychromecast)
+    deps=(python3 python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 libmpv2 ffmpeg python3-pychromecast)
     ;;
   pacman)
     pkgarch="$ARCH"
