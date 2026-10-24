@@ -191,13 +191,27 @@ int main(int argc, char **argv) {
         /* Import GLib first to catch the g_type != TYPE_NONE failure reported
          * under Python 3.15, not just a superficial import of gi. */
         const char *code =
-            "import sys, gi, cairo\n"
+            "import os, sys, gi, cairo, ctypes, subprocess\n"
+            "from pathlib import Path\n"
             "gi.require_version('Gtk','4.0')\n"
             "gi.require_version('GLib','2.0')\n"
-            "from gi.repository import GLib, Gtk\n"
+            "gi.require_version('Adw','1')\n"
+            "gi.require_version('GdkPixbuf','2.0')\n"
+            "from gi.repository import GLib, Gtk, Adw, GdkPixbuf\n"
             "assert Gtk.get_major_version() == 4\n"
-            "assert '/Contents/Frameworks/Python.framework/' in sys.prefix\n"
-            "assert '/Contents/Resources/python-site/' in gi.__file__\n"
+            "contents = Path(os.environ['SYN_BUNDLED_PYTHON']).resolve().parent\n"
+            "fw = (contents / 'Frameworks/Python.framework/Versions/3.15').resolve()\n"
+            "site = (contents / 'Resources/python-site').resolve()\n"
+            "print('SYN_PREFIX', repr(sys.prefix), 'GI', repr(gi.__file__), flush=True)\n"
+            "assert Path(sys.prefix).resolve() == fw, (sys.prefix, str(fw))\n"
+            "assert Path(gi.__file__).resolve().is_relative_to(site), (gi.__file__, str(site))\n"
+            "print('SYN_GTK_IMPORT_OK', flush=True)\n"
+            "ctypes.CDLL(os.environ['SYN_BUNDLED_LIBMPV'])\n"
+            "print('SYN_LIBMPV_LOAD_OK', flush=True)\n"
+            "f = subprocess.run([os.environ['SYN_FFMPEG_BIN'], '-version'],\n"
+            "                  capture_output=True, text=True, timeout=20)\n"
+            "assert f.returncode == 0, (f.returncode, f.stderr[:2000])\n"
+            "print('SYN_FFMPEG_EXEC_OK', flush=True)\n"
             "print('SYN_NATIVE_GTK_OK', sys.version.split()[0], GLib.MAJOR_VERSION)\n";
         status = PyConfig_SetBytesString(&config, &config.run_command, code);
     } else {
