@@ -548,6 +548,27 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
         win.close()
 
     def save_click(*_):
+        # SYN 2.0.5: Appearance is independent from source validation.
+        # A missing local M3U / EPG path must never block selecting a theme.
+        if stack.get_visible_child_name() == 'appearance':
+            try:
+                chosen_accent = (normalize_accent_hex(color_entry.get_text().strip())
+                                 if accent_switch.get_active() else '')
+            except ValueError as exc:
+                notice.set_text(str(exc))
+                notice.set_tooltip_text(str(exc))
+                return
+            chosen_theme = next((name for name, button in zip(theme_codes, tiles)
+                                 if button.get_active()), app.cfg.get('theme', 'system'))
+            # Update in memory and on disk without touching source credentials,
+            # DVR jobs, playback settings, or the currently tuned channel.
+            app.cfg['accent_hex'] = chosen_accent
+            app.cfg['theme'] = chosen_theme
+            sources.save_config(app.cfg)
+            app.get_application().apply_theme(chosen_theme, chosen_accent)
+            app.status.set_text(t('Ajustes guardados. La reproducción continúa sin interrupción.'))
+            win.close()
+            return
         is_new = state['id'] is None
         new_id = state['id'] or sources.next_profile_id()
         obj = dict(next((p for p in app.cfg['profiles'] if p.get('id') == new_id), {}))

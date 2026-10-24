@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_public_release_136():
     syn = (ROOT / 'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "2.0.4"' in syn
+    assert 'SYN_VERSION = "2.0.5"' in syn
     for marker in ('_draw_channel_logo_or_art', 'epg_gradient_css()',
                    '_guide_touch_update', 'gruvbox_css(theme', 'nord_css(theme'):
         assert marker in syn

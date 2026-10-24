@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.5" date="2026-10-24">
+      <description>
+        <p>Fixed Appearance theme saving independently of IPTV profile validation and corrected embedded EPG border colours on native GTK desktops.</p>
+        <p xml:lang="es">Corregido el guardado del tema sin validar perfiles IPTV y los colores de los bordes de la EPG en escritorios GTK nativos.</p>
+      </description>
+    </release>
     <release version="2.0.4" date="2026-10-24">
       <description>
         <p>Improved readability of the first-run and profile setup dialog in light themes, including Ubuntu Yaru. No changes to playback, DVR, Chromecast or dark themes.</p>

@@ -52,6 +52,6 @@ def test_welcome_dark_unchanged_and_host_gtk_can_not_override_light():
     source = (ROOT/'syn.py').read_text('utf-8')
     assert 'Gtk.STYLE_PROVIDER_PRIORITY_USER + 5' in source
     assert 'welcome_light_css(theme, manager.get_dark())' in source
-    assert 'SYN_VERSION = "2.0.4"' in source
+    assert 'SYN_VERSION = "2.0.5"' in source
     assert 'window.synplus-welcome' in css('light')  # base CSS stays supported
     assert 'syn-dvr-worker' in (ROOT/'packaging/stage-native.sh').read_text('utf-8')

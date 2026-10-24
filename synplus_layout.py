@@ -218,6 +218,12 @@ def css(theme='system', accent_hex='', system_dark=False):
                                    for x, y in zip(aa, bb))
             rail_nav = mix(bg, nav)
         palette = f'''
+        window.iptv-tv.synplus-window .synplus-video-column {{
+            background-color:{bg}; color:{fg}; }}
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-header,
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-axis,
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-footer {{
+            background-color:{surface}; color:{fg}; }}
         window.iptv-tv.synplus-window {{ background-color:{bg}; color:{fg}; }}
         window.iptv-tv .synplus-nav {{ background-color:{rail_nav}; color:{fg}; border-color:alpha({fg},.11); }}
         window.iptv-tv .synplus-workbench {{ background-color:{bg}; }}
@@ -234,6 +240,12 @@ def css(theme='system', accent_hex='', system_dark=False):
         '''
     else:
         palette = '''
+        window.iptv-tv.synplus-window .synplus-video-column {
+            background-color:@window_bg_color; color:@window_fg_color; }
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-header,
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-axis,
+        window.iptv-tv.synplus-window .synplus-guide .syn-guide-footer {
+            background-color:@window_bg_color; color:@window_fg_color; }
         window.iptv-tv .synplus-nav { background-color: alpha(@window_fg_color,.022);
            border-color:alpha(@window_fg_color,.13); }
         window.iptv-tv .synplus-sidebar { background-color:alpha(@window_fg_color,.018);
@@ -492,6 +504,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     if getattr(window, '_synplus_ui', False):
         return
     window._synplus_ui = True
+    video_column.add_css_class('synplus-video-column')
     window._synplus_gtk = Gtk
     window.set_title("SYN")
     window.set_resizable(True)
