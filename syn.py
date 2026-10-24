@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.6"
+SYN_VERSION = "2.0.7"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -903,6 +903,120 @@ def epg_geometry(programmes, start, pixels_per_minute, duration_minutes=300):
                 programmes, start, duration_minutes)]
 
 
+
+
+# SYN_207_LIGHT_POPOVER: validated Fedora Flatpak light surfaces.
+def light_surface_css(theme, system_dark=False):
+    """Keep the standalone settings window and detached popovers coherent.
+
+    Dark themes (including dark System) are *intentionally* untouched.
+    """
+    schemes = {
+        # background, foreground, surface, stroke, hover, selected, accent
+        'system': ('@window_bg_color', '@window_fg_color', '@view_bg_color',
+                   'alpha(@window_fg_color,.16)', 'alpha(@window_fg_color,.08)',
+                   'alpha(@accent_bg_color,.16)', '@accent_bg_color'),
+        'light': ('#f1f8f6', '#17413b', '#f8fffc', '#bfdcd1', '#ddf1eb', '#b8e7da', '#177e79'),
+        'nord-light': ('#eceff4', '#293b4c', '#ffffff', '#c7d1dc', '#dae6f0', '#c6d9e8', '#416a93'),
+        'gruvbox-light': ('#fbf1c7', '#3c3836', '#fff9e9', '#d5c8aa', '#f0e5cb', '#e5d5b5', '#346a68'),
+    }
+    if theme not in schemes or (theme == 'system' and system_dark):
+        return ''
+    bg, fg, surface, stroke, hover, selected, accent = schemes[theme]
+    css = f"""
+    /* Root, native client-side titlebar and Close button of Settings.
+       This is separate from the video window; host dark GTK USER CSS otherwise
+       takes precedence over SYN's light APPLICATION theme. */
+    window.syn-settings-window {{
+      background-image:none; background-color:{bg}; color:{fg};
+    }}
+    window.syn-settings-window > headerbar,
+    window.syn-settings-window headerbar,
+    window.syn-settings-window .titlebar,
+    window.syn-settings-window .default-decoration,
+    window.syn-settings-window headerbar windowhandle {{
+      background-image:none; background-color:{bg}; color:{fg};
+      border-color:{stroke}; box-shadow:none;
+    }}
+    window.syn-settings-window headerbar label,
+    window.syn-settings-window headerbar image,
+    window.syn-settings-window .titlebar label,
+    window.syn-settings-window .titlebar image {{
+      color:{fg}; opacity:1; text-shadow:none;
+    }}
+    window.syn-settings-window windowcontrols button,
+    window.syn-settings-window headerbar button,
+    window.syn-settings-window .titlebar button {{
+      background-image:none; background-color:transparent;
+      border:0; box-shadow:none; color:{fg};
+    }}
+    window.syn-settings-window windowcontrols button:hover,
+    window.syn-settings-window headerbar button:hover,
+    window.syn-settings-window .titlebar button:hover {{
+      background-image:none; background-color:{hover}; color:{fg};
+    }}
+    window.syn-settings-window windowcontrols button image,
+    window.syn-settings-window .titlebar button image {{ color:{fg}; }}
+    window.syn-settings-window .syn-pref-header,
+    window.syn-settings-window .syn-pref-footer {{
+      background-image:none; background-color:{bg}; color:{fg};
+      border-color:{stroke};
+    }}
+    window.syn-settings-window .syn-pref-heading,
+    window.syn-settings-window .syn-pref-header image,
+    window.syn-settings-window .syn-pref-section-title {{
+      color:{fg}; opacity:1; text-shadow:none;
+    }}
+    /* Detached popover and DropDown windows do not inherit their parent's CSS. */
+    popover, popover.background, popover.menu {{ color:{fg}; }}
+    popover > contents,
+    popover.background > contents,
+    popover.menu > contents {{
+      background-image:none; background-color:{surface}; color:{fg};
+      border:1px solid {stroke}; border-radius:12px;
+      box-shadow:0 7px 24px rgba(0,0,0,.16);
+    }}
+    popover listview, popover listbox,
+    popover scrolledwindow, popover viewport,
+    popover listview row, popover listbox row {{
+      background-image:none; background-color:{surface}; color:{fg};
+    }}
+    popover listview row:hover,
+    popover listview row:focus,
+    popover listbox row:hover,
+    popover listbox row:focus {{
+      background-color:{hover}; color:{fg};
+    }}
+    popover listview row:selected,
+    popover listview row:selected:hover,
+    popover listbox row:selected,
+    popover listbox row:selected:hover {{
+      background-color:{selected}; color:{fg};
+    }}
+    popover > contents label,
+    popover > contents image,
+    popover > contents modelbutton,
+    popover > contents modelbutton label,
+    popover listview row label,
+    popover listbox row label {{
+      color:{fg}; opacity:1; text-shadow:none;
+    }}
+    popover button.flat, popover modelbutton {{
+      background-image:none; background-color:transparent; color:{fg};
+      box-shadow:none;
+    }}
+    popover button.flat:hover, popover modelbutton:hover {{
+      background-image:none; background-color:{hover}; color:{fg};
+    }}
+    popover entry, popover searchentry,
+    popover entry text, popover searchentry text {{
+      color:{fg}; background-color:{surface}; border-color:{stroke};
+    }}
+    popover scrollbar slider {{ background-color:{accent}; }}
+    """
+    # Keep Cast's separately approved styling; global popover selectors must
+    # not override it after moving this patch to a higher GTK USER priority.
+    return css + synplus_layout.cast_popover_css(theme)
 
 
 def syn_popup_theme_css(theme):
@@ -7742,6 +7856,17 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         self._syn_welcome_theme_provider = welcome_provider
                     welcome_provider.load_from_data(
                         synplus_layout.welcome_light_css(theme, manager.get_dark()).encode('utf-8'))
+                # SYN_207_LIGHT_POPOVER: Fedora Flatpak approved light dialog and popup fix.
+                # Deliberately empty for all dark themes and System dark.
+                if display:
+                    popup_fix = getattr(self, '_syn_207_light_popup_fix', None)
+                    if popup_fix is None:
+                        popup_fix = Gtk.CssProvider()
+                        Gtk.StyleContext.add_provider_for_display(
+                            display, popup_fix, Gtk.STYLE_PROVIDER_PRIORITY_USER + 6)
+                        self._syn_207_light_popup_fix = popup_fix
+                    popup_fix.load_from_data(
+                        light_surface_css(theme, manager.get_dark()).encode('utf-8'))
                 # Native GTK loads ~/.config/gtk-4.0/gtk.css at USER,
                 # above the APPLICATION-level SYN workbench. Protect only
                 # SYN's layout in native System mode at USER+1 while keeping

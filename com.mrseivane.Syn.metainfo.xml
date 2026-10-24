@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.7" date="2026-10-24">
+      <description>
+        <p>Fixed light-theme GTK4 popovers, dropdown menus and standalone Settings titlebar on Fedora Flatpak and other Linux desktops, preserving the existing Cast popup.</p>
+        <p xml:lang="es">Corregidos los menús emergentes, desplegables y la barra de Ajustes en temas claros GTK4 sin cambiar el menú Chromecast.</p>
+      </description>
+    </release>
     <release version="2.0.6" date="2026-10-24">
       <description>
         <p>Optimized initial channel rendering in incremental batches, restored centred logos and illustrated no-logo placeholders in Favorites and channel lists, and added Debian Cairo integration dependency.</p>

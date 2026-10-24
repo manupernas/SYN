@@ -71,7 +71,7 @@ class Tests(unittest.TestCase):
         self.assertFalse(w._synplus_cast_popover_open)
     def test_version_and_cast_anchor(self):
         s=(ROOT/'syn.py').read_text(encoding='utf-8')
-        self.assertIn('SYN_VERSION = "2.0.6"',s)
+        self.assertIn('SYN_VERSION = "2.0.7"',s)
         self.assertIn('synplus_layout.hold_chrome_for_cast(self, pop, Gtk)',s)
         self.assertIn('self._syn_cast_call({\'action\':\'devices\'},done)',s)
         self.assertIn('self._syn_cast_play(d)',s)

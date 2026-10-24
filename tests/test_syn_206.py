@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_incremental_channel_rows_and_lazy_popup():
     s=(ROOT/'syn.py').read_text('utf-8')
     ast.parse(s)
-    assert 'SYN_VERSION = "2.0.6"' in s
+    assert 'SYN_VERSION = "2.0.7"' in s
     assert 'GLib.timeout_add(18, add_batch)' in s
     assert 'self._syn_beta_list_token' in s
     assert 'self._syn_beta_quick_token' in s
