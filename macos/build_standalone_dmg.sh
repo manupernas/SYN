@@ -168,6 +168,9 @@ done
 codesign --force --deep --sign - --timestamp=none "$APP"
 codesign --verify --deep "$APP"
 "$APP/Contents/MacOS/SYN" --syn-bootstrap-check | grep SYN_NATIVE_GTK_OK
+# The bootstrap must not mutate any resource after signing.
+codesign --verify --deep --verbose=2 "$APP"
+echo STANDALONE_POST_BOOTSTRAP_SIGNATURE_OK
 # No staged Mach-O is permitted to reference the developer Homebrew prefix.
 "$PYBIN" - "$APP" <<'PY'
 from pathlib import Path
@@ -184,6 +187,9 @@ print(f'STANDALONE_MACHO_VALIDATION_OK: {count} files')
 PY
 mkdir -p dist "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/SYN.app"
+# Recheck the precise bytes that will go into the disk image.
+codesign --verify --deep --verbose=2 "$TMP/dmg/SYN.app"
+echo STANDALONE_DMG_CONTENT_SIGNATURE_OK
 ln -s /Applications "$TMP/dmg/Applications"
 DMG="$ROOT/dist/SYN-1.0-macOS-arm64-autonomo-beta.dmg"
 rm -f "$DMG"

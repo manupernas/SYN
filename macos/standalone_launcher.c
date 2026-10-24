@@ -170,6 +170,9 @@ int main(int argc, char **argv) {
     PyConfig_InitPythonConfig(&config);
     config.parse_argv = 0;
     config.use_environment = 0;
+    /* The signed Python.framework is sealed: runtime .pyc files would
+     * invalidate its ad-hoc signature after --syn-bootstrap-check. */
+    config.write_bytecode = 0;
     config.site_import = 0;
     config.module_search_paths_set = 1;
     const char *py_paths[] = {py_site, py_resources, py_src, py_stdlib, py_dynload, NULL};
