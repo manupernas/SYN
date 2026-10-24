@@ -1,34 +1,36 @@
-name: SYN 1.0 macOS DMG (experimental)
+name: SYN 1.0 macOS DMG autónomo (beta)
 on:
   workflow_dispatch:
   push:
     branches: [macos]
     paths:
-      - macos/**
-      - .github/workflows/build-macos-dmg.yml
+      - 'macos/**'
+      - '.github/workflows/build-macos-dmg.yml'
 permissions:
   contents: read
 jobs:
   dmg-arm64:
+    name: Bundle macOS ARM64 runtime
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
-      - name: Checkout branch macos
+      - name: Checkout macos
         uses: actions/checkout@v4
-      - name: Check architecture
+      - name: Confirm runner architecture
         run: |
           test "$(uname -m)" = arm64
           xcode-select -p
-      - name: Install GTK/libmpv runtime (development package)
+      - name: Install build-only Homebrew toolchain
         run: |
           brew update
-          brew install python@3.15 gtk4 libadwaita mpv glib gobject-introspection pygobject3 py3cairo ffmpeg
-      - name: Build SYN 1.0 experimental DMG
-        run: bash macos/build_dev_dmg.sh
-      - name: Upload DMG artifact
+          brew install python@3.15 gtk4 libadwaita mpv glib \
+            gobject-introspection pygobject3 py3cairo ffmpeg gdk-pixbuf
+      - name: Build portable runtime and native helpers
+        run: bash macos/build_standalone_dmg.sh
+      - name: Upload SYN 1.0 standalone DMG beta
         uses: actions/upload-artifact@v4
         with:
-          name: SYN-1.0-macOS-arm64-experimental
-          path: dist/SYN-1.0-macOS-arm64.dmg
+          name: SYN-1.0-macOS-arm64-autonomo-beta
+          path: dist/SYN-1.0-macOS-arm64-autonomo-beta.dmg
           if-no-files-found: error
           retention-days: 30
