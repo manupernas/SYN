@@ -39,7 +39,14 @@ def test_axis_hour_text_ink_changes_only_for_light_themes():
         assert min(ink[:3]) > .80, (name, ink)
 
 def test_popup_css_used_by_high_priority_theme_provider():
-    assert 'palette_css + epg_gradient_css() + syn_popup_theme_css(theme)' in SOURCE
+    # Native System now uses a separate palette. Other modes retain the
+    # general popover CSS, but its expression spans several source lines.
+    # Verify the actual composition and application, not its formatting.
+    assert 'effective_css = (palette_css if native_system else' in SOURCE
+    assert 'palette_css + epg_gradient_css() +' in SOURCE
+    assert 'syn_popup_theme_css(theme) +' in SOURCE
+    assert "self.teal_theme_provider.load_from_data(effective_css.encode('utf-8'))" in SOURCE
+    assert 'Gtk.STYLE_PROVIDER_PRIORITY_USER + 1' in SOURCE
 
 def test_epg_cairo_calls_theme_palette_and_repaints():
     assert 'grid_ink, hour_ink = epg_axis_ink(theme)' in SOURCE
