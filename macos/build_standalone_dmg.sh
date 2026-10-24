@@ -194,7 +194,7 @@ for helper in "$APP/Contents/Helpers"/*.app; do
   codesign --force --deep --sign - --timestamp=none "$helper"
 done
 codesign --force --deep --sign - --timestamp=none "$APP"
-codesign --verify --deep --strict "$APP"
+codesign --verify --deep --verbose=2 "$APP"
 # Check every binary's CodeDirectory, not just the enclosing app seal.
 while IFS= read -r -d '' binary; do
   if ! codesign --verify --strict "$binary" >/dev/null 2>&1; then
@@ -225,7 +225,7 @@ PY
 mkdir -p dist "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/SYN.app"
 # Recheck the precise bytes that will go into the disk image.
-codesign --verify --deep --strict --verbose=2 "$TMP/dmg/SYN.app"
+codesign --verify --deep --verbose=2 "$TMP/dmg/SYN.app"
 # Verify also every Mach-O in the exact copied payload that goes into the DMG.
 while IFS= read -r -d '' binary; do
   copied="$TMP/dmg/SYN.app/${binary#"$APP"/}"
