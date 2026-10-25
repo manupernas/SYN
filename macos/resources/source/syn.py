@@ -8027,7 +8027,26 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             super().__init__(application_id=APP_ID, flags=flags)
             self.win = None
 
+        def _syn_mac_quit(self, *_):
+            # Cerrar las ventanas secundarias antes que la principal para que
+            # el cierre normal de SYN guarde configuración y detenga el vídeo.
+            # El servicio DVR independiente no se modifica.
+            for window in tuple(self.get_windows()):
+                if window is not self.win:
+                    window.close()
+            if self.win is not None:
+                self.win.close()
+            else:
+                self.quit()
+
         def do_activate(self):
+            # GTK/macOS: Command es Meta, NO Primary. Registrar la acción
+            # después del startup estándar, sin sobreescribir do_startup().
+            if sys.platform == 'darwin' and self.lookup_action('quit') is None:
+                action = Gio.SimpleAction.new('quit', None)
+                action.connect('activate', self._syn_mac_quit)
+                self.add_action(action)
+                self.set_accels_for_action('app.quit', ['<Meta>q'])
             if not self.win:
                 self.theme_provider = Gtk.CssProvider()
                 self.host_theme_provider = Gtk.CssProvider()
