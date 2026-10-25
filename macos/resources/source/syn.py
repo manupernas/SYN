@@ -3966,13 +3966,13 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             hero.set_margin_top(26); hero.set_margin_bottom(27)
             hero.set_halign(Gtk.Align.FILL)
             header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
-            header.append(brand_icon(26))
+            header.append(brand_icon(35))
             name = Gtk.Label(label='SYN', xalign=0)
             name.add_css_class('syn-welcome-kicker')
             header.append(name)
             header.set_margin_bottom(10)
             hero.append(header)
-            cover_logo = brand_icon(64)
+            cover_logo = brand_icon(96)
             cover_logo.set_halign(Gtk.Align.CENTER)
             hero.append(cover_logo)
             tagline = Gtk.Label(label=tr('Tu televisión, a tu manera.'))
@@ -7101,11 +7101,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # backends de GTK notifican el cambio casi inmediatamente.
             self._fullscreen_timeout_id = GLib.timeout_add(1000, self._finish_fullscreen_request)
             if self._fullscreen_target:
-                if sys.platform == 'darwin' and getattr(self, '_synplus_ui', False):
-                    synplus_layout.fade_fullscreen_panels(
-                        self, GLib, False, finished=self.fullscreen)
-                else:
-                    self.fullscreen()
+                self.fullscreen()
             else:
                 self.unfullscreen()
 
@@ -8030,23 +8026,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                      else Gio.ApplicationFlags.FLAGS_NONE)
             super().__init__(application_id=APP_ID, flags=flags)
             self.win = None
-
-        def do_startup(self):
-            super().do_startup()
-            if sys.platform == 'darwin':
-                # Native Command+Q for all application windows, including setup.
-                quit_action = Gio.SimpleAction.new('quit', None)
-                quit_action.connect('activate', self._syn_quit_from_menu)
-                self.add_action(quit_action)
-                self.set_accels_for_action('app.quit', ['<Primary>q'])
-
-        def _syn_quit_from_menu(self, *_):
-            # Go through the normal close-request path so configuration
-            # is saved. The independent DVR is not touched here.
-            if self.win is not None:
-                self.win.close()
-            else:
-                self.quit()
 
         def do_activate(self):
             if not self.win:

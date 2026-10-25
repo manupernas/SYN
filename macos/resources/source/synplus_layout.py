@@ -5,7 +5,6 @@ channel handlers. This file changes placement and presentation, not backends.
 """
 from __future__ import annotations
 import hashlib
-import os
 import sys
 import time
 import unicodedata
@@ -1652,7 +1651,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     persistent_gradient.set_can_target(False)
     gradient_reveal = Gtk.Revealer()
     gradient_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    gradient_reveal.set_transition_duration(270)
+    gradient_reveal.set_transition_duration(210)
     gradient_reveal.set_halign(Gtk.Align.FILL)
     gradient_reveal.set_valign(Gtk.Align.FILL)
     gradient_reveal.set_hexpand(True)
@@ -1669,7 +1668,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.overlay.remove_overlay(chrome)
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    reveal.set_transition_duration(270)
+    reveal.set_transition_duration(210)
     # Windowed chrome starts hidden; pointer hover/click is the ONLY reveal.
     reveal.set_reveal_child(False)
     reveal.set_halign(Gtk.Align.FILL)
@@ -1830,50 +1829,6 @@ def adapt(window, width):
     poll_chrome(window)
 
 
-def fade_fullscreen_panels(window, GLib, showing, finished=None):
-    """macOS-only 120/230ms alpha ramp for nav/list/EPG around native fullscreen.
-
-    No video processing, no changes to Gdk.GLArea, mpv, or DVR. OS/GTK remains
-    responsible for actual window-space animation. Other platforms untouched.
-    """
-    previous = getattr(window, '_synplus_panel_fade_id', 0)
-    if previous:
-        GLib.source_remove(previous)
-        window._synplus_panel_fade_id = 0
-    panels = [window._synplus_nav, window.sidebar, window.guide_surface]
-    if showing:
-        # Native compositor has already restored windowed geometry.
-        for panel in panels:
-            panel.set_opacity(0.0)
-    else:
-        # Before asking for fullscreen, fade the panels only, not the video.
-        for panel in panels:
-            panel.set_opacity(1.0)
-    started = time.monotonic()
-    duration = .23 if showing else .12
-
-    def step():
-        progress = min(1.0, (time.monotonic() - started) / duration)
-        # Smoothstep: starts and stops without a hard jump.
-        eased = progress * progress * (3.0 - 2.0 * progress)
-        alpha = eased if showing else 1.0 - eased
-        for panel in panels:
-            panel.set_opacity(alpha)
-        if progress >= 1.0:
-            # Entry stays faded out until GTK hides the panels. Reset their
-            # opacity only once hidden; otherwise one frame may flash.
-            if showing:
-                for panel in panels:
-                    panel.set_opacity(1.0)
-            window._synplus_panel_fade_id = 0
-            if finished is not None:
-                finished()
-            return False
-        return True
-
-    window._synplus_panel_fade_id = GLib.timeout_add(16, step)
-
-
 def fullscreen_changed(window, enabled, GLib):
     """Pure transmission fullscreen, without touching the realized GLArea.
 
@@ -1901,8 +1856,6 @@ def fullscreen_changed(window, enabled, GLib):
         window._synplus_cast_popover_open = False
         window._synplus_nav.set_visible(False)
         window.guide_surface.set_visible(False)
-        for panel in (window._synplus_nav, window.sidebar, window.guide_surface):
-            panel.set_opacity(1.0)
         # The stable fullscreen handler handles its own channel sidebar,
         # but SYN Plus has an independent host and guide outside the video.
         # Keep them hidden while the window itself is fullscreen.
@@ -1949,9 +1902,6 @@ def fullscreen_changed(window, enabled, GLib):
     if getattr(window, '_synplus_pre_full_guide', False):
         GLib.idle_add(lambda: (set_guide_mode(window, GLib, True), False)[1])
     window._synplus_pre_full_guide = False
-    # macOS: restore the side panels with a brief opacity transition.
-    if sys.platform == 'darwin':
-        fade_fullscreen_panels(window, GLib, True)
     # Layout is reported only after the compositor has sent its allocation.
     GLib.timeout_add(80, lambda: (adapt(window, window.get_width()), False)[1])
     GLib.idle_add(window._queue_video_frame)
