@@ -54,6 +54,7 @@ def fix_menu_bar_name(name='SYN'):
     send0=C.CFUNCTYPE(C.c_void_p,C.c_void_p,C.c_void_p)(('objc_msgSend',objc))
     send_obj=C.CFUNCTYPE(C.c_void_p,C.c_void_p,C.c_void_p,C.c_void_p)(('objc_msgSend',objc))
     send_idx=C.CFUNCTYPE(C.c_void_p,C.c_void_p,C.c_void_p,C.c_long)(('objc_msgSend',objc))
+    send_integer=C.CFUNCTYPE(C.c_long,C.c_void_p,C.c_void_p)(('objc_msgSend',objc))
     send_set=C.CFUNCTYPE(None,C.c_void_p,C.c_void_p,C.c_void_p)(('objc_msgSend',objc))
     send_chars=C.CFUNCTYPE(C.c_char_p,C.c_void_p,C.c_void_p)(('objc_msgSend',objc))
     app_class=objc.objc_getClass(b'NSApplication')
@@ -63,6 +64,9 @@ def fix_menu_bar_name(name='SYN'):
     if not app: return False
     menu=send0(app,sel('mainMenu'))
     if not menu: return False
+    # During Command+Q, AppKit can have a mainMenu containing ZERO items.
+    # Calling itemAtIndex:0 then raises an uncaught NSRangeException.
+    if send_integer(menu,sel('numberOfItems')) <= 0: return False
     first=send_idx(menu,sel('itemAtIndex:'),0)
     if not first: return False
     obj=send0(first,sel('title'))

@@ -7982,6 +7982,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 pass
 
         def closing(self, *_):
+            # The Cocoa menu may already be empty while GTK tears down.
+            if sys.platform == 'darwin':
+                app = self.get_application()
+                if app is not None:
+                    app._syn_mac_cancel_menu_timer()
             if getattr(self, '_syn_mac_closing', False):
                 return False
             self._syn_mac_closing = True
@@ -8027,7 +8032,16 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             super().__init__(application_id=APP_ID, flags=flags)
             self.win = None
 
+        def _syn_mac_cancel_menu_timer(self):
+            source_id = getattr(self, '_syn_mac_menu_timer_id', 0)
+            if source_id:
+                GLib.source_remove(source_id)
+                self._syn_mac_menu_timer_id = 0
+            self._syn_mac_menu_name_timer = False
+
         def _syn_mac_quit(self, *_):
+            # No poll may run while AppKit dismantles the application menu.
+            self._syn_mac_cancel_menu_timer()
             # Cerrar las ventanas secundarias antes que la principal para que
             # el cierre normal de SYN guarde configuración y detenga el vídeo.
             # El servicio DVR independiente no se modifica.
@@ -8099,6 +8113,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self._syn_mac_menu_name_timer = True
                     self._syn_mac_menu_name_attempts = 0
                     def rename_menu():
+                        # No Objective-C menu calls after close has started.
+                        if (self.win is None or
+                                getattr(self.win, '_syn_mac_closing', False)):
+                            self._syn_mac_menu_name_timer = False
+                            self._syn_mac_menu_timer_id = 0
+                            return False
                         self._syn_mac_menu_name_attempts += 1
                         try:
                             ok = fix_menu_bar_name('SYN')
@@ -8106,9 +8126,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                             ok = False
                         if ok or self._syn_mac_menu_name_attempts >= 24:
                             self._syn_mac_menu_name_timer = False
+                            self._syn_mac_menu_timer_id = 0
                             return False
                         return True
-                    GLib.timeout_add(400, rename_menu)
+                    self._syn_mac_menu_timer_id = GLib.timeout_add(400, rename_menu)
 
         def _gtk_theme_changed(self, *_):
             if self._current_theme == 'system' and not getattr(self, '_theme_guard', False):
