@@ -544,6 +544,14 @@ class NativeMpv:
         self._control_queue.put(("command", args))
         return 0  # El error real se notifica asíncronamente.
 
+    def screenshot_to_file(self, destination, callback):
+        # Never call mpv_command from GTK's GL rendering/main thread.
+        # Deliver the actual libmpv result on GLib, not just queued status.
+        if self.closed or not self.ptr:
+            return False
+        self._control_queue.put(("screenshot_file", (str(destination), callback)))
+        return True
+
     def _control_loop(self):
         # Las llamadas normales a libmpv se hacen fuera del hilo de render.
         # Nunca utilizamos un lock que el hilo OpenGL necesite adquirir.
@@ -560,6 +568,12 @@ class NativeMpv:
                 try:
                     if operation == "command":
                         err = self._mpv_command(*args)
+                    elif operation == "screenshot_file":
+                        filename, callback = args
+                        err = self._mpv_command('screenshot-to-file', filename, 'video')
+                        message = (self.lib.mpv_error_string(err).decode('utf-8', 'replace')
+                                   if err < 0 else '')
+                        self.GLib.idle_add(callback, err, message)
                     elif operation == "volume":
                         value = C.c_double(float(args[0]))
                         err = self.lib.mpv_set_property(self.ptr, b"volume", 5, C.byref(value))
@@ -4700,6 +4714,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             folder = (self.cfg.get('player', {}) or {}).get('screenshot_dir', '')
             if folder:
                 return Path(folder).expanduser()
+            if sys.platform == 'darwin':
+                # Finder localizes 'Pictures' as 'Imágenes' automatically.
+                return Path.home() / 'Pictures' / 'SYN'
             pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
             return Path(pictures) / 'SYN' if pictures else Path.home() / 'Imágenes' / 'SYN'
 
@@ -4745,6 +4762,41 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_shot_hold_id = 0
             self._syn_shot_poll_id = 0
             self._syn_shot_pending = None
+            # Small temporary overlay for capture errors: the status label
+            # stays detached from the layout to save player/EPG space.
+            self._syn_shot_notice = Gtk.Label(label='')
+            self._syn_shot_notice.add_css_class('syn-shot-preview')
+            self._syn_shot_notice.set_halign(Gtk.Align.CENTER)
+            self._syn_shot_notice.set_valign(Gtk.Align.END)
+            self._syn_shot_notice.set_margin_bottom(22)
+            self._syn_shot_notice.set_margin_start(14)
+            self._syn_shot_notice.set_margin_end(14)
+            self._syn_shot_notice.set_can_target(False)
+            self._syn_shot_notice.set_visible(False)
+            self.overlay.add_overlay(self._syn_shot_notice)
+            self._syn_shot_notice_timer = 0
+
+        def _syn_capture_message(self, message):
+            self.status.set_text(message)
+            if self._syn_shot_notice_timer:
+                GLib.source_remove(self._syn_shot_notice_timer)
+            self._syn_shot_notice.set_text(message)
+            self._syn_shot_notice.set_visible(True)
+            self._syn_shot_notice_timer = GLib.timeout_add(3200, self._syn_capture_clear_message)
+
+        def _syn_capture_clear_message(self):
+            self._syn_shot_notice_timer = 0
+            self._syn_shot_notice.set_visible(False)
+            return False
+
+        def _syn_capture_command_finished(self, result, error_text):
+            if result < 0 and self._syn_shot_pending is not None:
+                self._syn_shot_pending = None
+                if self._syn_shot_poll_id:
+                    GLib.source_remove(self._syn_shot_poll_id)
+                    self._syn_shot_poll_id = 0
+                self._syn_capture_message('Captura fallida: ' + (error_text or 'error de MPV'))
+            return False
 
         def _syn_capture_flash(self):
             if self._syn_shot_fade_id:
@@ -4786,6 +4838,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self._syn_shot_pending = None
                     self._syn_shot_poll_id = 0
                     self._syn_shot_image.set_paintable(texture)
+                    self._syn_capture_message('Foto PNG guardada en ' + str(target.parent))
                     self._syn_shot_reveal.set_visible(True)
                     self._syn_shot_reveal.set_reveal_child(True)
                     self._syn_capture_flash()
@@ -4796,14 +4849,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if time.monotonic() - start >= 6.0:
                 self._syn_shot_pending = None
                 self._syn_shot_poll_id = 0
-                self.status.set_text('SYN: no se pudo guardar la captura PNG.')
+                self._syn_capture_message('No se pudo guardar la foto PNG. Revisa permisos y señal.')
                 return False
             return True
 
         def _syn_capture_take(self, *_):
             player = self.area.player
             if not self.current or not player or not player.ctx.value or not player.active_url:
-                self.status.set_text('SYN: selecciona un canal antes de hacer una captura.')
+                self._syn_capture_message('Selecciona un canal antes de hacer una foto.')
                 return
             if getattr(self, '_syn_shot_pending', None):
                 return  # Do not pile up asynchronous screenshot commands.
@@ -4817,12 +4870,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 dest = folder / f'SYN - {safe} - {stamp}.png'
                 # This command runs on the existing MPV control worker,
                 # never on the GTK/GL rendering thread.
-                if player.command('screenshot-to-file', str(dest), 'video') < 0:
-                    raise OSError('libmpv no aceptó la captura.')
+                if not player.screenshot_to_file(dest, self._syn_capture_command_finished):
+                    raise OSError('El reproductor no está disponible.')
                 self._syn_shot_pending = (dest, time.monotonic())
                 self._syn_shot_poll_id = GLib.timeout_add(120, self._syn_capture_poll)
             except (OSError, ValueError) as exc:
-                self.status.set_text('SYN captura: ' + str(exc)[:150])
+                self._syn_capture_message('SYN captura: ' + str(exc)[:150])
 
         def _syn_capture_close(self):
             for name in ('_syn_shot_fade_id', '_syn_shot_hold_id', '_syn_shot_poll_id'):
@@ -4831,6 +4884,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     GLib.source_remove(source_id)
                     setattr(self, name, 0)
             self._syn_shot_pending = None
+            if getattr(self, '_syn_shot_notice_timer', 0):
+                GLib.source_remove(self._syn_shot_notice_timer)
+                self._syn_shot_notice_timer = 0
 
         def fs_volume_changed(self, scale):
             if hasattr(self, "volume") and abs(self.volume.get_value() - scale.get_value()) >= 0.5:
@@ -7081,7 +7137,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.guide_tracks_scroll.set_propagate_natural_width(False)
             self.guide_tracks_scroll.set_propagate_natural_height(False)
             self.guide_tracks_scroll.set_min_content_height(0)
-            self.guide_tracks_scroll.set_kinetic_scrolling(True)
+            # EPG usa su propia interpolación: evitar doble inercia de GTK.
+            self.guide_tracks_scroll.set_kinetic_scrolling(False)
             # Mostrar siempre la barra vertical: con miles de canales, el usuario
             # debe saber que puede seguir bajando. La barra horizontal sigue auto.
             self.guide_tracks_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.ALWAYS)
@@ -7454,10 +7511,18 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             hi = max(lo, adj.get_upper() - adj.get_page_size())
             # Mac trackpads emit fractional deltas; mouse wheels arrive in steps.
             # Move one shared GTK adjustment with critically damped easing.
-            step = dy * 26.0
+            # Una rueda/trackpad puede emitir ráfagas antes de que la
+            # animación alcance el objetivo. No acumular filas fuera de vista.
+            # El destino nunca adelanta más de 2 filas (140 px) al viewport
+            # actual, ni siquiera con un evento de dy excepcionalmente grande.
+            step = max(-48.0, min(48.0, dy * 22.0))
+            current = adj.get_value()
+            lead = min(140.0, max(70.0, adj.get_page_size() * 0.65))
             origin = (self._guide_scroll_target if self._guide_scroll_target is not None
-                      else adj.get_value())
-            self._guide_scroll_target = max(lo, min(hi, origin + step))
+                      else current)
+            proposed = origin + step
+            self._guide_scroll_target = max(lo, min(hi,
+                max(current - lead, min(current + lead, proposed))))
             if not self._guide_scroll_timer:
                 self._guide_scroll_timer = GLib.timeout_add(16, self._guide_smooth_scroll_tick)
             if os.environ.get('SYN_EPG_DEBUG') == '1':
@@ -8126,7 +8191,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     # Cairo-drawn glyphs do not respond automatically to
                     # libadwaita palette changes; repaint at each theme change.
                     if sys.platform == 'darwin':
-                        for glyph in (getattr(window, '_synplus_cine_reel', None),):
+                        for glyph in (getattr(window, '_synplus_cine_reel', None),
+                                      getattr(window, '_synplus_tv_icon', None)):
                             if glyph is not None:
                                 glyph.queue_draw()
             finally:

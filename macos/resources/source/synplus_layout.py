@@ -1461,6 +1461,15 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         if key == 'favoritos':
             pictogram = Gtk.Label(label='♡')
             pictogram.add_css_class('synplus-fav-heart-icon')
+        elif key == 'tv':
+            # Pictograma nativo, evita un icono de tema inexistente o distinto.
+            pictogram = Gtk.DrawingArea()
+            pictogram.set_content_width(19)
+            pictogram.set_content_height(19)
+            pictogram.set_size_request(19, 19)
+            pictogram.set_can_target(False)
+            pictogram.set_draw_func(draw_tv_sidebar_icon)
+            window._synplus_tv_icon = pictogram
         elif key == 'cine':
             pictogram = Gtk.DrawingArea()
             pictogram.set_content_width(19)
@@ -1637,8 +1646,14 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_cast_popover_open = False
     window._synplus_cast_popover = None
     GLib.timeout_add(300, lambda: poll_chrome(window))
-    window.footer.set_visible(False)
-    window.status.set_visible(False)
+    # These two legacy labels were outside the player and EPG. Keeping
+    # them in the vertical box created a redundant black band, and fullscreen
+    # transitions could make them visible again. Preserve self.status for
+    # internal notifications, but never allocate visible height to either.
+    for redundant in (window.footer, window.status):
+        if redundant.get_parent() == video_column:
+            video_column.remove(redundant)
+        redundant.set_visible(False)
     # The channel list starts playback directly. Keep the underlying handler
     # for compatibility but remove the redundant Play button from the toolbar.
     if window.play_button.get_parent() == window.strip:
@@ -2165,6 +2180,48 @@ CLASSIC_REFINED_PALETTES = (
     ((.55,.83,.81),(.09,.54,.54),(.10,.20,.23)), # teal
     ((.97,.64,.59),(.91,.36,.28),(.27,.12,.12)), # coral
 )
+
+
+def draw_tv_sidebar_icon(area, cr, width, height):
+    """Small TV outline, drawn locally; same dimensions as the Cine symbol."""
+    if width <= 0 or height <= 0:
+        return
+    s = min(width, height) / 19.0
+    cr.save()
+    try:
+        cr.translate((width - 19*s)/2, (height - 19*s)/2)
+        cr.scale(s, s)
+        dark = False
+        if sys.platform == 'darwin':
+            root = area.get_root()
+            app = root.get_application() if root is not None else None
+            manager = getattr(app, '_adw_manager', None)
+            if manager is not None:
+                dark = bool(manager.get_dark())
+            else:
+                from syn_macos_theme import is_dark
+                dark = is_dark()
+        cr.set_source_rgb(*((.98, .98, .99) if dark else (.10, .10, .12)))
+        cr.set_line_width(1.65)
+        # Rounded 16:10 screen: recognizable at 19px, no theme dependency.
+        cr.move_to(4.4, 3.5)
+        cr.line_to(14.6, 3.5)
+        cr.curve_to(15.6, 3.5, 16.1, 4.0, 16.1, 5.0)
+        cr.line_to(16.1, 12.2)
+        cr.curve_to(16.1, 13.2, 15.6, 13.7, 14.6, 13.7)
+        cr.line_to(4.4, 13.7)
+        cr.curve_to(3.4, 13.7, 2.9, 13.2, 2.9, 12.2)
+        cr.line_to(2.9, 5.0)
+        cr.curve_to(2.9, 4.0, 3.4, 3.5, 4.4, 3.5)
+        cr.close_path()
+        cr.stroke()
+        cr.move_to(9.5, 13.8)
+        cr.line_to(9.5, 16.0)
+        cr.move_to(6.4, 16.0)
+        cr.line_to(12.6, 16.0)
+        cr.stroke()
+    finally:
+        cr.restore()
 
 
 def draw_vintage_movie_reel(area, cr, width, height):
