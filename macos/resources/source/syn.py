@@ -7040,7 +7040,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             focused = self.get_focus()
             typing = isinstance(focused, (Gtk.Entry, Gtk.SearchEntry))
             if key == Gdk.KEY_Escape and self.guide_open:
-                self.set_guide_open(False)
+                self._synplus_close_guide_or_restore()
                 return True
             if self.guide_open and not typing and key in (Gdk.KEY_Home, Gdk.KEY_KP_Home):
                 self.guide_go_now()
@@ -7118,7 +7118,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             close = Gtk.Button.new_from_icon_name('window-close-symbolic')
             close.add_css_class('syn-guide-head-button')
             close.set_tooltip_text(tr('Cerrar guía (Esc)'))
-            close.connect('clicked', lambda *_: self.set_guide_open(False))
+            close.connect('clicked', lambda *_: self._synplus_close_guide_or_restore())
             head.append(close)
             self.guide_surface.append(head)
 
@@ -7846,6 +7846,18 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if self.fullscreen_mode:
                     self.set_fs_osd(True)
 
+        def _synplus_close_guide_or_restore(self):
+            # Close the navigation Guide as Back. The fullscreen-on-video
+            # overlay uses the existing close behaviour: remain fullscreen.
+            restore = getattr(self, '_synplus_restore_guide', None)
+            if (callable(restore)
+                    and getattr(self, '_synplus_full_guide', False)
+                    and not (self.fullscreen_mode or self.is_fullscreen()
+                             or getattr(self, '_synplus_in_fullscreen', False))):
+                restore()
+                return
+            self.set_guide_open(False)
+
         def show_guide(self, *_):
             if getattr(self, '_synplus_ui', False):
                 # The fullscreen OSD Guide button must use the fullscreen
@@ -7854,7 +7866,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         or getattr(self, '_synplus_in_fullscreen', False)):
                     synplus_layout.show_guide_page(self, GLib)
                 elif getattr(self, '_synplus_full_guide', False):
-                    synplus_layout.set_guide_mode(self, GLib, False)
+                    self._synplus_close_guide_or_restore()
                 else:
                     synplus_layout.show_guide_page(self, GLib)
                 return

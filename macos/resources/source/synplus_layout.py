@@ -1401,6 +1401,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     buttons = {}
 
     def _select(name):
+        window._synplus_current_section = name
         for key, btn in buttons.items():
             if key == name:
                 btn.add_css_class('synplus-current')
@@ -1422,6 +1423,16 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         _select('favoritos' if favorites else 'tv')
 
     def _guide(*_):
+        # Remember the active destination BEFORE Guide hides the portal
+        # or DVR. Do not overwrite when Guide is already active.
+        previous = getattr(window, '_synplus_current_section', 'tv')
+        if previous != 'guia':
+            state = {'section': previous}
+            if previous in ('cine', 'series'):
+                state['portal_mode'] = getattr(window, '_syn_portal_mode',
+                                               'movies' if previous == 'cine' else 'series')
+                state['query'] = window._syn_portal_search.get_text()
+            window._synplus_guide_return = state
         window._syn_portal_hide()
         if window.dvr_view.get_visible():
             window.toggle_dvr_view()
@@ -1441,6 +1452,35 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         if not window.dvr_view.get_visible():
             window.toggle_dvr_view()
         _select('dvr')
+
+    def _restore_guide(*_):
+        # Reparent the EPG first, then close it. Closing alone leaves
+        # the full-guide navigation selection over a black main panel.
+        state = getattr(window, '_synplus_guide_return', None) or {}
+        previous = state.get('section', 'tv')
+        set_guide_mode(window, GLib, False)
+        if window.guide_open:
+            window.set_guide_open(False)
+        if previous == 'dvr':
+            _dvr()
+        elif previous in ('cine', 'series'):
+            mode = state.get('portal_mode') or (
+                'movies' if previous == 'cine' else 'series')
+            if previous == 'cine':
+                mode = 'movies'
+            elif mode not in ('series', 'episodes'):
+                mode = 'series'
+            _portal(mode, previous)
+            query = state.get('query', '')
+            if query:
+                window._syn_portal_search.set_text(query)
+        elif previous == 'favoritos':
+            _tv(favorites=True)
+        else:
+            _tv()
+        window._synplus_guide_return = None
+
+    window._synplus_restore_guide = _restore_guide
 
     entries = [
         ('tv', 'TV', 'video-display-symbolic', lambda: _tv()),
