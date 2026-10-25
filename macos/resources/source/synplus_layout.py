@@ -1331,103 +1331,6 @@ def opening_window_geometry(window):
     return preferred_window_size(1920, 1200)
 
 
-# SYN_MAC_AMBIENT_BANDS_BETA1
-# All rendering occurs in Gtk.DrawingArea's Cairo layer, never in libmpv.
-# Never copy frames, sample video, change mpv options, or reparent Gtk.GLArea.
-def ambient_bands_lateral_width(canvas_w, canvas_h, source_w, source_h):
-    """Return width of each *vertical* black band; zero for horizontal bars."""
-    if min(canvas_w, canvas_h, source_w, source_h) <= 0:
-        return 0.0
-    picture_width = float(canvas_h) * float(source_w) / float(source_h)
-    return max(0.0, (float(canvas_w) - picture_width) / 2.0)
-
-
-def _syn_install_ambient_bands(window, Gtk, GLib):
-    """Two noninteractive, static Cairo ramps over mpv's pillarbox regions.
-
-    A 900-ms poll checks only an existing mpv dimensions snapshot and one small
-    on/off marker. Cairo redraws only when this state changes or GTK resizes.
-    """
-    import cairo
-
-    disabled_marker = os.path.join(
-        os.path.expanduser('~'), 'Library', 'Application Support',
-        'SYN-Mac', 'ambient-bands.disabled')
-    ambient = Gtk.DrawingArea()
-    ambient.set_halign(Gtk.Align.FILL)
-    ambient.set_valign(Gtk.Align.FILL)
-    ambient.set_hexpand(True)
-    ambient.set_vexpand(True)
-    ambient.set_can_target(False)
-    ambient.set_focusable(False)
-    window.overlay.add_overlay(ambient)
-    window.overlay.set_measure_overlay(ambient, False)
-    window._synplus_ambient_band_overlay = ambient
-
-    last = {'state': None}
-
-    def snapshot():
-        # Opt-out works even with SYN open: touch/remove the .disabled marker.
-        if os.environ.get('SYN_AMBIENT_BANDS', '1').strip().lower() in (
-                '0', 'false', 'off', 'no') or os.path.exists(disabled_marker):
-            return False, None
-        # This experimental feature is exclusive to the small/windowed player.
-        if (window.is_fullscreen()
-                or getattr(window, '_synplus_in_fullscreen', False)
-                or getattr(window, '_synplus_full_guide', False)):
-            return False, None
-        player = getattr(getattr(window, 'area', None), 'player', None)
-        # video_dimensions() only returns a snapshot already polled by mpv's
-        # control thread: NEVER synchronous mpv_get_property from GTK.
-        if player is None or not hasattr(player, 'video_dimensions'):
-            return False, None
-        dims = player.video_dimensions()
-        if not dims or min(dims) <= 0:
-            return False, None
-        return True, tuple(dims)
-
-    def draw(_area, cr, width, height):
-        enabled, dimensions = snapshot()
-        if not enabled or width < 2 or height < 2:
-            return
-        side = ambient_bands_lateral_width(width, height, *dimensions)
-        if side < 3.0:
-            return
-        # Two gradients, dark at their inner edge (matching mpv black) and
-        # gently petroleum tinted toward the outer edge. Opaque only in bands.
-        side = min(side, width / 2.0)
-        cr.save()
-        try:
-            left = cairo.LinearGradient(0.0, 0.0, side, 0.0)
-            left.add_color_stop_rgb(0.0, .075, .18, .20)
-            left.add_color_stop_rgb(.45, .045, .11, .125)
-            left.add_color_stop_rgb(1.0, 0.0, 0.0, 0.0)
-            cr.set_source(left)
-            cr.rectangle(0.0, 0.0, side, height)
-            cr.fill()
-
-            right = cairo.LinearGradient(width - side, 0.0, width, 0.0)
-            right.add_color_stop_rgb(0.0, 0.0, 0.0, 0.0)
-            right.add_color_stop_rgb(.55, .045, .11, .125)
-            right.add_color_stop_rgb(1.0, .075, .18, .20)
-            cr.set_source(right)
-            cr.rectangle(width - side, 0.0, side, height)
-            cr.fill()
-        finally:
-            cr.restore()
-
-    ambient.set_draw_func(draw)
-
-    def poll():
-        key = snapshot()
-        if key != last['state']:
-            last['state'] = key
-            ambient.queue_draw()
-        return True
-
-    GLib.timeout_add(900, poll)
-
-
 def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_header_controls):
     """Recompose EXISTING GTK widgets before GTK/GLArea is realized.
 
@@ -1715,10 +1618,6 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
-    # SYN_MAC_AMBIENT_BANDS_BETA1: only GTK/Cairo overlay; never touch mpv/GLArea/DVR.
-    # Added BEFORE playback chrome so buttons remain on top and clickable.
-    if sys.platform == 'darwin':
-        _syn_install_ambient_bands(window, Gtk, GLib)
     # Starts exactly 16:9. Once the user resizes, the player canvas becomes
     # fully free (portrait, square, ultrawide); this is NOT a size constraint.
     window._synplus_opening_ratio = True
@@ -1753,7 +1652,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     persistent_gradient.set_can_target(False)
     gradient_reveal = Gtk.Revealer()
     gradient_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    gradient_reveal.set_transition_duration(210)
+    gradient_reveal.set_transition_duration(270)
     gradient_reveal.set_halign(Gtk.Align.FILL)
     gradient_reveal.set_valign(Gtk.Align.FILL)
     gradient_reveal.set_hexpand(True)
@@ -1770,7 +1669,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.overlay.remove_overlay(chrome)
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    reveal.set_transition_duration(210)
+    reveal.set_transition_duration(270)
     # Windowed chrome starts hidden; pointer hover/click is the ONLY reveal.
     reveal.set_reveal_child(False)
     reveal.set_halign(Gtk.Align.FILL)
@@ -1931,6 +1830,50 @@ def adapt(window, width):
     poll_chrome(window)
 
 
+def fade_fullscreen_panels(window, GLib, showing, finished=None):
+    """macOS-only 120/230ms alpha ramp for nav/list/EPG around native fullscreen.
+
+    No video processing, no changes to Gdk.GLArea, mpv, or DVR. OS/GTK remains
+    responsible for actual window-space animation. Other platforms untouched.
+    """
+    previous = getattr(window, '_synplus_panel_fade_id', 0)
+    if previous:
+        GLib.source_remove(previous)
+        window._synplus_panel_fade_id = 0
+    panels = [window._synplus_nav, window.sidebar, window.guide_surface]
+    if showing:
+        # Native compositor has already restored windowed geometry.
+        for panel in panels:
+            panel.set_opacity(0.0)
+    else:
+        # Before asking for fullscreen, fade the panels only, not the video.
+        for panel in panels:
+            panel.set_opacity(1.0)
+    started = time.monotonic()
+    duration = .23 if showing else .12
+
+    def step():
+        progress = min(1.0, (time.monotonic() - started) / duration)
+        # Smoothstep: starts and stops without a hard jump.
+        eased = progress * progress * (3.0 - 2.0 * progress)
+        alpha = eased if showing else 1.0 - eased
+        for panel in panels:
+            panel.set_opacity(alpha)
+        if progress >= 1.0:
+            # Entry stays faded out until GTK hides the panels. Reset their
+            # opacity only once hidden; otherwise one frame may flash.
+            if showing:
+                for panel in panels:
+                    panel.set_opacity(1.0)
+            window._synplus_panel_fade_id = 0
+            if finished is not None:
+                finished()
+            return False
+        return True
+
+    window._synplus_panel_fade_id = GLib.timeout_add(16, step)
+
+
 def fullscreen_changed(window, enabled, GLib):
     """Pure transmission fullscreen, without touching the realized GLArea.
 
@@ -1958,6 +1901,8 @@ def fullscreen_changed(window, enabled, GLib):
         window._synplus_cast_popover_open = False
         window._synplus_nav.set_visible(False)
         window.guide_surface.set_visible(False)
+        for panel in (window._synplus_nav, window.sidebar, window.guide_surface):
+            panel.set_opacity(1.0)
         # The stable fullscreen handler handles its own channel sidebar,
         # but SYN Plus has an independent host and guide outside the video.
         # Keep them hidden while the window itself is fullscreen.
@@ -2004,6 +1949,9 @@ def fullscreen_changed(window, enabled, GLib):
     if getattr(window, '_synplus_pre_full_guide', False):
         GLib.idle_add(lambda: (set_guide_mode(window, GLib, True), False)[1])
     window._synplus_pre_full_guide = False
+    # macOS: restore the side panels with a brief opacity transition.
+    if sys.platform == 'darwin':
+        fade_fullscreen_panels(window, GLib, True)
     # Layout is reported only after the compositor has sent its allocation.
     GLib.timeout_add(80, lambda: (adapt(window, window.get_width()), False)[1])
     GLib.idle_add(window._queue_video_frame)
