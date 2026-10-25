@@ -5,6 +5,7 @@ channel handlers. This file changes placement and presentation, not backends.
 """
 from __future__ import annotations
 import hashlib
+import os
 import sys
 import time
 import unicodedata
@@ -1330,6 +1331,103 @@ def opening_window_geometry(window):
     return preferred_window_size(1920, 1200)
 
 
+# SYN_MAC_AMBIENT_BANDS_BETA1
+# All rendering occurs in Gtk.DrawingArea's Cairo layer, never in libmpv.
+# Never copy frames, sample video, change mpv options, or reparent Gtk.GLArea.
+def ambient_bands_lateral_width(canvas_w, canvas_h, source_w, source_h):
+    """Return width of each *vertical* black band; zero for horizontal bars."""
+    if min(canvas_w, canvas_h, source_w, source_h) <= 0:
+        return 0.0
+    picture_width = float(canvas_h) * float(source_w) / float(source_h)
+    return max(0.0, (float(canvas_w) - picture_width) / 2.0)
+
+
+def _syn_install_ambient_bands(window, Gtk, GLib):
+    """Two noninteractive, static Cairo ramps over mpv's pillarbox regions.
+
+    A 900-ms poll checks only an existing mpv dimensions snapshot and one small
+    on/off marker. Cairo redraws only when this state changes or GTK resizes.
+    """
+    import cairo
+
+    disabled_marker = os.path.join(
+        os.path.expanduser('~'), 'Library', 'Application Support',
+        'SYN-Mac', 'ambient-bands.disabled')
+    ambient = Gtk.DrawingArea()
+    ambient.set_halign(Gtk.Align.FILL)
+    ambient.set_valign(Gtk.Align.FILL)
+    ambient.set_hexpand(True)
+    ambient.set_vexpand(True)
+    ambient.set_can_target(False)
+    ambient.set_focusable(False)
+    window.overlay.add_overlay(ambient)
+    window.overlay.set_measure_overlay(ambient, False)
+    window._synplus_ambient_band_overlay = ambient
+
+    last = {'state': None}
+
+    def snapshot():
+        # Opt-out works even with SYN open: touch/remove the .disabled marker.
+        if os.environ.get('SYN_AMBIENT_BANDS', '1').strip().lower() in (
+                '0', 'false', 'off', 'no') or os.path.exists(disabled_marker):
+            return False, None
+        # This experimental feature is exclusive to the small/windowed player.
+        if (window.is_fullscreen()
+                or getattr(window, '_synplus_in_fullscreen', False)
+                or getattr(window, '_synplus_full_guide', False)):
+            return False, None
+        player = getattr(getattr(window, 'area', None), 'player', None)
+        # video_dimensions() only returns a snapshot already polled by mpv's
+        # control thread: NEVER synchronous mpv_get_property from GTK.
+        if player is None or not hasattr(player, 'video_dimensions'):
+            return False, None
+        dims = player.video_dimensions()
+        if not dims or min(dims) <= 0:
+            return False, None
+        return True, tuple(dims)
+
+    def draw(_area, cr, width, height):
+        enabled, dimensions = snapshot()
+        if not enabled or width < 2 or height < 2:
+            return
+        side = ambient_bands_lateral_width(width, height, *dimensions)
+        if side < 3.0:
+            return
+        # Two gradients, dark at their inner edge (matching mpv black) and
+        # gently petroleum tinted toward the outer edge. Opaque only in bands.
+        side = min(side, width / 2.0)
+        cr.save()
+        try:
+            left = cairo.LinearGradient(0.0, 0.0, side, 0.0)
+            left.add_color_stop_rgb(0.0, .075, .18, .20)
+            left.add_color_stop_rgb(.45, .045, .11, .125)
+            left.add_color_stop_rgb(1.0, 0.0, 0.0, 0.0)
+            cr.set_source(left)
+            cr.rectangle(0.0, 0.0, side, height)
+            cr.fill()
+
+            right = cairo.LinearGradient(width - side, 0.0, width, 0.0)
+            right.add_color_stop_rgb(0.0, 0.0, 0.0, 0.0)
+            right.add_color_stop_rgb(.55, .045, .11, .125)
+            right.add_color_stop_rgb(1.0, .075, .18, .20)
+            cr.set_source(right)
+            cr.rectangle(width - side, 0.0, side, height)
+            cr.fill()
+        finally:
+            cr.restore()
+
+    ambient.set_draw_func(draw)
+
+    def poll():
+        key = snapshot()
+        if key != last['state']:
+            last['state'] = key
+            ambient.queue_draw()
+        return True
+
+    GLib.timeout_add(900, poll)
+
+
 def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_header_controls):
     """Recompose EXISTING GTK widgets before GTK/GLArea is realized.
 
@@ -1617,6 +1715,10 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
+    # SYN_MAC_AMBIENT_BANDS_BETA1: only GTK/Cairo overlay; never touch mpv/GLArea/DVR.
+    # Added BEFORE playback chrome so buttons remain on top and clickable.
+    if sys.platform == 'darwin':
+        _syn_install_ambient_bands(window, Gtk, GLib)
     # Starts exactly 16:9. Once the user resizes, the player canvas becomes
     # fully free (portrait, square, ultrawide); this is NOT a size constraint.
     window._synplus_opening_ratio = True
