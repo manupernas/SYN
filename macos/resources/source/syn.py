@@ -2712,7 +2712,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.rec_button.set_size_request(27, 27)
             self.rec_button.set_tooltip_text(tr('Grabar canal actual'))
             self.rec_button.connect('clicked', self.toggle_instant_record)
-            self.shot_button = Gtk.Button.new_from_icon_name('camera-photo-symbolic')
+            self.shot_button = Gtk.Button()
+            self.shot_button.set_child(self._syn_capture_icon())
             self.shot_button.set_tooltip_text('Capturar fotograma PNG')
             self.shot_button.connect('clicked', self._syn_capture_take)
             volume_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
@@ -4102,7 +4103,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.fs_top.add_css_class("syn-fs-top")
             self.fs_top.set_halign(Gtk.Align.END)
             self.fs_top.set_valign(Gtk.Align.START)
-            exit_btn = Gtk.Button.new_from_icon_name("view-restore-symbolic")
+            exit_btn = Gtk.Button()
+            exit_btn.set_child(self._syn_exit_fullscreen_icon())
             exit_btn.set_tooltip_text(tr("Salir de pantalla completa (Esc)"))
             exit_btn.connect("clicked", self.toggle_fullscreen)
             self.fs_top.append(exit_btn)
@@ -4121,7 +4123,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.fs_cast_button.set_tooltip_text('Retransmitir por Chromecast')
             self.fs_cast_button.connect('toggled', self._syn_cast_menu)
             self.fs_top.append(self.fs_cast_button)
-            shot_full = Gtk.Button.new_from_icon_name('camera-photo-symbolic')
+            shot_full = Gtk.Button()
+            shot_full.set_child(self._syn_capture_icon(on_black=True))
             shot_full.set_tooltip_text('Capturar fotograma PNG')
             shot_full.connect('clicked', self._syn_capture_take)
             self.fs_top.append(shot_full)
@@ -4709,6 +4712,84 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_idle_sync()
             return True
 
+        def _syn_exit_fullscreen_icon(self):
+            """Always-visible restore-window glyph on the fullscreen dark chrome.
+
+            Draw directly in Cairo instead of relying on the GTK icon theme:
+            view-restore-symbolic can be absent in a standalone macOS bundle.
+            """
+            area = Gtk.DrawingArea()
+            area.set_content_width(20)
+            area.set_content_height(20)
+            area.set_size_request(20, 20)
+            area.set_can_target(False)
+            def paint(_area, cr, width, height):
+                if min(width, height) <= 0:
+                    return
+                scale = min(width, height) / 20.0
+                cr.save()
+                try:
+                    cr.translate((width - 20*scale)/2, (height - 20*scale)/2)
+                    cr.scale(scale, scale)
+                    cr.set_source_rgb(.98, .98, .99)
+                    cr.set_line_width(1.8)
+                    cr.set_line_cap(1)
+                    cr.set_line_join(1)
+                    # Two overlapping windows: standard 'restore' metaphor.
+                    cr.move_to(6.5, 5.2)
+                    cr.line_to(6.5, 3.2)
+                    cr.line_to(16.9, 3.2)
+                    cr.line_to(16.9, 13.3)
+                    cr.line_to(14.8, 13.3)
+                    cr.stroke()
+                    cr.rectangle(3.1, 6.6, 10.7, 10.0)
+                    cr.stroke()
+                finally:
+                    cr.restore()
+            area.set_draw_func(paint)
+            return area
+
+        def _syn_capture_icon(self, on_black=False):
+            """Camera glyph rendered by Cairo; never depends on GTK icon packs."""
+            area = Gtk.DrawingArea()
+            area.set_content_width(20)
+            area.set_content_height(20)
+            area.set_size_request(20, 20)
+            area.set_can_target(False)
+            def paint(widget, cr, width, height):
+                if min(width, height) <= 0:
+                    return
+                scale = min(width, height) / 20.0
+                cr.save()
+                try:
+                    cr.translate((width - 20*scale)/2, (height - 20*scale)/2)
+                    cr.scale(scale, scale)
+                    manager = Adw.StyleManager.get_default()
+                    dark = bool(manager.get_dark())
+                    color = (.97, .97, .98) if on_black or dark else (.12, .12, .14)
+                    cr.set_source_rgb(*color)
+                    cr.set_line_width(1.65)
+                    cr.set_line_join(1)
+                    # Camera body with upper viewfinder ridge and circular lens.
+                    cr.move_to(3.0, 6.2)
+                    cr.line_to(6.3, 6.2)
+                    cr.line_to(7.5, 4.1)
+                    cr.line_to(12.5, 4.1)
+                    cr.line_to(13.7, 6.2)
+                    cr.line_to(17.0, 6.2)
+                    cr.line_to(17.0, 16.2)
+                    cr.line_to(3.0, 16.2)
+                    cr.close_path()
+                    cr.stroke()
+                    cr.arc(10.0, 11.2, 3.15, 0, 6.283185307179586)
+                    cr.stroke()
+                    cr.arc(15.2, 8.2, 0.75, 0, 6.283185307179586)
+                    cr.fill()
+                finally:
+                    cr.restore()
+            area.set_draw_func(paint)
+            return area
+
         # SYN_CAPTURE_TIMESHIFT_BETA5: direct MPV frame PNG, not a window screenshot.
         def _syn_capture_folder(self):
             folder = (self.cfg.get('player', {}) or {}).get('screenshot_dir', '')
@@ -4741,23 +4822,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_shot_flash.set_can_target(False)
             self._syn_shot_flash.set_visible(False)
             self.overlay.add_overlay(self._syn_shot_flash)
-            self._syn_shot_image = Gtk.Picture()
-            self._syn_shot_image.set_content_fit(Gtk.ContentFit.CONTAIN)
-            self._syn_shot_image.set_can_shrink(True)
-            self._syn_shot_image.set_size_request(184, 104)
-            self._syn_shot_reveal = Gtk.Revealer()
-            self._syn_shot_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-            self._syn_shot_reveal.set_transition_duration(420)
-            self._syn_shot_reveal.set_halign(Gtk.Align.START)
-            self._syn_shot_reveal.set_valign(Gtk.Align.START)
-            self._syn_shot_reveal.set_margin_start(23)
-            self._syn_shot_reveal.set_margin_top(23)
-            self._syn_shot_reveal.set_can_target(False)
-            self._syn_shot_reveal.add_css_class('syn-shot-preview')
-            self._syn_shot_reveal.set_child(self._syn_shot_image)
-            self._syn_shot_reveal.set_reveal_child(False)
-            self._syn_shot_reveal.set_visible(False)
-            self.overlay.add_overlay(self._syn_shot_reveal)
+            # No Gtk.Picture/preview overlay: a full-resolution frame had a
+            # natural size of 1920x1080, covering the video indefinitely.
+            # Use a brief non-interactive flash and dismissible status instead.
             self._syn_shot_fade_id = 0
             self._syn_shot_hold_id = 0
             self._syn_shot_poll_id = 0
@@ -4765,6 +4832,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # Small temporary overlay for capture errors: the status label
             # stays detached from the layout to save player/EPG space.
             self._syn_shot_notice = Gtk.Label(label='')
+            self._syn_shot_notice.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+            self._syn_shot_notice.set_max_width_chars(52)
             self._syn_shot_notice.add_css_class('syn-shot-preview')
             self._syn_shot_notice.set_halign(Gtk.Align.CENTER)
             self._syn_shot_notice.set_valign(Gtk.Align.END)
@@ -4817,11 +4886,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 return True
             self._syn_shot_fade_id = GLib.timeout_add(16, tick)
 
-        def _syn_capture_hide_preview(self):
-            self._syn_shot_hold_id = 0
-            self._syn_shot_reveal.set_reveal_child(False)
-            return False
-
         def _syn_capture_poll(self):
             pending = self._syn_shot_pending
             if not pending:
@@ -4831,20 +4895,16 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             if target.is_file() and target.stat().st_size > 100:
                 # PNG screenshot-to-file is asynchronous: only open when decodable.
                 try:
-                    texture = Gdk.Texture.new_from_filename(str(target))
+                    # Decode a small image to ensure the PNG is complete,
+                    # but NEVER put the full frame inside the player overlay.
+                    GdkPixbuf.Pixbuf.new_from_file_at_scale(str(target), 160, 90, True)
                 except (GLib.Error, OSError):
                     pass
                 else:
                     self._syn_shot_pending = None
                     self._syn_shot_poll_id = 0
-                    self._syn_shot_image.set_paintable(texture)
-                    self._syn_capture_message('Foto PNG guardada en ' + str(target.parent))
-                    self._syn_shot_reveal.set_visible(True)
-                    self._syn_shot_reveal.set_reveal_child(True)
                     self._syn_capture_flash()
-                    if self._syn_shot_hold_id:
-                        GLib.source_remove(self._syn_shot_hold_id)
-                    self._syn_shot_hold_id = GLib.timeout_add(2400, self._syn_capture_hide_preview)
+                    self._syn_capture_message('Foto PNG guardada · ' + str(target.parent))
                     return False
             if time.monotonic() - start >= 6.0:
                 self._syn_shot_pending = None
@@ -8192,7 +8252,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     # libadwaita palette changes; repaint at each theme change.
                     if sys.platform == 'darwin':
                         for glyph in (getattr(window, '_synplus_cine_reel', None),
-                                      getattr(window, '_synplus_tv_icon', None)):
+                                      getattr(window, '_synplus_tv_icon', None),
+                                      (window.shot_button.get_child()
+                                       if hasattr(window, 'shot_button') else None)):
                             if glyph is not None:
                                 glyph.queue_draw()
             finally:
