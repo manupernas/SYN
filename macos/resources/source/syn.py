@@ -2713,7 +2713,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.rec_button.set_tooltip_text(tr('Grabar canal actual'))
             self.rec_button.connect('clicked', self.toggle_instant_record)
             self.shot_button = Gtk.Button()
-            self.shot_button.set_child(self._syn_capture_icon())
+            self.shot_button.set_child(self._syn_capture_icon(on_black=True))
             self.shot_button.set_tooltip_text('Capturar fotograma PNG')
             self.shot_button.connect('clicked', self._syn_capture_take)
             volume_icon = Gtk.Image.new_from_icon_name("audio-volume-high-symbolic")
