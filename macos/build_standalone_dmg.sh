@@ -31,11 +31,11 @@ for item in macos/resources/*; do
   ditto "$item" "$APP/Contents/Resources/$(basename "$item")"
 done
 # SYN branding lives at repository root, outside macos/resources.
-for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png icono_3.png; do
   test -s "branding/$name" || { echo "Falta branding/$name" >&2; exit 1; }
 done
 ditto branding "$APP/Contents/Resources/source/branding"
-for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png icono_3.png; do
   test -s "$APP/Contents/Resources/source/branding/$name" || {
     echo "ERROR: branding sin copiar: $name" >&2; exit 1;
   }
@@ -243,7 +243,7 @@ print(f'STANDALONE_MACHO_VALIDATION_OK: {count} files')
 PY
 mkdir -p dist "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/SYN.app"
-for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png icono_3.png; do
   test -s "$TMP/dmg/SYN.app/Contents/Resources/source/branding/$name" || {
     echo "ERROR: logo ausente del DMG: $name" >&2; exit 1;
   }

@@ -2254,7 +2254,27 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         return css
 
     def brand_icon(size=36):
-        """Icono local: funciona en Flatpak y en la instalación nativa."""
+        """SYN app icon at the exact requested size, including the standalone DMG."""
+        if sys.platform == 'darwin':
+            # macOS bundles the real PNG at Contents/Resources/source/branding.
+            # Never fall back to a missing Linux hicolor icon in the welcome.
+            art = Path(__file__).resolve().parent / 'branding' / 'icono_3.png'
+            if art.is_file():
+                try:
+                    pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        str(art), int(size), int(size), True)
+                    image = Gtk.Image.new_from_pixbuf(pix)
+                    image.set_halign(Gtk.Align.CENTER)
+                    image.set_valign(Gtk.Align.CENTER)
+                    image.set_size_request(size, size)
+                    return image
+                except (GLib.Error, OSError):
+                    pass
+            # If damaged or missing, show the wordmark instead of a broken icon.
+            placeholder = Gtk.Label(label='SYN')
+            placeholder.add_css_class('syn-welcome-kicker')
+            placeholder.set_size_request(size, size)
+            return placeholder
         pixel = 32 if size <= 40 else (128 if size <= 150 else 256)
         relative = f'icons/hicolor/{pixel}x{pixel}/apps/{APP_ID}.png'
         paths = [
@@ -2274,6 +2294,69 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         icon = Gtk.Image.new_from_icon_name(APP_ID)
         icon.set_pixel_size(size)
         return icon
+
+    def welcome_symbol(kind, size=37):
+        """Independent of icon packs; inherits the active welcome CSS ink."""
+        area = Gtk.DrawingArea()
+        area.set_content_width(size)
+        area.set_content_height(size)
+        area.set_size_request(size, size)
+        area.set_can_target(False)
+        area.add_css_class('syn-welcome-symbol')
+
+        def paint(widget, cr, width, height):
+            if min(width, height) <= 0:
+                return
+            # GTK4 uses CSS foreground color, so light/dark/custom themes work.
+            ink = (widget.get_color() if hasattr(widget, 'get_color')
+                   else widget.get_style_context().get_color())
+            cr.save()
+            try:
+                cr.translate((width - min(width, height))/2,
+                             (height - min(width, height))/2)
+                cr.scale(min(width, height)/37.0, min(width, height)/37.0)
+                cr.set_source_rgba(ink.red, ink.green, ink.blue, ink.alpha)
+                cr.set_line_width(2.5)
+                cr.set_line_cap(1)
+                cr.set_line_join(1)
+                if kind == 'file':
+                    # A folded document with two playlist lines.
+                    cr.move_to(10, 4); cr.line_to(23, 4)
+                    cr.line_to(29, 10); cr.line_to(29, 32)
+                    cr.line_to(10, 32); cr.close_path(); cr.stroke()
+                    cr.move_to(23, 4); cr.line_to(23, 10); cr.line_to(29, 10); cr.stroke()
+                    for y in (17, 23, 29):
+                        cr.move_to(15, y); cr.line_to(24, y); cr.stroke()
+                elif kind == 'url':
+                    # Two interconnected links; no system icon required.
+                    cr.save()
+                    cr.translate(18.5, 18.5); cr.rotate(-0.785398)
+                    for y in (-7, 7):
+                        cr.new_sub_path(); cr.arc(-4, y-3, 4, 3.14159, 4.71239)
+                        cr.arc(4, y-3, 4, 4.71239, 6.28319)
+                        cr.arc(4, y+3, 4, 0, 1.5708)
+                        cr.arc(-4, y+3, 4, 1.5708, 3.14159)
+                        cr.close_path(); cr.stroke()
+                    cr.restore()
+                elif kind == 'xtream':
+                    # Server with a connected streaming signal.
+                    cr.move_to(7, 13); cr.line_to(7, 29)
+                    cr.line_to(26, 29); cr.line_to(26, 13)
+                    cr.close_path(); cr.stroke()
+                    cr.move_to(12, 20); cr.line_to(17, 20); cr.stroke()
+                    cr.arc(22, 20, 1.2, 0, 6.28318); cr.fill()
+                    cr.arc(30, 9, 4, 3.45, 5.99); cr.stroke()
+                    cr.arc(30, 9, 8, 3.45, 5.99); cr.stroke()
+                elif kind == 'next':
+                    cr.move_to(13, 9); cr.line_to(24, 18.5)
+                    cr.line_to(13, 28); cr.stroke()
+                elif kind == 'back':
+                    cr.move_to(24, 9); cr.line_to(13, 18.5)
+                    cr.line_to(24, 28); cr.stroke()
+            finally:
+                cr.restore()
+        area.set_draw_func(paint)
+        return area
 
     class MpvArea(Gtk.GLArea):
         def __init__(self):
@@ -3908,9 +3991,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 button.add_css_class('syn-welcome-card')
                 button.set_hexpand(True)
                 content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
-                icon = Gtk.Image.new_from_icon_name(symbol)
-                icon.set_pixel_size(37)
-                icon.add_css_class('syn-welcome-symbol')
+                icon = welcome_symbol(kind, 37)
                 content.append(icon)
                 labels = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
                 h = Gtk.Label(label=label, xalign=0)
@@ -3921,7 +4002,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 d.set_wrap(True)
                 labels.append(d)
                 content.append(labels)
-                content.append(Gtk.Image.new_from_icon_name('go-next-symbolic'))
+                content.append(welcome_symbol('next', 17))
                 button.set_child(content)
                 button.connect('clicked', lambda *_: choose_source(kind))
                 hero.append(button)
@@ -3948,7 +4029,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             form_shell.set_margin_start(28); form_shell.set_margin_end(28)
             form_scroll.set_child(form_shell)
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-            back = Gtk.Button.new_from_icon_name('go-previous-symbolic')
+            back = Gtk.Button()
+            back.set_child(welcome_symbol('back', 19))
             back.set_tooltip_text(tr('Volver a elegir una fuente'))
             back.connect('clicked', lambda *_: stack.set_visible_child_name('intro'))
             row.append(back)
