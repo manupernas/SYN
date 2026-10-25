@@ -8053,6 +8053,12 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             else:
                 self.quit()
 
+        def _syn_mac_preferences(self, *_):
+            # Reutiliza la ventana real de Ajustes; no crea otro diálogo.
+            window = self.win or self.get_active_window()
+            if window is not None:
+                window.open_settings()
+
         def do_activate(self):
             # GTK/macOS: Command es Meta, NO Primary. Registrar la acción
             # después del startup estándar, sin sobreescribir do_startup().
@@ -8061,6 +8067,22 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 action.connect('activate', self._syn_mac_quit)
                 self.add_action(action)
                 self.set_accels_for_action('app.quit', ['<Meta>q'])
+            if sys.platform == 'darwin' and self.lookup_action('preferences') is None:
+                # GTK4 integra app.preferences en el menú de aplicación macOS.
+                preferences = Gio.SimpleAction.new('preferences', None)
+                preferences.connect('activate', self._syn_mac_preferences)
+                self.add_action(preferences)
+                self.set_accels_for_action('app.preferences', ['<Meta>comma'])
+
+                # Sustituir Editar por un modelo GMenu propio es la vía GTK4
+                # documentada: evita manipular NSMenu con ctypes/Objective-C.
+                # Mantener el menú Ventana nativo para minimizar/restaurar.
+                menubar = Gio.Menu()
+                native_window = Gio.MenuItem.new_submenu('Ventana', Gio.Menu())
+                native_window.set_attribute_value(
+                    'gtk-macos-special', GLib.Variant('s', 'window-submenu'))
+                menubar.append_item(native_window)
+                self.set_menubar(menubar)
             if not self.win:
                 self.theme_provider = Gtk.CssProvider()
                 self.host_theme_provider = Gtk.CssProvider()
