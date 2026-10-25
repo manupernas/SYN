@@ -2723,12 +2723,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self._syn_cast_apply_orange_style()
             self.cast_button.set_tooltip_text('Retransmitir por Chromecast')
             self.cast_button.connect('toggled', self._syn_cast_menu)
-            # SYN_MAC_574_AIRPLAY: real AVPlayer/AVRoutePickerView helper.
-            self.airplay_button = Gtk.Button()
-            self.airplay_button.add_css_class('syn-airplay-button')
-            self.airplay_button.set_child(self._syn_airplay_icon())
-            self.airplay_button.set_tooltip_text('AirPlay · Enviar vídeo mediante AVPlayer de Apple')
-            self.airplay_button.connect('clicked', self._syn_airplay_launch)
             self._syn_cast_target_uuid = None
             self._syn_cast_device_name = ''
             self._syn_cast_only = False
@@ -4113,12 +4107,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.fs_cast_button.set_tooltip_text('Retransmitir por Chromecast')
             self.fs_cast_button.connect('toggled', self._syn_cast_menu)
             self.fs_top.append(self.fs_cast_button)
-            self.fs_airplay_button = Gtk.Button()
-            self.fs_airplay_button.add_css_class('syn-airplay-button')
-            self.fs_airplay_button.set_child(self._syn_airplay_icon(on_black=True))
-            self.fs_airplay_button.set_tooltip_text('AirPlay · Enviar vídeo desde Apple AVPlayer')
-            self.fs_airplay_button.connect('clicked', self._syn_airplay_launch)
-            self.fs_top.append(self.fs_airplay_button)
             shot_full = Gtk.Button.new_from_icon_name('camera-photo-symbolic')
             shot_full.set_tooltip_text('Capturar fotograma PNG')
             shot_full.connect('clicked', self._syn_capture_take)
@@ -5137,86 +5125,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         # SYN_CAST_ORANGE_VISUAL_6_2: solo cambia el color de los botones Chromecast.
         # SYN_MAC_CAST_GLYPH_V1: dibujo vectorial del símbolo Google Cast.
         # No depende de "chromecast-symbolic", que no es un icono GTK estándar.
-        def _syn_airplay_icon(self, on_black=False):
-            # Draw the Apple AirPlay glyph locally; independent of icon themes.
-            image = Gtk.DrawingArea()
-            image.set_content_width(20)
-            image.set_content_height(20)
-            image.set_size_request(20,20)
-            image.set_can_target(False)
-            def paint(_area, cr, width, height):
-                s=min(width,height)/20.0
-                cr.save()
-                try:
-                    cr.translate((width-20*s)/2,(height-20*s)/2)
-                    cr.scale(s,s)
-                    # SYN_MAC_577_AIRPLAY_INK: the app can override macOS
-                    # light/dark in Ajustes. Use its *effective* palette.
-                    root = _area.get_root()
-                    app = root.get_application() if root is not None else None
-                    manager = getattr(app, '_adw_manager', None)
-                    if manager is not None:
-                        dark = bool(manager.get_dark())
-                    else:
-                        from syn_macos_theme import is_dark
-                        dark = is_dark()
-                    tone = .98 if (on_black or dark) else .10
-                    cr.set_source_rgba(tone,tone,tone,1)
-                    cr.set_line_width(1.7)
-                    cr.move_to(3.3,11.0);cr.line_to(3.3,4.0)
-                    cr.curve_to(3.3,3.0,4.1,2.5,5.1,2.5)
-                    cr.line_to(14.9,2.5)
-                    cr.curve_to(15.9,2.5,16.7,3.0,16.7,4.0)
-                    cr.line_to(16.7,11.0);cr.stroke()
-                    cr.move_to(10.0,10.0)
-                    cr.line_to(4.6,17.1);cr.line_to(15.4,17.1)
-                    cr.close_path();cr.fill()
-                finally:
-                    cr.restore()
-            image.set_draw_func(paint)
-            return image
-
-        def _syn_airplay_launch(self, *_):
-            import subprocess
-            # SYN_MAC_575_AIRPLAY_CHROME: launching AppKit moves focus away
-            # from the video widget, which previously hid the AirPlay button.
-            if getattr(self, '_synplus_ui', False):
-                self._synplus_airplay_hold_until = time.monotonic() + 6.0
-                if getattr(self, 'fullscreen_mode', False):
-                    self.set_fs_osd(True)
-                else:
-                    synplus_layout.poll_chrome(self)
-            from pathlib import Path
-            from urllib.parse import urlparse
-            ch=getattr(self,'current',None)
-            if ch is None:
-                self.status.set_text('AirPlay: elige primero un canal.')
-                return
-            url=str(getattr(ch,'url','') or '')
-            scheme=urlparse(url).scheme.lower()
-            if scheme not in ('http','https'):
-                self.status.set_text('AirPlay: este canal no tiene una URL HTTP/HLS compatible.')
-                return
-            binary=(Path.home()/'Library'/'Application Support'/'SYN-Mac'/'AirPlay'/
-                    'SYN AirPlay.app'/'Contents'/'MacOS'/'SYNAirPlay')
-            if not binary.is_file():
-                self.status.set_text('AirPlay nativo no instalado: vuelve a ejecutar el instalador 5.7.4.')
-                return
-            # AVPlayer runs in its own macOS process, with a native route picker.
-            # mpv/GTK playback and Chromecast remain independent and untouched.
-            try:
-                proc=subprocess.Popen([str(binary),url,str(ch.name)],
-                                      stdin=subprocess.DEVNULL,
-                                      stdout=subprocess.DEVNULL,
-                                      stderr=subprocess.DEVNULL,
-                                      start_new_session=True)
-            except OSError as exc:
-                self.status.set_text('AirPlay: no se pudo abrir el reproductor Apple (' + str(exc) + ').')
-                return
-            self._syn_airplay_proc = proc  # Retain helper while route picker is open.
-            self.status.set_text('AirPlay: selecciona tu televisor en la ventana Apple. '
-                                 'La señal debe ser compatible con AVPlayer (preferentemente HLS).')
-
         def _syn_cast_make_icon(self):
             canvas = Gtk.DrawingArea()
             canvas.set_content_width(21)
@@ -5758,16 +5666,6 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.strip.attach(self.cast_button,
                         len(self.toolbar_widgets) - (1 if getattr(self, '_synplus_ui', False) else 0),
                         0, 1, 1)
-            if hasattr(self, 'airplay_button'):
-                if self.airplay_button.get_parent() == self.strip:
-                    self.strip.remove(self.airplay_button)
-                if compact:
-                    self.strip.attach(self.airplay_button, 6, 1, 1, 1)
-                else:
-                    self.strip.attach(self.airplay_button,
-                        len(self.toolbar_widgets) + (0 if getattr(self, '_synplus_ui', False) else 1),
-                        0, 1, 1)
-
         def _update_pause_label(self):
             paused = bool(self.area.player and self.area.player.paused())
             if getattr(self, '_synplus_ui', False):
@@ -8228,9 +8126,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     # Cairo-drawn glyphs do not respond automatically to
                     # libadwaita palette changes; repaint at each theme change.
                     if sys.platform == 'darwin':
-                        for glyph in (getattr(window, '_synplus_cine_reel', None),
-                                      getattr(window, 'airplay_button', None),
-                                      getattr(window, 'fs_airplay_button', None)):
+                        for glyph in (getattr(window, '_synplus_cine_reel', None),):
                             if glyph is not None:
                                 glyph.queue_draw()
             finally:

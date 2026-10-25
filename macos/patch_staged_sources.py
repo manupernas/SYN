@@ -78,15 +78,6 @@ def main():
         "                      'SYN Notifications.app' if os.environ.get('SYN_STANDALONE') == '1'\n"
         "                      else Path.home() / 'Library' / 'Application Support' /\n"
         "                      'SYN-Mac' / 'Notifications' / 'SYN Notifications.app')")
-    replace_once(syn,
-        "            binary=(Path.home()/'Library'/'Application Support'/'SYN-Mac'/'AirPlay'/\n"
-        "                    'SYN AirPlay.app'/'Contents'/'MacOS'/'SYNAirPlay')",
-        "            binary=((Path(__file__).resolve().parents[2] / 'Helpers' /\n"
-        "                     'SYN AirPlay.app' / 'Contents' / 'MacOS' / 'SYNAirPlay')\n"
-        "                    if os.environ.get('SYN_STANDALONE') == '1'\n"
-        "                    else Path.home()/'Library'/'Application Support'/'SYN-Mac'/'AirPlay'/\n"
-        "                    'SYN AirPlay.app'/'Contents'/'MacOS'/'SYNAirPlay')")
-
     # GUI and DVR worker both use this, so update centrally.
     replace_once(support,
         "    binary = shutil.which('osascript')",

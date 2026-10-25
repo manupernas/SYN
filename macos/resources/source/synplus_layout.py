@@ -738,17 +738,6 @@ def mac_native_css(accent_hex='', system_dark=False):
     window.iptv-tv.synplus-window button.syn-cast-button {{
         background-color:{accent}; border-color:{accent};
     }}
-    window.iptv-tv.synplus-window button.syn-airplay-button {{
-        background-image:none; background-color:{white}; color:{fg};
-        border:1px solid {border}; border-radius:9px;
-    }}
-    window.iptv-tv.synplus-window button.syn-airplay-button:hover {{
-        background-color:alpha({accent},.15); border-color:alpha({accent},.55);
-    }}
-    window.iptv-tv.synplus-window .syn-fs-top button.syn-airplay-button {{
-        background-image:none; background-color:rgba(28,28,30,.72);
-        border:1px solid rgba(255,255,255,.16); color:#FFFFFF;
-    }}
      /* SYN_MAC_572_NEUTRAL — Mac UI uses only neutral surfaces + system accent. */
      window.iptv-tv.synplus-window .synplus-sidebar,
      window.iptv-tv.synplus-window .synplus-sidebar .iptv-list,
@@ -1177,36 +1166,6 @@ def mac_native_css(accent_hex='', system_dark=False):
          background-color:alpha({accent},.13);
      }}
      window.syn-settings-window {{background-color:{bg}; color:{fg};}}
-     /* SYN_MAC_577_AIRPLAY_CONTRAST: neutral, opaque and readable in both
-        palettes, also on hover and while pressed. Never use a teal fill. */
-     window.iptv-tv.synplus-window .synplus-video-chrome .iptv-toolbar button.syn-airplay-button {{
-         background-image:none;
-         background-color:{'#303034' if dark else '#F2F2F7'};
-         color:{'#FFFFFF' if dark else '#1C1C1E'};
-         border:1px solid alpha({accent},.30);
-         opacity:1; box-shadow:none; text-shadow:none;
-     }}
-     window.iptv-tv.synplus-window .synplus-video-chrome .iptv-toolbar button.syn-airplay-button:hover,
-     window.iptv-tv.synplus-window .synplus-video-chrome .iptv-toolbar button.syn-airplay-button:focus {{
-         background-image:none;
-         background-color:{'#414146' if dark else '#E5E5EA'};
-         color:{'#FFFFFF' if dark else '#1C1C1E'};
-         border-color:alpha({accent},.65); opacity:1;
-     }}
-     window.iptv-tv.synplus-window .synplus-video-chrome .iptv-toolbar button.syn-airplay-button:active {{
-         background-image:none;
-         background-color:{'#55555A' if dark else '#D1D1D6'};
-         color:{'#FFFFFF' if dark else '#1C1C1E'};
-         border-color:{accent}; opacity:1;
-     }}
-     window.iptv-tv.synplus-window .syn-fs-top button.syn-airplay-button,
-     window.iptv-tv.synplus-window .syn-fs-top button.syn-airplay-button:hover,
-     window.iptv-tv.synplus-window .syn-fs-top button.syn-airplay-button:focus,
-     window.iptv-tv.synplus-window .syn-fs-top button.syn-airplay-button:active {{
-         background-image:none; background-color:rgba(28,28,30,.85);
-         color:#FFFFFF; border:1px solid rgba(255,255,255,.42);
-         opacity:1; box-shadow:none; text-shadow:none;
-     }}
      """
 
 
@@ -2149,14 +2108,6 @@ def poll_chrome(window):
         time.monotonic())
     # A Cast popover outside the video must not collapse its parent toolbar.
     if not fullscreen and getattr(window, '_synplus_cast_popover_open', False):
-        visible = True
-    # SYN_MAC_575_AIRPLAY_CHROME: the helper becomes frontmost after the click.
-    # Keep the original button/toolbar visible briefly despite pointer leave.
-    if not fullscreen and time.monotonic() < getattr(window, '_synplus_airplay_hold_until', 0.0):
-        visible = True
-    # Keep the route control visible while the native AirPlay helper is alive.
-    helper = getattr(window, '_syn_airplay_proc', None)
-    if not fullscreen and helper is not None and helper.poll() is None:
         visible = True
     reveal.set_reveal_child(visible)
     # SAME state and CROSSFADE duration for shadow + text/buttons.

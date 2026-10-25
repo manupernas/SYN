@@ -30,6 +30,17 @@ for item in macos/resources/*; do
   test "$(basename "$item")" = Info.plist && continue
   ditto "$item" "$APP/Contents/Resources/$(basename "$item")"
 done
+# SYN branding lives at repository root, outside macos/resources.
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+  test -s "branding/$name" || { echo "Falta branding/$name" >&2; exit 1; }
+done
+ditto branding "$APP/Contents/Resources/source/branding"
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+  test -s "$APP/Contents/Resources/source/branding/$name" || {
+    echo "ERROR: branding sin copiar: $name" >&2; exit 1;
+  }
+done
+echo STANDALONE_BRANDING_OK
 # Full CPython framework with stdlib/encodings/extension modules. Global Homebrew
 # PyGObject/pycairo are installed outside the framework and copied separately.
 FW_SRC="$(brew --prefix python@3.15)/Frameworks/Python.framework"
@@ -115,7 +126,6 @@ with open(sys.argv[1],'wb') as f:
 PY
   ditto macos/resources/SYN_Carta_Ajuste.icns "$dest/Contents/Resources/SYN_Carta_Ajuste.icns"
 }
-build_swift_app 'SYN AirPlay' SYNAirPlay SYNAirPlay.swift com.mrseivane.syn.airplay
 build_swift_app 'SYN Notifications' SYNNotify SYNNotify.swift com.mrseivane.syn.notifications
 
 # Rewrite all Mach-O links, including Python extensions and dynamically
@@ -233,6 +243,12 @@ print(f'STANDALONE_MACHO_VALIDATION_OK: {count} files')
 PY
 mkdir -p dist "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/SYN.app"
+for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png; do
+  test -s "$TMP/dmg/SYN.app/Contents/Resources/source/branding/$name" || {
+    echo "ERROR: logo ausente del DMG: $name" >&2; exit 1;
+  }
+done
+echo STANDALONE_DMG_BRANDING_OK
 # Recheck the precise bytes that will go into the disk image.
 codesign --verify --deep --verbose=2 "$TMP/dmg/SYN.app"
 # Verify also every Mach-O in the exact copied payload that goes into the DMG.
