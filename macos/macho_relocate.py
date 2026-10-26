@@ -148,6 +148,10 @@ class Bundler:
     def all_binaries(self):
         return [p for p in self.app.rglob('*') if macho(p)]
 
+    def official_vlc(self, path):
+        return (path.is_relative_to(self.app / 'Contents/MacOS/lib')
+                or path.is_relative_to(self.app / 'Contents/MacOS/plugins'))
+
     def bundle(self):
         self.seed()
         # Closure over all compile-time dependencies, including .so extensions,
@@ -155,6 +159,8 @@ class Bundler:
         for _ in range(30):
             before = self.count
             for dest in self.all_binaries():
+                if self.official_vlc(dest):
+                    continue  # Self-contained official VideoLAN runtime
                 original = self.orig.get(dest)
                 identities = macho_ids(dest)
                 for dep in deps(dest):
@@ -175,6 +181,8 @@ class Bundler:
             raise RuntimeError('Framework Python 3.15 no incluido')
 
         for dest in self.all_binaries():
+            if self.official_vlc(dest):
+                continue  # Do not rewrite VLC dylibs to Homebrew versions
             original = self.orig.get(dest)
             identities = macho_ids(dest)
             for dep in deps(dest):

@@ -25,6 +25,9 @@ jobs:
           brew update
           brew install python@3.15 gtk4 libadwaita mpv glib \
             gobject-introspection pygobject3 py3cairo ffmpeg gdk-pixbuf
+          # VLC is required ONLY in the Actions builder; users install just SYN.
+          brew install --cask vlc
+          test -f /Applications/VLC.app/Contents/MacOS/lib/libvlc.dylib
       - name: Build portable runtime and native helpers
         run: bash macos/build_standalone_dmg.sh
       - name: Upload SYN 1.0 standalone DMG beta

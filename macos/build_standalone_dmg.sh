@@ -41,6 +41,21 @@ for name in logo_dark_ui.png logo_light_ui.png icono_header_ui.png icono_3.png; 
   }
 done
 echo STANDALONE_BRANDING_OK
+# SYN_VLC_BETA: bundle the official VideoLAN runtime inside SYN.app.
+# The complete plugin tree is needed for IPTV protocols and codec discovery.
+VLC_MACOS=/Applications/VLC.app/Contents/MacOS
+if test -s "$VLC_MACOS/lib/libvlc.dylib" && test -d "$VLC_MACOS/plugins"; then
+  # Preserve @executable_path and the exact official MacOS/lib+plugins layout.
+  # SYN's native launcher lives in Contents/MacOS, just like VLC's launcher.
+  ditto "$VLC_MACOS/lib" "$APP/Contents/MacOS/lib"
+  ditto "$VLC_MACOS/plugins" "$APP/Contents/MacOS/plugins"
+  test -s "$APP/Contents/MacOS/lib/libvlc.dylib"
+  test -d "$APP/Contents/MacOS/plugins"
+  echo SYN_VLC_BETA_BUNDLED
+else
+  echo 'ERROR: VLC.app/lib/plugins absent; cannot build an autonomous VLC beta' >&2
+  exit 1
+fi
 # Full CPython framework with stdlib/encodings/extension modules. Global Homebrew
 # PyGObject/pycairo are installed outside the framework and copied separately.
 FW_SRC="$(brew --prefix python@3.15)/Frameworks/Python.framework"

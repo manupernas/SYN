@@ -2407,8 +2407,30 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self.problem = "GTK no pudo inicializar OpenGL en esta VM."
                 return
             try:
-                self.player = NativeMpv(GLib, player_options=self.get_root().player_options if self.get_root() else {})
-                self.player.initialize_opengl(self.queue_render)
+                root = self.get_root()
+                options = root.player_options if root else {}
+                backend = os.environ.get('SYN_PLAYER_BACKEND', 'vlc' if sys.platform == 'darwin' else 'mpv').lower()
+                if backend == 'vlc' and sys.platform == 'darwin':
+                    try:
+                        from syn_vlc import NativeVlc
+                        self.player = NativeVlc(GLib, Gdk, root._syn_vlc_picture, options)
+                        self.player.initialize_opengl(self.queue_render)
+                        print('SYN_VLC_BETA: motor libVLC 3 integrado (memoria GTK)', flush=True)
+                    except Exception as vlc_error:
+                        # Never strand a user's DVR, profiles or normal SYN UI.
+                        # Keep mpv as a known-good fallback, even if libVLC is absent.
+                        print('SYN_VLC_BETA: error VLC, restaurando mpv: '
+                              + str(vlc_error), file=sys.stderr, flush=True)
+                        if self.player is not None:
+                            try:
+                                self.player.free_renderer()
+                                self.player.shutdown()
+                            except Exception as cleanup_error:
+                                print('VLC cleanup: '+str(cleanup_error), file=sys.stderr)
+                        self.player = None
+                if self.player is None:
+                    self.player = NativeMpv(GLib, player_options=options)
+                    self.player.initialize_opengl(self.queue_render)
                 def notify_ready():
                     if self.get_root():
                         self.get_root().player_ready()
@@ -2739,6 +2761,18 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.area = MpvArea()
             self.overlay = Gtk.Overlay()
             self.overlay.set_child(self.area)
+            # VLC BETA: a GDK paintable lives beneath every existing GTK overlay.
+            # It never reparents Gtk.GLArea, and never intercepts pointer events.
+            self._syn_vlc_picture = Gtk.Picture()
+            self._syn_vlc_picture.set_content_fit(Gtk.ContentFit.FILL)
+            self._syn_vlc_picture.set_hexpand(True)
+            self._syn_vlc_picture.set_vexpand(True)
+            self._syn_vlc_picture.set_halign(Gtk.Align.FILL)
+            self._syn_vlc_picture.set_valign(Gtk.Align.FILL)
+            self._syn_vlc_picture.set_can_target(False)
+            self._syn_vlc_picture.set_visible(False)
+            self.overlay.add_overlay(self._syn_vlc_picture)
+            self.overlay.set_measure_overlay(self._syn_vlc_picture, False)
             self.overlay.set_hexpand(True)
             self.overlay.set_vexpand(True)
             video_column.append(self.overlay)
@@ -5985,7 +6019,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             return True
 
         def player_ready(self):
-            self.status.set_text(tr("SYN preparado · MPV integrado · ajustes activos desde el inicio"))
+            active_engine = getattr(getattr(self.area, 'player', None),
+                                    'engine', 'libmpv integrado')
+            self.status.set_text('SYN preparado · ' + active_engine)
             if self.pending_channel:
                 channel = self.pending_channel
                 self.pending_channel = None
@@ -7048,7 +7084,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 dims = self.area.player.video_dimensions()
                 msg = f"Resolución real: {dims[0]} × {dims[1]}" if dims else tr("La resolución aún no está disponible.")
                 ua = self.player_options.get('user_agent', 'Predeterminado')
-                dialog = Adw.MessageDialog(transient_for=self, heading='Datos de reproducción', body=msg + '\n\nReproductor: libmpv integrado\nUser-Agent: ' + ua + '\nFuente: ' + self.profile['name'])
+                engine = getattr(self.area.player, 'engine', 'libmpv integrado')
+                dialog = Adw.MessageDialog(transient_for=self, heading='Datos de reproducción', body=msg + '\n\nReproductor: ' + engine + '\nUser-Agent: ' + ua + '\nFuente: ' + self.profile['name'])
                 dialog.add_response("cerrar", "Cerrar")
                 dialog.present()
 
