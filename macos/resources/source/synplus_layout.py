@@ -412,6 +412,9 @@ def css(theme='system', accent_hex='', system_dark=False):
     window.iptv-tv.synplus-window .synplus-guide-full {
       margin:0; border:0; border-radius:0; background-color:@window_bg_color;
     }
+    window.iptv-tv.synplus-window .synplus-player-host {
+      background-color:@window_bg_color;
+    }
     window.iptv-tv.synplus-window .synplus-visual-player {
       border-radius:6px; margin:2px 4px 0 4px;
       border:0; box-shadow:none; }
@@ -1617,12 +1620,9 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window._synplus_player_host = video_host
     window._synplus_video_column = video_column
     window._synplus_requested_video = None
-    # Starts exactly 16:9. Once the user resizes, the player canvas becomes
-    # fully free (portrait, square, ultrawide); this is NOT a size constraint.
-    window._synplus_opening_ratio = True
-    window._synplus_opening_window_size = None
-    # No Gtk.AspectFrame or Gdk surface geometry hints. The window, video
-    # canvas, and EPG can be portrait, square or ultrawide as space allows.
+    # Window is freely resizable; only the video surface fits the broadcast.
+    # Before a video is loaded, 16:9 matches the original SYN opening state.
+    # Fullscreen retains the current, independent native GTK/MPV path.
     # SYN 1.3.7's one-shot startup 16:9 WINDOW resize is not wanted here:
     # user dimensions must remain free from the very first launch.
     window._syn_startup_ratio_pending = False
@@ -1651,7 +1651,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     persistent_gradient.set_can_target(False)
     gradient_reveal = Gtk.Revealer()
     gradient_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    gradient_reveal.set_transition_duration(210)
+    gradient_reveal.set_transition_duration(300)
     gradient_reveal.set_halign(Gtk.Align.FILL)
     gradient_reveal.set_valign(Gtk.Align.FILL)
     gradient_reveal.set_hexpand(True)
@@ -1668,7 +1668,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.overlay.remove_overlay(chrome)
     reveal = Gtk.Revealer()
     reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
-    reveal.set_transition_duration(210)
+    reveal.set_transition_duration(300)
     # Windowed chrome starts hidden; pointer hover/click is the ONLY reveal.
     reveal.set_reveal_child(False)
     reveal.set_halign(Gtk.Align.FILL)
@@ -1765,6 +1765,33 @@ def opening_player_geometry(region_width, region_height,
     return 16*blocks,9*blocks
 
 
+def fitted_player_geometry(region_width, region_height, display_dimensions,
+                           horizontal_margin=8, vertical_margin=4):
+    """Fit real mpv display aspect INSIDE Gtk host, no crop, black or blur.
+
+    Uses display width/height (corrected sample aspect), not raw codec w/h.
+    Operates on integers and only when Gtk allocates geometry; no frames read.
+    """
+    max_w = max(0, int(region_width) - int(horizontal_margin))
+    max_h = max(0, int(region_height) - int(vertical_margin))
+    if max_w < 16 or max_h < 16:
+        return None
+    if not display_dimensions or min(display_dimensions) <= 0:
+        # Keep SYN's original 16:9 appearance before playback is ready.
+        return opening_player_geometry(region_width, region_height,
+                                       horizontal_margin, vertical_margin)
+    sw, sh = display_dimensions
+    if max_w * sh <= max_h * sw:
+        # The video is constrained by width; unused room remains BELOW it.
+        fit_w = max_w
+        fit_h = max(1, min(max_h, round(max_w * sh / sw)))
+    else:
+        # The video is constrained by height; unused room stays LEFT/RIGHT.
+        fit_h = max_h
+        fit_w = max(1, min(max_w, round(max_h * sw / sh)))
+    return fit_w, fit_h
+
+
 def adapt(window, width):
     """Fixed 150px navigation, freely sized video, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
@@ -1792,28 +1819,15 @@ def adapt(window, width):
         # measurement EXCLUDES the frame, so its dimensions remain flexible.
         cw, ch = host.get_width(), host.get_height()
         if cw > 0 and ch > 0 and not full_guide:
-            # Just four pixels of visual breathing room around the video,
-            # instead of the thick insets introduced in the previous alpha.
-            if getattr(window,'_synplus_opening_ratio',False):
-                # Remember the first allocated window size, not GTK's
-                # preliminary zero-sized measurement. Only an actual change
-                # in outer dimensions releases the 16:9 startup condition.
-                outer=(window.get_width(),window.get_height())
-                original=getattr(window,'_synplus_opening_window_size',None)
-                if original is None and min(outer)>100:
-                    window._synplus_opening_window_size=outer
-                elif original is not None and (abs(outer[0]-original[0])>7 or
-                                               abs(outer[1]-original[1])>7):
-                    window._synplus_opening_ratio=False
-            if getattr(window,'_synplus_opening_ratio',False):
-                wanted=opening_player_geometry(cw,ch,8,4)
-            else:
-                wanted=player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
-            if wanted and wanted != getattr(window,'_synplus_requested_video',None):
-                # Initial frame is 16:9; after manual resize any ratio works.
-                # The broadcast image itself keeps its native aspect ratio.
+            # Only change Gtk.Frame's requested size; GLArea and libmpv
+            # stay mounted and untouched. Unused space inherits GTK palette.
+            player = getattr(getattr(window, 'area', None), 'player', None)
+            display_dimensions = (player.video_display_dimensions()
+                                  if player is not None else None)
+            wanted = fitted_player_geometry(cw, ch, display_dimensions, 8, 4)
+            if wanted and wanted != getattr(window, '_synplus_requested_video', None):
                 frame.set_size_request(*wanted)
-                window._synplus_requested_video=wanted
+                window._synplus_requested_video = wanted
         elif (full_guide or cw < 16 or ch < 16) and getattr(window,'_synplus_requested_video',None):
             # Avoid keeping stale dimensions after a very small resize.
             frame.set_size_request(-1, -1)

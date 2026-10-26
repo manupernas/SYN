@@ -449,6 +449,7 @@ class NativeMpv:
         self._stop_controls = threading.Event()
         self._control_thread = None
         self._dimensions = None
+        self._display_dimensions = None
         self._syn_ts_playback_time = None
         self._syn_reconnect_buffering = False
         self._syn_reconnect_seeking = False
@@ -589,6 +590,16 @@ class NativeMpv:
                 w = self.lib.mpv_get_property(self.ptr, b"video-params/w", 4, C.byref(width))
                 h = self.lib.mpv_get_property(self.ptr, b"video-params/h", 4, C.byref(height))
                 self._dimensions = (width.value, height.value) if w >= 0 and h >= 0 and width.value > 0 and height.value > 0 else None
+                # Corrected DISPLAY aspect (e.g. 1440x1080 broadcast 16:9).
+                # Two integer reads on the existing 800ms libmpv worker.
+                display_w, display_h = C.c_longlong(), C.c_longlong()
+                result_dw = self.lib.mpv_get_property(self.ptr, b'video-params/dw', 4, C.byref(display_w))
+                result_dh = self.lib.mpv_get_property(self.ptr, b'video-params/dh', 4, C.byref(display_h))
+                self._display_dimensions = (
+                    (display_w.value, display_h.value)
+                    if result_dw >= 0 and result_dh >= 0 and min(display_w.value, display_h.value) > 0
+                    else self._dimensions
+                )
                 position = C.c_double(0)
                 result = self.lib.mpv_get_property(self.ptr, b'time-pos', 5, C.byref(position))
                 self._syn_ts_playback_time = float(position.value) if result >= 0 else None
@@ -602,6 +613,7 @@ class NativeMpv:
                 next_poll = time.monotonic() + 0.8
             elif not self.active_url:
                 self._dimensions = None
+                self._display_dimensions = None
                 self._syn_ts_playback_time = None
                 self._syn_reconnect_buffering = False
                 self._syn_reconnect_seeking = False
@@ -648,6 +660,7 @@ class NativeMpv:
                 # video-params may still describe the preceding DVR recording.
                 # Only poll dimensions after this media file has loaded.
                 self._dimensions = None
+                self._display_dimensions = None
                 self._awaiting_load = False
                 self.GLib.idle_add(self._notify, "Reproduciendo", False)
             elif event.event_id == 7 and event.data:  # MPV_EVENT_END_FILE
@@ -766,6 +779,7 @@ class NativeMpv:
         self.active_url = channel.url
         self.active_name = channel.name
         self._dimensions = None
+        self._display_dimensions = None
         self._syn_ts_playback_time = None
         self._syn_reconnect_buffering = False
         self._syn_reconnect_seeking = False
@@ -782,6 +796,7 @@ class NativeMpv:
         self.command("stop")
         self.active_url = ""
         self._dimensions = None
+        self._display_dimensions = None
         self._is_paused = False
 
     def paused(self):
@@ -804,6 +819,13 @@ class NativeMpv:
         # Snapshot actualizado por el hilo de control: no bloquea GTK.
         return (self._dimensions if not self.closed and self.active_url
                 and not self._awaiting_load else None)
+
+    def video_display_dimensions(self):
+        # Snapshot inmutable del hilo de control: refleja el PAR/DAR real.
+        # GTK lee solamente la tupla; NO llama sincrónicamente a libmpv.
+        if self.closed or not self.active_url or self._awaiting_load:
+            return None
+        return self._display_dimensions or self._dimensions
 
     def write_diag(self):
         with self._lock:
