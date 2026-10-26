@@ -77,7 +77,7 @@ def png_rgba_from_bgra(dst, width, height, bgra, stride=None):
 class NativeVlc:
     """Duck-type adapter for the stable SYN NativeMpv contract."""
 
-    engine = 'libVLC 3 · VideoToolbox configurado · salida GTK (memoria)'
+    engine = 'libVLC 3 · VideoToolbox solicitado · OpenGL GPU (experimental)'
 
     def __init__(self, GLib, Gdk, picture, player_options=None):
         self.GLib, self.Gdk, self.picture = GLib, Gdk, picture
@@ -107,6 +107,17 @@ class NativeVlc:
         self._idle_pending = False
         self._last_delivered_at = 0.0
         self._error = ''
+        # OpenGL upload + GPU scaling using the EXISTING GTK4 GLArea. libVLC3
+        # still supplies a CPU video buffer: this is NOT zero-copy rendering.
+        self._gpu_requested = os.environ.get('SYN_VLC_GPU', '1') != '0'
+        self._gpu_disabled_file = Path.home() / 'Library/Application Support/SYN/VLC_SIN_GPU'
+        self._gpu_enabled = False
+        self._gpu_failed_reason = ''
+        self._gpu_frame = None
+        self._gpu_queue_draw = None
+        self._gpu_texture = 0
+        self._gpu_read_fbo = 0
+        self._gpu_texture_size = (0, 0)
         self._instance = self._mp = None
         self.hardware_mode = os.environ.get('SYN_VLC_HW', 'auto').strip().lower()
         if self.hardware_mode not in ('auto', 'off', 'require'):
@@ -274,7 +285,25 @@ class NativeVlc:
             return False
         generation, w, h, stride, data = frame
         if not self.active_url or generation != self._play_generation:
-            return False  # Never show a frame from the previous channel.
+            return False  # A changed channel can never reuse stale frames.
+        self._snapshot = (w, h, stride, data)
+        self._render_count += 1
+        self._last_frame_at = time.monotonic()
+        if self._gpu_enabled:
+            self._gpu_frame = (generation, w, h, stride, data)
+            self.picture.set_visible(False)
+            if self._gpu_queue_draw:
+                self._gpu_queue_draw()
+        else:
+            self._present_cpu_frame(w, h, stride, data)
+        if self._awaiting_load:
+            self._awaiting_load = False
+            if self.on_status:
+                self.on_status('Reproduciendo · VLC', False)
+        return False
+
+    def _present_cpu_frame(self, w, h, stride, data):
+        # The original, known-good Gdk.MemoryTexture fallback remains intact.
         try:
             fmt = (self.Gdk.MemoryFormat.B8G8R8X8
                    if hasattr(self.Gdk.MemoryFormat, 'B8G8R8X8')
@@ -283,31 +312,148 @@ class NativeVlc:
             texture = self.Gdk.MemoryTexture.new(w, h, fmt, blob, stride)
             self.picture.set_paintable(texture)
             self.picture.set_visible(True)
-            self._snapshot = (w, h, stride, data)
-            self._render_count += 1
-            self._last_frame_at = time.monotonic()
-            if self._awaiting_load:
-                self._awaiting_load = False
-                if self.on_status:
-                    self.on_status('Reproduciendo · VLC', False)
         except Exception as exc:
             self._error = 'Gdk.MemoryTexture: ' + str(exc)
             if self.on_status:
                 self.on_status('VLC: ' + self._error, True)
         return False
 
-    def initialize_opengl(self, _queue_draw):
+    def _gpu_fail(self, reason, frame=None):
+        """Disable GPU for this session only, never crash IPTV/DVR/GTK."""
+        if not self._gpu_enabled:
+            return
+        self._gpu_enabled = False
+        self._gpu_failed_reason = str(reason)[:350]
+        self.engine = 'libVLC 3 · VideoToolbox solicitado · GTK (GPU no disponible)'
+        self._error = 'OpenGL GPU: ' + self._gpu_failed_reason
+        if frame and not self.closed:
+            _, w, h, stride, data = frame
+            self.GLib.idle_add(self._present_cpu_frame, w, h, stride, data)
+        # A VLC failure is diagnostic, not a media playback failure.
+        print('SYN_VLC_GPU_FALLBACK: ' + self._gpu_failed_reason, flush=True)
+
+    def initialize_opengl(self, queue_draw):
         self._libGL = C.CDLL('/System/Library/Frameworks/OpenGL.framework/OpenGL')
         self._libGL.glClearColor.argtypes = [C.c_float] * 4
         self._libGL.glClear.argtypes = [C.c_uint]
-        self.ctx = C.c_void_p(1)  # compatibility: libVLC is not an mpv GL context
+        self.ctx = C.c_void_p(1)  # Contract with SYN; not a libmpv context.
+        self._gpu_queue_draw = queue_draw
         self.picture.set_visible(False)
+        if not self._gpu_requested or self._gpu_disabled_file.is_file():
+            self.engine = 'libVLC 3 · VideoToolbox solicitado · GTK (compatibilidad)'
+            return
+        try:
+            gl = self._libGL
+            # All work happens INSIDE Gtk.GLArea::render, on the GTK GL context.
+            def sig(name, ret, *argtypes):
+                fun = getattr(gl, name)
+                fun.restype, fun.argtypes = ret, list(argtypes)
+            u, i, p = C.c_uint, C.c_int, C.c_void_p
+            sig('glGenTextures', None, i, C.POINTER(u))
+            sig('glDeleteTextures', None, i, C.POINTER(u))
+            sig('glBindTexture', None, u, u)
+            sig('glTexParameteri', None, u, u, i)
+            sig('glTexImage2D', None, u, i, i, i, i, i, u, u, p)
+            sig('glTexSubImage2D', None, u, i, i, i, i, i, u, u, p)
+            sig('glPixelStorei', None, u, i)
+            sig('glGenFramebuffers', None, i, C.POINTER(u))
+            sig('glDeleteFramebuffers', None, i, C.POINTER(u))
+            sig('glBindFramebuffer', None, u, u)
+            sig('glFramebufferTexture2D', None, u, u, u, u, i)
+            sig('glCheckFramebufferStatus', u, u)
+            sig('glBlitFramebuffer', None, i, i, i, i, i, i, i, i, u, u)
+            sig('glGetIntegerv', None, u, C.POINTER(i))
+            sig('glGetError', u)
+            self._gpu_enabled = True
+        except (OSError, AttributeError) as exc:
+            self._gpu_failed_reason = 'OpenGL no ofrece el FBO necesario: ' + str(exc)
+            self.engine = 'libVLC 3 · VideoToolbox solicitado · GTK (compatibilidad)'
+            print('SYN_VLC_GPU_FALLBACK: '+self._gpu_failed_reason, flush=True)
 
-    def render(self, _width, _height):
-        # GLArea remains a black background while Gdk.Picture owns VLC pixels.
-        if self._libGL:
-            self._libGL.glClearColor(0., 0., 0., 1.)
-            self._libGL.glClear(0x00004000)
+    def render(self, width, height):
+        gl = self._libGL
+        if gl is None:
+            return
+        if not self._gpu_enabled:
+            gl.glClearColor(0., 0., 0., 1.)
+            gl.glClear(0x00004000)
+            return
+        frame = self._gpu_frame
+        if frame is None or frame[0] != self._play_generation or not self.active_url:
+            gl.glClearColor(0., 0., 0., 1.)
+            gl.glClear(0x00004000)
+            return
+        _, sw, sh, stride, data = frame
+        old_read = C.c_int()
+        old_draw = C.c_int()
+        old_tex = C.c_int()
+        old_unpack = C.c_int()
+        old_unpack_row = C.c_int()
+        try:
+            # GTK owns the destination framebuffer. Never bind default FBO 0
+            # or change the context: mpv's previous regressions came from that.
+            gl.glGetIntegerv(0x8CAA, C.byref(old_read))   # READ_FBO_BINDING
+            gl.glGetIntegerv(0x8CA6, C.byref(old_draw))   # DRAW_FBO_BINDING
+            gl.glGetIntegerv(0x8069, C.byref(old_tex))    # TEXTURE_BINDING_2D
+            gl.glGetIntegerv(0x0CF5, C.byref(old_unpack)) # UNPACK_ALIGNMENT
+            gl.glGetIntegerv(0x0CF2, C.byref(old_unpack_row)) # UNPACK_ROW_LENGTH
+            if not self._gpu_texture:
+                tex = C.c_uint()
+                fbo = C.c_uint()
+                gl.glGenTextures(1, C.byref(tex))
+                gl.glGenFramebuffers(1, C.byref(fbo))
+                if not tex.value or not fbo.value:
+                    raise RuntimeError('No se pudieron reservar textura y FBO')
+                self._gpu_texture = tex.value
+                self._gpu_read_fbo = fbo.value
+                gl.glBindTexture(0x0DE1, self._gpu_texture)
+                for param, value in ((0x2801, 0x2601), (0x2800, 0x2601),
+                                     (0x2802, 0x812F), (0x2803, 0x812F)):
+                    gl.glTexParameteri(0x0DE1, param, value)
+            else:
+                gl.glBindTexture(0x0DE1, self._gpu_texture)
+            if self._gpu_texture_size != (sw, sh):
+                # RGB8 ignores unused X byte of RV32/BGRX, giving alpha=1.
+                # This prevents accidental transparent video in GTK compositing.
+                gl.glTexImage2D(0x0DE1, 0, 0x8051, sw, sh, 0,
+                                0x80E1, 0x1401, None)
+                self._gpu_texture_size = (sw, sh)
+            gl.glPixelStorei(0x0CF5, 1)
+            # Stride includes VLC padding. GL_UNPACK_ROW_LENGTH is in PIXELS.
+            gl.glPixelStorei(0x0CF2, stride // 4)
+            pixels = C.c_char_p(data) # Immobile bytes object for synchronous GL copy.
+            gl.glTexSubImage2D(0x0DE1, 0, 0, 0, sw, sh,
+                               0x80E1, 0x1401, C.cast(pixels, C.c_void_p))
+            gl.glPixelStorei(0x0CF2, 0)
+            gl.glBindFramebuffer(0x8CA8, self._gpu_read_fbo)
+            gl.glFramebufferTexture2D(0x8CA8, 0x8CE0, 0x0DE1, self._gpu_texture, 0)
+            if gl.glCheckFramebufferStatus(0x8CA8) != 0x8CD5:
+                raise RuntimeError('OpenGL: FBO de lectura incompleto')
+            gl.glBindFramebuffer(0x8CA9, old_draw.value)
+            gl.glClearColor(0., 0., 0., 1.)
+            gl.glClear(0x00004000)
+            dw, dh = max(1, int(width)), max(1, int(height))
+            # Fit without crop. VLC decodes, OpenGL scales & GTK overlays controls.
+            if dw * sh <= dh * sw:
+                vw, vh = dw, max(1, round(dw * sh / sw))
+            else:
+                vh, vw = dh, max(1, round(dh * sw / sh))
+            x, y = (dw - vw) // 2, (dh - vh) // 2
+            # VLC memory rows start at TOP, while OpenGL texture y=0 is BOTTOM.
+            gl.glBlitFramebuffer(0, sh, sw, 0, x, y, x+vw, y+vh,
+                                 0x00004000, 0x2601)
+            error = gl.glGetError()
+            if error:
+                raise RuntimeError('glBlitFramebuffer error=0x%04X' % error)
+        except Exception as exc:
+            self._gpu_fail(str(exc), frame)
+        finally:
+            # glPixelStore and bindings belong to GTK. Always restore.
+            gl.glPixelStorei(0x0CF2, old_unpack_row.value)
+            gl.glPixelStorei(0x0CF5, old_unpack.value or 4)
+            gl.glBindFramebuffer(0x8CA8, old_read.value)
+            gl.glBindFramebuffer(0x8CA9, old_draw.value)
+            gl.glBindTexture(0x0DE1, old_tex.value)
 
     def play(self, channel):
         if self.closed:
@@ -318,6 +464,7 @@ class NativeVlc:
         self._last_delivered_at = 0.0
         self._source_dimensions = None
         self._width = self._height = 0
+        self._gpu_frame = None
         self._awaiting_load = True
         self._syn_reconnect_buffering = False
         self._is_paused = False
@@ -356,6 +503,9 @@ class NativeVlc:
         with self._frame_guard:
             self._latest = None
             self._snapshot = None
+        self._gpu_frame = None
+        if self._gpu_queue_draw and self._gpu_enabled:
+            self.GLib.idle_add(self._gpu_queue_draw)
         if self.picture:
             self.picture.set_visible(False)
             self.picture.set_paintable(None)
@@ -406,7 +556,10 @@ class NativeVlc:
         p = Path.home() / 'Library/Logs/SYN/vlc-reproduccion.log'
         p.parent.mkdir(parents=True, exist_ok=True)
         dims = str(self._source_dimensions or 'todavía sin señal')
-        p.write_text('Motor: libVLC 3 integrado (memoria GTK)\nVideoToolbox: '
+        p.write_text('Motor: ' + self.engine + '\nPresentación GPU: '
+                     + ('activa' if self._gpu_enabled else 'inactiva')
+                     + (' | causa: '+self._gpu_failed_reason if self._gpu_failed_reason else '')
+                     + '\nVideoToolbox: '
                      + self.hardware_mode + ' (solicitado; no confirma uso efectivo)\nBiblioteca: '
                      + str(self.libpath) + '\nResolución: ' + dims
                      + '\nFotogramas mostrados: ' + str(self._render_count)
@@ -415,6 +568,18 @@ class NativeVlc:
         return str(p)
 
     def free_renderer(self):
+        # Called by Gtk.GLArea::unrealize WITH the native GL context current.
+        gl = self._libGL
+        if gl and self._gpu_read_fbo and hasattr(gl, 'glDeleteFramebuffers'):
+            obj = C.c_uint(self._gpu_read_fbo)
+            gl.glDeleteFramebuffers(1, C.byref(obj))
+        if gl and self._gpu_texture and hasattr(gl, 'glDeleteTextures'):
+            obj = C.c_uint(self._gpu_texture)
+            gl.glDeleteTextures(1, C.byref(obj))
+        self._gpu_read_fbo = self._gpu_texture = 0
+        self._gpu_texture_size = (0, 0)
+        self._gpu_frame = None
+        self._gpu_enabled = False
         self.ctx = C.c_void_p()
 
     def shutdown(self):

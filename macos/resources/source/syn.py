@@ -2477,7 +2477,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             # eso evita reconfiguraciones de GPU/fences mientras Wayland cambia
             # la geometría. Se muestra negro hasta estabilizar el tamaño.
             now = time.monotonic()
-            if now < self._resize_quiet_until:
+            if (now < self._resize_quiet_until
+                    and not (self.player and getattr(self.player, '_gpu_enabled', False))):
                 if self.player and self.player._libGL:
                     self.player._libGL.glClearColor(0.0, 0.0, 0.0, 1.0)
                     self.player._libGL.glClear(0x00004000)  # GL_COLOR_BUFFER_BIT
