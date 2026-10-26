@@ -624,6 +624,49 @@ def mac_settings_css(dark=False):
     """
 
 
+def mac_apple_system_font():
+    """Obtain the real macOS system UI font family from CoreText.
+
+    This reads CoreText through its stable C ABI, NOT AppKit menus, and
+    neither embeds nor downloads Apple's font files. GTK/Pango uses the
+    returned family when supported and has fallback otherwise.
+    """
+    if sys.platform != 'darwin':
+        return 'system-ui, sans-serif'
+    try:
+        import ctypes as C
+        ct=C.CDLL('/System/Library/Frameworks/CoreText.framework/CoreText')
+        cf=C.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+        ct.CTFontCreateUIFontForLanguage.argtypes=[C.c_uint32,C.c_double,C.c_void_p]
+        ct.CTFontCreateUIFontForLanguage.restype=C.c_void_p
+        ct.CTFontCopyFamilyName.argtypes=[C.c_void_p]
+        ct.CTFontCopyFamilyName.restype=C.c_void_p
+        cf.CFStringGetCString.argtypes=[C.c_void_p,C.c_void_p,C.c_long,C.c_uint32]
+        cf.CFStringGetCString.restype=C.c_bool
+        cf.CFRelease.argtypes=[C.c_void_p]
+        font=ct.CTFontCreateUIFontForLanguage(2,0.0,None)  # System UI font
+        if not font:
+            return '"SF Pro", ".AppleSystemUIFont", system-ui, sans-serif'
+        family=''
+        try:
+            name=ct.CTFontCopyFamilyName(font)
+            if name:
+                try:
+                    text=C.create_string_buffer(512)
+                    if cf.CFStringGetCString(name,text,len(text),0x08000100):
+                        family=text.value.decode('utf-8')
+                finally:
+                    cf.CFRelease(name)
+        finally:
+            cf.CFRelease(font)
+        # No CSS injection from unexpected font names.
+        if family and all(c.isalnum() or c in '. -_' for c in family):
+            return '"'+family+'", "SF Pro", ".AppleSystemUIFont", system-ui, sans-serif'
+    except (OSError,AttributeError,UnicodeError,ValueError):
+        pass
+    return '"SF Pro", ".AppleSystemUIFont", system-ui, sans-serif'
+
+
 def mac_native_css(accent_hex='', system_dark=False):
     """macOS-only Apple semantic palette, with system-controlled accent.
 
@@ -643,13 +686,14 @@ def mac_native_css(accent_hex='', system_dark=False):
     border = 'rgba(255,255,255,.16)' if dark else 'rgba(0,0,0,.10)'
     glass = 'rgba(44,44,46,.82)' if dark else 'rgba(242,242,247,.78)'
     chrome = 'rgba(50,50,54,.86)' if dark else 'rgba(250,250,252,.92)'
+    apple_font_family = mac_apple_system_font()
     return f"""
     /* SYN-Mac 5.7 : AUTO LIGHT/DARK + true macOS system accent. */
-    /* Prefer Apple's system UI face; use Apple's Helvetica Neue as a fallback.
-       GTK/Pango selects what is actually available from the host OS. */
+    /* Choose the real system UI family from Apple's CoreText C API.
+       No bundled font; Pango will fall back for unsupported glyphs/families. */
     window.iptv-tv.synplus-window,
     window.synplus-welcome {{
-        font-family: system-ui, "SF Pro Text", "Helvetica Neue", sans-serif;
+        font-family: {apple_font_family};
     }}
     window.iptv-tv.synplus-window,
     window.iptv-tv.synplus-window .synplus-workbench,
