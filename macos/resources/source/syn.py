@@ -2419,8 +2419,23 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     except Exception as vlc_error:
                         # Never strand a user's DVR, profiles or normal SYN UI.
                         # Keep mpv as a known-good fallback, even if libVLC is absent.
+                        # Report the error to the user instead of quietly
+                        # switching to mpv. The report never contains IPTV URLs:
+                        # this happens before any channel is opened.
+                        failure = type(vlc_error).__name__ + ': ' + str(vlc_error)
+                        if root is not None:
+                            root._syn_vlc_init_error = failure
                         print('SYN_VLC_BETA: error VLC, restaurando mpv: '
-                              + str(vlc_error), file=sys.stderr, flush=True)
+                              + failure, file=sys.stderr, flush=True)
+                        try:
+                            diagnostic = Path.home() / 'Library/Logs/SYN/vlc-arranque.log'
+                            diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                            diagnostic.write_text('VLC no pudo inicializarse: ' + failure + '\n'
+                                                  + 'SYN utiliza temporalmente mpv.\n',
+                                                  encoding='utf-8')
+                            diagnostic.chmod(0o600)
+                        except OSError:
+                            pass  # Never prevent the known-good mpv fallback.
                         if self.player is not None:
                             try:
                                 self.player.free_renderer()
@@ -7085,7 +7100,11 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 msg = f"Resolución real: {dims[0]} × {dims[1]}" if dims else tr("La resolución aún no está disponible.")
                 ua = self.player_options.get('user_agent', 'Predeterminado')
                 engine = getattr(self.area.player, 'engine', 'libmpv integrado')
-                dialog = Adw.MessageDialog(transient_for=self, heading='Datos de reproducción', body=msg + '\n\nReproductor: ' + engine + '\nUser-Agent: ' + ua + '\nFuente: ' + self.profile['name'])
+                error_vlc = getattr(self, '_syn_vlc_init_error', '')
+                diagnostic_vlc = ('\n\nVLC NO DISPONIBLE (se usa mpv):\n' + error_vlc[:420]
+                                  + '\nDiagnóstico: ~/Library/Logs/SYN/vlc-arranque.log'
+                                  if error_vlc else '')
+                dialog = Adw.MessageDialog(transient_for=self, heading='Datos de reproducción', body=msg + '\n\nReproductor: ' + engine + diagnostic_vlc + '\nUser-Agent: ' + ua + '\nFuente: ' + self.profile['name'])
                 dialog.add_response("cerrar", "Cerrar")
                 dialog.present()
 

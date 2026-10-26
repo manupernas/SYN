@@ -96,8 +96,20 @@ class NativeVlc:
         plugins = root / 'plugins'
         if plugins.is_dir():
             os.environ['VLC_PLUGIN_PATH'] = str(plugins)
-        # libVLC needs libvlccore and plugins beside the official library.
-        self.lib = C.CDLL(str(self.libpath), mode=C.RTLD_GLOBAL)
+        # macOS/VideoLAN: libvlc.dylib may refer to @rpath/libvlccore.dylib.
+        # Load libvlccore FIRST, as the maintained python-vlc Mac loader does.
+        # Retain both library handles for the entire player lifetime.
+        core_path = self.libpath.parent / 'libvlccore.dylib'
+        if not core_path.is_file():
+            raise FileNotFoundError('VLC runtime incompleto: falta ' + str(core_path))
+        try:
+            self._core = C.CDLL(str(core_path), mode=C.RTLD_GLOBAL)
+        except OSError as exc:
+            raise RuntimeError('No se puede cargar libvlccore: ' + str(exc)) from exc
+        try:
+            self.lib = C.CDLL(str(self.libpath), mode=C.RTLD_GLOBAL)
+        except OSError as exc:
+            raise RuntimeError('No se puede cargar libvlc: ' + str(exc)) from exc
         self._bind()
         options = [b'--no-video-title-show', b'--no-osd', b'--quiet',
                    b'--no-media-library', b'--no-snapshot-preview']
@@ -106,7 +118,8 @@ class NativeVlc:
         argv = (C.c_char_p * len(options))(*options)
         self._instance = self.lib.libvlc_new(len(options), argv)
         if not self._instance:
-            raise RuntimeError('libVLC no pudo iniciarse: comprueba plugins y bibliotecas VLC')
+            raise RuntimeError('libvlc_new() devolvió NULL; plugins=' +
+                               str(plugins) + ' (exists=' + str(plugins.is_dir()) + ')')
         try:
             self._mp = self.lib.libvlc_media_player_new(self._instance)
             if not self._mp:
