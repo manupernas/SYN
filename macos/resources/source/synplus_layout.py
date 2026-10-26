@@ -695,6 +695,54 @@ def mac_native_css(accent_hex='', system_dark=False):
     window.synplus-welcome {{
         font-family: {apple_font_family};
     }}
+    /* SYN_MAC_SF_TYPOGRAPHY_BETA1: Jerarquia tipografica Apple.
+       Una sola familia CoreText existente; sin instalar ni distribuir fuentes.
+       Reglas mac_native_css: nunca alteran Linux/Flatpak ni la EPG por Cairo. */
+    window.iptv-tv.synplus-window .synplus-nav button.synplus-nav-button {{
+        font-size:13.5px; font-weight:500;
+    }}
+    window.iptv-tv.synplus-window .synplus-nav button.synplus-nav-button.synplus-current {{
+        font-weight:650;
+    }}
+    window.iptv-tv.synplus-window .synplus-nav dropdown.synplus-profile-picker,
+    window.iptv-tv.synplus-window .synplus-nav dropdown.synplus-profile-picker > button {{
+        font-size:12.5px; font-weight:500;
+    }}
+    window.iptv-tv.synplus-window .synplus-sidebar .syn-channel-display-name {{
+        font-size:13px; font-weight:500; opacity:.94;
+    }}
+    window.iptv-tv.synplus-window .synplus-sidebar .iptv-row:selected .syn-channel-display-name {{
+        font-weight:600; opacity:1;
+    }}
+    window.iptv-tv.synplus-window .synplus-sidebar searchentry,
+    window.iptv-tv.synplus-window .synplus-sidebar dropdown {{
+        font-size:12.5px; font-weight:500;
+    }}
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-title {{
+        font-size:15px; font-weight:650;
+    }}
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-muted {{
+        font-size:11px; font-weight:450;
+    }}
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-channel-name {{
+        font-size:12px; font-weight:550;
+    }}
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-program-name {{
+        font-size:12.5px; font-weight:560;
+    }}
+    window.iptv-tv.synplus-window .synplus-guide .syn-guide-time {{
+        font-size:11px; font-weight:450;
+    }}
+    window.iptv-tv.synplus-window .syn-portal-title,
+    window.iptv-tv.synplus-window .syn-portal-hero {{
+        font-weight:680;
+    }}
+    window.synplus-welcome .syn-welcome-title {{
+        font-weight:680;
+    }}
+    window.synplus-welcome .syn-welcome-card-title {{
+        font-weight:600;
+    }}
     window.iptv-tv.synplus-window,
     window.iptv-tv.synplus-window .synplus-workbench,
     window.iptv-tv.synplus-window .synplus-video-column {{
