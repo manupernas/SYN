@@ -5958,8 +5958,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if not self.compact_sidebar and self.paned.get_position() >= 220:
                     self._saved_paned_position = self.paned.get_position()
                 self.compact_sidebar = next_sidebar
-                self.sidebar.set_visible(not next_sidebar)
-                self.channel_menu.set_visible(next_sidebar)
+                self.sidebar.set_visible(not next_sidebar and not getattr(self, '_synplus_maxi_mode', False))
+                self.channel_menu.set_visible(next_sidebar and not getattr(self, '_synplus_maxi_mode', False))
                 self.paned.set_wide_handle(not next_sidebar)
                 if next_sidebar:
                     self.paned.add_css_class("iptv-fullscreen-paned")

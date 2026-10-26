@@ -420,6 +420,13 @@ def css(theme='system', accent_hex='', system_dark=False):
       border:0; box-shadow:none; }
     window.iptv-tv.synplus-window .synplus-visual-player .iptv-video {
       border:0; box-shadow:none; }
+    window.iptv-tv.synplus-window button.synplus-maxi-toggle {
+      background-color:rgba(24,36,44,.70); background-image:none;
+      border:1px solid rgba(255,255,255,.20); border-radius:12px;
+      color:#fff; padding:5px; min-width:35px; min-height:35px;
+      box-shadow:none; }
+    window.iptv-tv.synplus-window button.synplus-maxi-toggle:hover {
+      background-color:rgba(41,62,73,.91); }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-visual-player {
       border-radius:0; margin:0; padding:0; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-chrome {
@@ -1342,6 +1349,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     if getattr(window, '_synplus_ui', False):
         return
     window._synplus_ui = True
+    window._synplus_maxi_mode = False  # SYN_MAC_MAXIPLAYER_BETA1
+    window._synplus_maxi_guide_was_open = False
     video_column.add_css_class('synplus-video-column')
     window._synplus_gtk = Gtk
     window.set_title("SYN")
@@ -1416,6 +1425,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
             glyph.set_text('♥' if name == 'favoritos' else '♡')
 
     def _tv(*_, favorites=False):
+        if getattr(window, '_synplus_maxi_mode', False):
+            set_maxi_mode(window, GLib, False)
         set_guide_mode(window, GLib, False)
         window._syn_portal_hide()
         if window.dvr_view.get_visible():
@@ -1426,6 +1437,8 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         _select('favoritos' if favorites else 'tv')
 
     def _guide(*_):
+        if getattr(window, '_synplus_maxi_mode', False):
+            set_maxi_mode(window, GLib, False)
         # Remember the active destination BEFORE Guide hides the portal
         # or DVR. Do not overwrite when Guide is already active.
         previous = getattr(window, '_synplus_current_section', 'tv')
@@ -1445,11 +1458,15 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
         _select('guia')
 
     def _portal(mode, section):
+        if getattr(window, '_synplus_maxi_mode', False):
+            set_maxi_mode(window, GLib, False)
         set_guide_mode(window, GLib, False)
         window._syn_portal_show(mode)
         _select(section)
 
     def _dvr(*_):
+        if getattr(window, '_synplus_maxi_mode', False):
+            set_maxi_mode(window, GLib, False)
         set_guide_mode(window, GLib, False)
         window._syn_portal_hide()
         if not window.dvr_view.get_visible():
@@ -1676,6 +1693,67 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     reveal.set_child(chrome)
     window.overlay.add_overlay(reveal)
     window._synplus_chrome_reveal = reveal
+
+    # SYN_MAC_MAXIPLAYER_BETA1: own compact/expanded button, always reachable.
+    # Cairo artwork is bundled in code; no missing symbolic icons on macOS.
+    maxi_button = Gtk.Button()
+    maxi_button.add_css_class('synplus-maxi-toggle')
+    maxi_button.set_halign(Gtk.Align.END)
+    maxi_button.set_valign(Gtk.Align.START)
+    maxi_button.set_margin_top(11)
+    maxi_button.set_margin_end(12)
+    maxi_button.set_size_request(35, 35)
+    maxi_icon = Gtk.DrawingArea()
+    maxi_icon.set_content_width(19)
+    maxi_icon.set_content_height(19)
+    maxi_icon.set_size_request(19, 19)
+    maxi_icon.set_can_target(False)
+
+    def draw_maxi_glyph(_area, cr, w, h):
+        if min(w, h) <= 0:
+            return
+        scale=min(w,h)/19.0
+        cr.save()
+        try:
+            cr.translate((w-19*scale)/2,(h-19*scale)/2)
+            cr.scale(scale,scale)
+            cr.set_source_rgb(.98,.98,.99)
+            cr.set_line_width(1.75)
+            cr.set_line_cap(1)
+            cr.set_line_join(1)
+            if getattr(window, '_synplus_maxi_mode', False):
+                # Arrows inwards: return to normal three-column mini player.
+                cr.move_to(2.8,2.8); cr.line_to(7.4,7.4)
+                cr.move_to(7.4,3.4); cr.line_to(7.4,7.4); cr.line_to(3.4,7.4)
+                cr.move_to(16.2,2.8); cr.line_to(11.6,7.4)
+                cr.move_to(11.6,3.4); cr.line_to(11.6,7.4); cr.line_to(15.6,7.4)
+                cr.move_to(2.8,16.2); cr.line_to(7.4,11.6)
+                cr.move_to(3.4,11.6); cr.line_to(7.4,11.6); cr.line_to(7.4,15.6)
+                cr.move_to(16.2,16.2); cr.line_to(11.6,11.6)
+                cr.move_to(15.6,11.6); cr.line_to(11.6,11.6); cr.line_to(11.6,15.6)
+            else:
+                # Outward corners: enlarge *inside* the SYN window.
+                cr.move_to(7.4,7.4); cr.line_to(3.0,3.0); cr.line_to(7.0,3.0)
+                cr.move_to(3.0,3.0); cr.line_to(3.0,7.0)
+                cr.move_to(11.6,7.4); cr.line_to(16.0,3.0); cr.line_to(12.0,3.0)
+                cr.move_to(16.0,3.0); cr.line_to(16.0,7.0)
+                cr.move_to(7.4,11.6); cr.line_to(3.0,16.0); cr.line_to(7.0,16.0)
+                cr.move_to(3.0,16.0); cr.line_to(3.0,12.0)
+                cr.move_to(11.6,11.6); cr.line_to(16.0,16.0); cr.line_to(12.0,16.0)
+                cr.move_to(16.0,16.0); cr.line_to(16.0,12.0)
+            cr.stroke()
+        finally:
+            cr.restore()
+
+    maxi_icon.set_draw_func(draw_maxi_glyph)
+    maxi_button.set_child(maxi_icon)
+    maxi_button.set_tooltip_text('Maxirreproductor · ocultar canales y guía')
+    maxi_button.connect('clicked', lambda *_: set_maxi_mode(
+        window, GLib, not window._synplus_maxi_mode))
+    window.overlay.add_overlay(maxi_button)
+    window.overlay.set_measure_overlay(maxi_button, False)
+    window._synplus_maxi_button = maxi_button
+    window._synplus_maxi_glyph = maxi_icon
     motion = Gtk.EventControllerMotion.new()
     motion.connect('enter', lambda *_: reveal_controls(window, True))
     motion.connect('motion', lambda *_: reveal_controls(window, True))
@@ -1792,13 +1870,60 @@ def fitted_player_geometry(region_width, region_height, display_dimensions,
     return fit_w, fit_h
 
 
+
+# SYN_MAC_MAXIPLAYER_BETA1: three distinct modes mini / maxi / native fullscreen.
+def set_maxi_mode(window, GLib, enabled):
+    """Expand video inside GTK window, keeping the fixed SYN navigation rail.
+
+    Only change visibility and the frame's existing alignment. Never reparent
+    Gtk.GLArea/overlay or change mpv, EPG data, Cast, or the DVR service.
+    """
+    if (not getattr(window, '_synplus_ui', False)
+            or getattr(window, '_synplus_in_fullscreen', False)
+            or window.fullscreen_mode or window.is_fullscreen()):
+        return
+    enabled = bool(enabled)
+    if enabled == getattr(window, '_synplus_maxi_mode', False):
+        return
+    if enabled and (getattr(window, '_synplus_full_guide', False)
+                    or window.dvr_view.get_visible()
+                    or window._syn_portal.get_visible()):
+        return
+    if enabled:
+        window._synplus_maxi_guide_was_open = bool(window.guide_open)
+    window._synplus_maxi_mode = enabled
+    window.sidebar.set_visible(False if enabled else not window.compact_sidebar)
+    window.channel_menu.set_visible(False if enabled else window.get_width() < 1140)
+    if enabled:
+        window.guide_surface.set_visible(False)
+    elif window._synplus_maxi_guide_was_open:
+        # set_guide_open(True) returns early if logically already open.
+        if window.guide_open:
+            window.guide_surface.set_visible(True)
+        else:
+            window.set_guide_open(True)
+    frame = window._synplus_player_frame
+    frame.set_valign(window._synplus_gtk.Align.CENTER if enabled
+                    else window._synplus_gtk.Align.START)
+    window._synplus_requested_video = None
+    button = window._synplus_maxi_button
+    button.set_tooltip_text('Volver al minirreproductor · mostrar canales y guía'
+                            if enabled else 'Maxirreproductor · ocultar canales y guía')
+    window._synplus_maxi_glyph.queue_draw()
+    adapt(window, window.get_width())
+    GLib.idle_add(window._queue_video_frame)
+
+
 def adapt(window, width):
     """Fixed 150px navigation, freely sized video, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
     window._synplus_nav.set_visible(True)
     window._synplus_nav.set_size_request(195, -1)
-    window.channel_menu.set_visible(width < 1140)
+    window.channel_menu.set_visible(width < 1140 and not getattr(window, '_synplus_maxi_mode', False))
+    if getattr(window, '_synplus_maxi_mode', False):
+        window.sidebar.set_visible(False)
+        window.guide_surface.set_visible(False)
     full_guide = getattr(window, '_synplus_full_guide', False)
     if not full_guide:
         rows = 3 if window.get_height() < 850 else (4 if window.get_height() < 1080 else 5)
@@ -1869,6 +1994,7 @@ def fullscreen_changed(window, enabled, GLib):
             cast_pop.popdown()
         window._synplus_cast_popover_open = False
         window._synplus_nav.set_visible(False)
+        window._synplus_maxi_button.set_visible(False)
         window.guide_surface.set_visible(False)
         # The stable fullscreen handler handles its own channel sidebar,
         # but SYN Plus has an independent host and guide outside the video.
@@ -1901,18 +2027,24 @@ def fullscreen_changed(window, enabled, GLib):
     frame.set_hexpand(False)
     frame.set_vexpand(False)
     frame.set_halign(align.CENTER)
-    frame.set_valign(align.START)
+    frame.set_valign(align.CENTER if window._synplus_maxi_mode else align.START)
     window._synplus_requested_video = None
     window._synplus_mouse_over_video = False
     window._synplus_reveal_until = 0.0
     window._synplus_nav.set_visible(True)
+    window._synplus_maxi_button.set_visible(True)
+    if window._synplus_maxi_mode:
+        window.sidebar.set_visible(False)
+        window.channel_menu.set_visible(False)
+        window.guide_surface.set_visible(False)
     window._synplus_chrome.set_visible(True)
     window._synplus_chrome_reveal.set_visible(True)
     window._synplus_gradient_reveal.set_visible(True)
-    if not window.guide_open and window._synplus_guide_requested:
-        GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
-    elif window.guide_open:
-        window.guide_surface.set_visible(True)
+    if not window._synplus_maxi_mode:
+        if not window.guide_open and window._synplus_guide_requested:
+            GLib.idle_add(lambda: (window.set_guide_open(True), False)[1])
+        elif window.guide_open:
+            window.guide_surface.set_visible(True)
     if getattr(window, '_synplus_pre_full_guide', False):
         GLib.idle_add(lambda: (set_guide_mode(window, GLib, True), False)[1])
     window._synplus_pre_full_guide = False
