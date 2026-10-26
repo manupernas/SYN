@@ -421,12 +421,12 @@ def css(theme='system', accent_hex='', system_dark=False):
     window.iptv-tv.synplus-window .synplus-visual-player .iptv-video {
       border:0; box-shadow:none; }
     window.iptv-tv.synplus-window button.synplus-maxi-toggle {
-      background-color:rgba(24,36,44,.70); background-image:none;
-      border:1px solid rgba(255,255,255,.20); border-radius:12px;
-      color:#fff; padding:5px; min-width:35px; min-height:35px;
+      background-color:rgba(24,36,44,.58); background-image:none;
+      border:1px solid rgba(255,255,255,.13); border-radius:10px;
+      color:#fff; padding:3px; min-width:30px; min-height:30px;
       box-shadow:none; }
     window.iptv-tv.synplus-window button.synplus-maxi-toggle:hover {
-      background-color:rgba(41,62,73,.91); }
+      background-color:rgba(41,62,73,.80); }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-visual-player {
       border-radius:0; margin:0; padding:0; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-video-chrome {
@@ -645,6 +645,12 @@ def mac_native_css(accent_hex='', system_dark=False):
     chrome = 'rgba(50,50,54,.86)' if dark else 'rgba(250,250,252,.92)'
     return f"""
     /* SYN-Mac 5.7 : AUTO LIGHT/DARK + true macOS system accent. */
+    /* Prefer Apple's system UI face; use Apple's Helvetica Neue as a fallback.
+       GTK/Pango selects what is actually available from the host OS. */
+    window.iptv-tv.synplus-window,
+    window.synplus-welcome {{
+        font-family: system-ui, "SF Pro Text", "Helvetica Neue", sans-serif;
+    }}
     window.iptv-tv.synplus-window,
     window.iptv-tv.synplus-window .synplus-workbench,
     window.iptv-tv.synplus-window .synplus-video-column {{
@@ -1694,53 +1700,42 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     window.overlay.add_overlay(reveal)
     window._synplus_chrome_reveal = reveal
 
-    # SYN_MAC_MAXIPLAYER_BETA1: own compact/expanded button, always reachable.
-    # Cairo artwork is bundled in code; no missing symbolic icons on macOS.
+    # SYN_MAC_MAXIPLAYER_HOVER: small native-looking toggle, hidden with
+    # the SAME hover/click state as the original mini-player transport buttons.
+    # Keep the existing Gtk.Overlay/Gdk.GLArea and mpv context unchanged.
     maxi_button = Gtk.Button()
     maxi_button.add_css_class('synplus-maxi-toggle')
-    maxi_button.set_halign(Gtk.Align.END)
-    maxi_button.set_valign(Gtk.Align.START)
-    maxi_button.set_margin_top(11)
-    maxi_button.set_margin_end(12)
-    maxi_button.set_size_request(35, 35)
+    maxi_button.set_size_request(30, 30)
     maxi_icon = Gtk.DrawingArea()
-    maxi_icon.set_content_width(19)
-    maxi_icon.set_content_height(19)
-    maxi_icon.set_size_request(19, 19)
+    maxi_icon.set_content_width(15)
+    maxi_icon.set_content_height(15)
+    maxi_icon.set_size_request(15, 15)
     maxi_icon.set_can_target(False)
 
     def draw_maxi_glyph(_area, cr, w, h):
         if min(w, h) <= 0:
             return
-        scale=min(w,h)/19.0
+        scale = min(w, h) / 16.0
         cr.save()
         try:
-            cr.translate((w-19*scale)/2,(h-19*scale)/2)
-            cr.scale(scale,scale)
-            cr.set_source_rgb(.98,.98,.99)
-            cr.set_line_width(1.75)
+            cr.translate((w - 16*scale)/2, (h - 16*scale)/2)
+            cr.scale(scale, scale)
+            cr.set_source_rgb(.99, .99, 1.0)
+            cr.set_line_width(1.65)
             cr.set_line_cap(1)
             cr.set_line_join(1)
             if getattr(window, '_synplus_maxi_mode', False):
-                # Arrows inwards: return to normal three-column mini player.
-                cr.move_to(2.8,2.8); cr.line_to(7.4,7.4)
-                cr.move_to(7.4,3.4); cr.line_to(7.4,7.4); cr.line_to(3.4,7.4)
-                cr.move_to(16.2,2.8); cr.line_to(11.6,7.4)
-                cr.move_to(11.6,3.4); cr.line_to(11.6,7.4); cr.line_to(15.6,7.4)
-                cr.move_to(2.8,16.2); cr.line_to(7.4,11.6)
-                cr.move_to(3.4,11.6); cr.line_to(7.4,11.6); cr.line_to(7.4,15.6)
-                cr.move_to(16.2,16.2); cr.line_to(11.6,11.6)
-                cr.move_to(15.6,11.6); cr.line_to(11.6,11.6); cr.line_to(11.6,15.6)
+                # Four quiet INWARD corners: return to 3-column mini-player.
+                cr.move_to(3.5, 7); cr.line_to(7, 7); cr.line_to(7, 3.5)
+                cr.move_to(9, 3.5); cr.line_to(9, 7); cr.line_to(12.5, 7)
+                cr.move_to(7, 12.5); cr.line_to(7, 9); cr.line_to(3.5, 9)
+                cr.move_to(12.5, 9); cr.line_to(9, 9); cr.line_to(9, 12.5)
             else:
-                # Outward corners: enlarge *inside* the SYN window.
-                cr.move_to(7.4,7.4); cr.line_to(3.0,3.0); cr.line_to(7.0,3.0)
-                cr.move_to(3.0,3.0); cr.line_to(3.0,7.0)
-                cr.move_to(11.6,7.4); cr.line_to(16.0,3.0); cr.line_to(12.0,3.0)
-                cr.move_to(16.0,3.0); cr.line_to(16.0,7.0)
-                cr.move_to(7.4,11.6); cr.line_to(3.0,16.0); cr.line_to(7.0,16.0)
-                cr.move_to(3.0,16.0); cr.line_to(3.0,12.0)
-                cr.move_to(11.6,11.6); cr.line_to(16.0,16.0); cr.line_to(12.0,16.0)
-                cr.move_to(16.0,16.0); cr.line_to(16.0,12.0)
+                # Four minimalist OUTWARD corners: larger in-window player.
+                cr.move_to(6, 2.5); cr.line_to(2.5, 2.5); cr.line_to(2.5, 6)
+                cr.move_to(10, 2.5); cr.line_to(13.5, 2.5); cr.line_to(13.5, 6)
+                cr.move_to(2.5, 10); cr.line_to(2.5, 13.5); cr.line_to(6, 13.5)
+                cr.move_to(10, 13.5); cr.line_to(13.5, 13.5); cr.line_to(13.5, 10)
             cr.stroke()
         finally:
             cr.restore()
@@ -1750,9 +1745,20 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     maxi_button.set_tooltip_text('Maxirreproductor · ocultar canales y guía')
     maxi_button.connect('clicked', lambda *_: set_maxi_mode(
         window, GLib, not window._synplus_maxi_mode))
-    window.overlay.add_overlay(maxi_button)
-    window.overlay.set_measure_overlay(maxi_button, False)
+
+    maxi_reveal = Gtk.Revealer()
+    maxi_reveal.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+    maxi_reveal.set_transition_duration(300)
+    maxi_reveal.set_reveal_child(False)
+    maxi_reveal.set_halign(Gtk.Align.END)
+    maxi_reveal.set_valign(Gtk.Align.START)
+    maxi_reveal.set_margin_top(9)
+    maxi_reveal.set_margin_end(10)
+    maxi_reveal.set_child(maxi_button)
+    window.overlay.add_overlay(maxi_reveal)
+    window.overlay.set_measure_overlay(maxi_reveal, False)
     window._synplus_maxi_button = maxi_button
+    window._synplus_maxi_revealer = maxi_reveal
     window._synplus_maxi_glyph = maxi_icon
     motion = Gtk.EventControllerMotion.new()
     motion.connect('enter', lambda *_: reveal_controls(window, True))
@@ -1994,7 +2000,8 @@ def fullscreen_changed(window, enabled, GLib):
             cast_pop.popdown()
         window._synplus_cast_popover_open = False
         window._synplus_nav.set_visible(False)
-        window._synplus_maxi_button.set_visible(False)
+        window._synplus_maxi_revealer.set_reveal_child(False)
+        window._synplus_maxi_revealer.set_visible(False)
         window.guide_surface.set_visible(False)
         # The stable fullscreen handler handles its own channel sidebar,
         # but SYN Plus has an independent host and guide outside the video.
@@ -2032,7 +2039,8 @@ def fullscreen_changed(window, enabled, GLib):
     window._synplus_mouse_over_video = False
     window._synplus_reveal_until = 0.0
     window._synplus_nav.set_visible(True)
-    window._synplus_maxi_button.set_visible(True)
+    window._synplus_maxi_revealer.set_reveal_child(False)
+    window._synplus_maxi_revealer.set_visible(True)
     if window._synplus_maxi_mode:
         window.sidebar.set_visible(False)
         window.channel_menu.set_visible(False)
@@ -2315,6 +2323,10 @@ def poll_chrome(window):
     gradient=getattr(window,'_synplus_gradient_reveal',None)
     if gradient is not None:
         gradient.set_reveal_child(visible)
+    # Top-right maxi control follows EXACTLY the same hover/click visibility.
+    maxi = getattr(window, '_synplus_maxi_revealer', None)
+    if maxi is not None:
+        maxi.set_reveal_child(visible)
     return True
 
 
