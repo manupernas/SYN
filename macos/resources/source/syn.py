@@ -2484,7 +2484,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                     self.player._libGL.glClear(0x00004000)  # GL_COLOR_BUFFER_BIT
                 return True
             if self.player and self.player.ctx.value:
-                self.player.render(width, height)
+                if hasattr(self.player, '_gpu_requested'):
+                    # Only libVLC accepts the fullscreen flag; native mpv is
+                    # intentionally unchanged. GTK fullscreen is asynchronous.
+                    root = self.get_root()
+                    fullscreen = bool(root and (root.fullscreen_mode or root.is_fullscreen()))
+                    self.player.render(width, height, fullscreen=fullscreen)
+                else:
+                    self.player.render(width, height)
             return True
 
         def on_resize(self, _area, _width, _height):

@@ -25,6 +25,24 @@ VideoFormat = C.CFUNCTYPE(C.c_uint, C.POINTER(C.c_void_p), C.c_void_p,
 VideoCleanup = C.CFUNCTYPE(None, C.c_void_p)
 
 
+def syn_vlc_blit_rect(dw, dh, sw, sh, fullscreen=False):
+    """Destination OpenGL blit rectangle, preserving real letterboxing.
+
+    Ignore ONLY sub-1% aspect differences in native fullscreen. They are
+    frequently codec padding (e.g. 1920x1088 for visible 1920x1080), not
+    deliberately narrow letterbox bars. No fullscreen cropping, no overscan,
+    and never distort genuine 4:3 / 21:9 programmes. Windowed modes unchanged.
+    """
+    dw, dh, sw, sh = (max(1, int(v)) for v in (dw, dh, sw, sh))
+    if fullscreen and abs(dw * sh - dh * sw) * 100 <= max(dw * sh, dh * sw):
+        return 0, 0, dw, dh
+    if dw * sh <= dh * sw:
+        vw, vh = dw, max(1, round(dw * sh / sw))
+    else:
+        vh, vw = dh, max(1, round(dh * sw / sh))
+    return (dw - vw) // 2, (dh - vh) // 2, vw, vh
+
+
 def vlc_library():
     """Prefer the bundled official VideoLAN app runtime over a system install."""
     base = Path(__file__).resolve()
@@ -370,7 +388,7 @@ class NativeVlc:
             self.engine = 'libVLC 3 · VideoToolbox solicitado · GTK (compatibilidad)'
             print('SYN_VLC_GPU_FALLBACK: '+self._gpu_failed_reason, flush=True)
 
-    def render(self, width, height):
+    def render(self, width, height, fullscreen=False):
         gl = self._libGL
         if gl is None:
             return
@@ -433,12 +451,9 @@ class NativeVlc:
             gl.glClearColor(0., 0., 0., 1.)
             gl.glClear(0x00004000)
             dw, dh = max(1, int(width)), max(1, int(height))
-            # Fit without crop. VLC decodes, OpenGL scales & GTK overlays controls.
-            if dw * sh <= dh * sw:
-                vw, vh = dw, max(1, round(dw * sh / sw))
-            else:
-                vh, vw = dh, max(1, round(dh * sw / sh))
-            x, y = (dw - vw) // 2, (dh - vh) // 2
+            # Fullscreen: swallow sub-1% codec padding, NOT intentional bars.
+            # Windowed mini/maxi still use exact aspect-preserving scaling.
+            x, y, vw, vh = syn_vlc_blit_rect(dw, dh, sw, sh, fullscreen)
             # VLC memory rows start at TOP, while OpenGL texture y=0 is BOTTOM.
             gl.glBlitFramebuffer(0, sh, sw, 0, x, y, x+vw, y+vh,
                                  0x00004000, 0x2601)
