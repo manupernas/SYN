@@ -1,8 +1,9 @@
-"""Experimental LibVLC 3 decoder for the SYN GTK4 macOS player.
+"""Embedded libVLC 3 playback backend for SYN on macOS Apple Silicon.
 
-The display path intentionally uses Gdk.MemoryTexture, keeping GTK overlays,
-EPG, Cast and DVR intact. It is a CPU-copy test bench, NOT native NSView or the
-final performance path. GTK main-thread work is delivered via GLib.idle_add.
+Keeps the already-tested GTK overlays, mini/maxi/fullscreen, DVR and Cast.
+The VLC 3 callback path copies decoded frames to Gdk.MemoryTexture (not native
+GPU/NSView output). C callbacks never directly call GTK and the screenshot PNG
+encoder runs on a worker thread, not in the GUI event loop.
 """
 from __future__ import annotations
 
@@ -42,28 +43,41 @@ def vlc_library():
     raise FileNotFoundError('libVLC no encontrada dentro de SYN.app ni en /Applications/VLC.app')
 
 
-def png_rgba_from_bgra(dst, width, height, bgra):
-    """Snapshot PNG without PIL, subprocesses, or an external video process."""
-    src = memoryview(bgra)
+def png_rgba_from_bgra(dst, width, height, bgra, stride=None):
+    """Write exact, lossless screenshot from a padded BGRX VLC frame.
+
+    Uses optimized slice copies (no Python loop over individual pixels).
+    Runs in a short-lived worker; GTK must never wait for PNG compression.
+    """
+    width, height = int(width), int(height)
     pitch = width * 4
-    scanlines = bytearray()
+    stride = pitch if stride is None else int(stride)
+    if width < 1 or height < 1 or stride < pitch or len(bgra) < (height-1)*stride+pitch:
+        raise ValueError('Fotograma VLC incompleto')
+    chunks = []
+    src = memoryview(bgra)
     for y in range(height):
-        scanlines.append(0)
-        row = src[y * pitch:(y + 1) * pitch]
-        # libVLC RV32 on little endian: B,G,R,X. Produce opaque RGBA.
-        for i in range(0, pitch, 4):
-            scanlines.extend((row[i + 2], row[i + 1], row[i], 255))
+        line = src[y*stride:y*stride+pitch]
+        rgba = bytearray(pitch)
+        rgba[0::4] = line[2::4]
+        rgba[1::4] = line[1::4]
+        rgba[2::4] = line[0::4]
+        rgba[3::4] = b'\xff' * width
+        chunks.append(b'\x00' + rgba)
     def chunk(tag, data):
-        return struct.pack('!I', len(data)) + tag + data + struct.pack('!I', zlib.crc32(tag + data))
-    output = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 6, 0, 0, 0))
-              + chunk(b'IDAT', zlib.compress(scanlines, 3)) + chunk(b'IEND', b''))
+        return (struct.pack('!I', len(data)) + tag + data
+                + struct.pack('!I', zlib.crc32(tag + data)))
+    output = (b'\x89PNG\r\n\x1a\n'
+              + chunk(b'IHDR', struct.pack('!2I5B', width, height, 8, 6, 0, 0, 0))
+              + chunk(b'IDAT', zlib.compress(b''.join(chunks), 3))
+              + chunk(b'IEND', b''))
     Path(dst).write_bytes(output)
 
 
 class NativeVlc:
     """Duck-type adapter for the stable SYN NativeMpv contract."""
 
-    engine = 'libVLC experimental (GTK memory output)'
+    engine = 'libVLC 3 · VideoToolbox configurado · salida GTK (memoria)'
 
     def __init__(self, GLib, Gdk, picture, player_options=None):
         self.GLib, self.Gdk, self.picture = GLib, Gdk, picture
@@ -82,8 +96,11 @@ class NativeVlc:
         self._render_count = 0
         self._last_frame_at = time.monotonic()
         self._width = self._height = 0
+        self._source_dimensions = None
+        self._stride = self._lines = 0
         self._buffer = None
         self._buffer_size = 0
+        self._play_generation = 0
         self._frame_guard = threading.Lock()
         self._latest = None
         self._snapshot = None
@@ -91,6 +108,9 @@ class NativeVlc:
         self._last_delivered_at = 0.0
         self._error = ''
         self._instance = self._mp = None
+        self.hardware_mode = os.environ.get('SYN_VLC_HW', 'auto').strip().lower()
+        if self.hardware_mode not in ('auto', 'off', 'require'):
+            self.hardware_mode = 'auto'
         self.libpath = vlc_library()
         root = self.libpath.parent.parent
         plugins = root / 'plugins'
@@ -113,6 +133,18 @@ class NativeVlc:
         self._bind()
         options = [b'--no-video-title-show', b'--no-osd', b'--quiet',
                    b'--no-media-library', b'--no-snapshot-preview']
+        # VLC 3 has a *dedicated* Apple VideoToolbox decoder plugin. Unlike
+        # libVLC 4's OpenGL/Metal output callbacks, it does not expose its
+        # GPU surfaces to GTK's GLArea. Request HW decode explicitly, allowing
+        # software fallback for unsupported channels (e.g. some MPEG-2 feeds).
+        # Override only for diagnosis: SYN_VLC_HW=off | auto | require.
+        if self.hardware_mode == 'off':
+            options.append(b'--no-videotoolbox')
+        else:
+            options.append(b'--videotoolbox')
+            options.append(b'--videotoolbox-hw-decoder-only'
+                           if self.hardware_mode == 'require'
+                           else b'--no-videotoolbox-hw-decoder-only')
         # libVLC may return NULL when its plugins are missing or the runtime
         # cannot load its dependencies. Keep the stable mpv fallback available.
         argv = (C.c_char_p * len(options))(*options)
@@ -160,21 +192,28 @@ class NativeVlc:
             if self.closed:
                 return 0
             try:
-                w, h = int(width[0]), int(height[0])
-                if min(w, h) < 2:
+                source_w, source_h = int(width[0]), int(height[0])
+                if min(source_w, source_h) < 2:
                     return 0
-                # Constrain memory copies in this *first* experimental build.
-                limit = min(1.0, 1920 / w, 1080 / h)
-                w, h = max(2, int(w * limit)), max(2, int(h * limit))
+                self._source_dimensions = (source_w, source_h)
+                # Keep source pixels up to 4K UHD rather than the beta's 1080p
+                # cap. 8K+ inputs are resized to avoid unbounded CPU memory.
+                ratio = min(1.0, 4096 / source_w, 2160 / source_h)
+                w, h = max(2, int(source_w * ratio)), max(2, int(source_h * ratio))
                 w += w % 2
                 h += h % 2
-                size = w * h * 4
+                # VideoLAN recommends 32-byte-aligned strides/line counts.
+                # MemoryTexture accepts a stride that includes this padding.
+                pitch = ((w * 4 + 63) // 64) * 64
+                line_count = ((h + 31) // 32) * 32
+                size = pitch * line_count
                 self._buffer = C.create_string_buffer(size)
                 self._buffer_size = size
                 self._width, self._height = w, h
+                self._stride, self._lines = pitch, line_count
                 C.memmove(chroma, b'RV32', 4)
                 width[0], height[0] = w, h
-                pitches[0], lines[0] = w * 4, h
+                pitches[0], lines[0] = pitch, line_count
                 return 1
             except Exception as exc:
                 self._error = 'Error al reservar búfer VLC: ' + str(exc)
@@ -182,8 +221,8 @@ class NativeVlc:
 
         @VideoCleanup
         def cleanup(_opaque):
-            # Do not drop the ctypes allocation from the decoding thread while
-            # callbacks might still refer to it. It is reused until shutdown.
+            # VLC stops callbacks before destruction. Avoid dropping memory
+            # out from under its decoding thread during a quality change.
             return
 
         @VideoLock
@@ -203,15 +242,17 @@ class NativeVlc:
             if self.closed or not self._buffer or not self.active_url:
                 return
             now = time.monotonic()
-            # Stop GTK upload churn on high-fps broadcast streams. This limit
-            # is only for the diagnostic CPU-copy renderer, not VLC decoding.
-            if now - self._last_delivered_at < (1 / 30):
+            # High-resolution CPU copies can saturate the renderer on 4K.
+            # Preserve up to 60 fps on HD/1080p, 30 fps on higher signals.
+            max_fps = 60 if self._width * self._height <= 1920 * 1080 else 30
+            if now - self._last_delivered_at < (1 / max_fps):
                 return
             self._last_delivered_at = now
             try:
-                data = C.string_at(self._buffer, self._buffer_size)
+                w, h, stride = self._width, self._height, self._stride
+                data = C.string_at(self._buffer, stride * h)
                 with self._frame_guard:
-                    self._latest = (self._width, self._height, data)
+                    self._latest = (self._play_generation, w, h, stride, data)
                     pending = self._idle_pending
                     self._idle_pending = True
                 if not pending:
@@ -231,19 +272,18 @@ class NativeVlc:
             self._idle_pending = False
         if self.closed or frame is None:
             return False
-        w, h, data = frame
-        if not self.active_url:
-            return False
-        # RV32 is B,G,R,X on little-endian macOS. The X byte is padding.
+        generation, w, h, stride, data = frame
+        if not self.active_url or generation != self._play_generation:
+            return False  # Never show a frame from the previous channel.
         try:
             fmt = (self.Gdk.MemoryFormat.B8G8R8X8
                    if hasattr(self.Gdk.MemoryFormat, 'B8G8R8X8')
                    else self.Gdk.MemoryFormat.B8G8R8A8)
             blob = self.GLib.Bytes.new(data)
-            texture = self.Gdk.MemoryTexture.new(w, h, fmt, blob, w * 4)
+            texture = self.Gdk.MemoryTexture.new(w, h, fmt, blob, stride)
             self.picture.set_paintable(texture)
             self.picture.set_visible(True)
-            self._snapshot = frame
+            self._snapshot = (w, h, stride, data)
             self._render_count += 1
             self._last_frame_at = time.monotonic()
             if self._awaiting_load:
@@ -253,7 +293,7 @@ class NativeVlc:
         except Exception as exc:
             self._error = 'Gdk.MemoryTexture: ' + str(exc)
             if self.on_status:
-                self.on_status('VLC: '+self._error, True)
+                self.on_status('VLC: ' + self._error, True)
         return False
 
     def initialize_opengl(self, _queue_draw):
@@ -275,6 +315,9 @@ class NativeVlc:
         url = str(channel.url)
         self.stop()
         self.active_url, self.active_name = url, channel.name
+        self._last_delivered_at = 0.0
+        self._source_dimensions = None
+        self._width = self._height = 0
         self._awaiting_load = True
         self._syn_reconnect_buffering = False
         self._is_paused = False
@@ -303,9 +346,11 @@ class NativeVlc:
             raise RuntimeError('libVLC no pudo iniciar la reproducción')
 
     def stop(self):
+        # Invalidate pending GTK uploads before stopping libVLC.
+        self._play_generation += 1
+        self.active_url = ''
         if self._mp and not self.closed:
             self.lib.libvlc_media_player_stop(self._mp)
-        self.active_url = ''
         self._awaiting_load = False
         self._syn_ts_playback_time = None
         with self._frame_guard:
@@ -334,30 +379,39 @@ class NativeVlc:
         return v / 1000 if v >= 0 else None
 
     def video_dimensions(self):
-        return (self._width, self._height) if self.active_url and not self._awaiting_load and self._width else None
+        return (self._source_dimensions
+                if self.active_url and not self._awaiting_load else None)
 
     def video_display_dimensions(self):
-        return self.video_dimensions()
+        # Output and source keep the same ratio for ordinary TV streams.
+        return (self._width, self._height) if self.active_url and self._width else None
 
     def screenshot_to_file(self, destination, callback):
         frame = self._snapshot
         if frame is None:
             self.GLib.idle_add(callback, -1, 'Todavía no hay imagen VLC')
             return False
-        try:
-            w, h, pixels = frame
-            png_rgba_from_bgra(destination, w, h, pixels)
-            self.GLib.idle_add(callback, 0, '')
-            return True
-        except (OSError, ValueError) as exc:
-            self.GLib.idle_add(callback, -1, str(exc))
-            return False
+        w, h, stride, pixels = frame
+        def encode():
+            try:
+                png_rgba_from_bgra(destination, w, h, pixels, stride)
+            except (OSError, ValueError) as exc:
+                self.GLib.idle_add(callback, -1, str(exc))
+            else:
+                self.GLib.idle_add(callback, 0, '')
+        threading.Thread(target=encode, name='syn-vlc-snapshot', daemon=True).start()
+        return True
 
     def write_diag(self):
-        from tempfile import gettempdir
-        p = Path(gettempdir()) / 'SYN_VLC_BETA_Diagnostico.txt'
-        p.write_text('Motor: libVLC (beta GTK memory)\nBiblioteca: '
-                     + str(self.libpath) + '\nProblema: ' + self._error + '\n', encoding='utf-8')
+        p = Path.home() / 'Library/Logs/SYN/vlc-reproduccion.log'
+        p.parent.mkdir(parents=True, exist_ok=True)
+        dims = str(self._source_dimensions or 'todavía sin señal')
+        p.write_text('Motor: libVLC 3 integrado (memoria GTK)\nVideoToolbox: '
+                     + self.hardware_mode + ' (solicitado; no confirma uso efectivo)\nBiblioteca: '
+                     + str(self.libpath) + '\nResolución: ' + dims
+                     + '\nFotogramas mostrados: ' + str(self._render_count)
+                     + '\nIncidencia: ' + self._error + '\n', encoding='utf-8')
+        p.chmod(0o600)
         return str(p)
 
     def free_renderer(self):
