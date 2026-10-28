@@ -1,0 +1,16 @@
+PODS:
+  - VLCKit (3.7.3)
+
+DEPENDENCIES:
+  - VLCKit (= 3.7.3)
+
+SPEC REPOS:
+  trunk:
+    - VLCKit
+
+SPEC CHECKSUMS:
+  VLCKit: 4f2c462daaab6de88b93ab7609bdefbada557a4d
+
+PODFILE CHECKSUM: 8a629ab5912acbb57e5eaae7eae7c06b6393d016
+
+COCOAPODS: 1.17.0

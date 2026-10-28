@@ -1,0 +1,35 @@
+name: SYNNative
+options:
+  bundleIdPrefix: com.mrseivane
+  deploymentTarget:
+    macOS: '15.0'
+  xcodeVersion: '16.0'
+targets:
+  SYNNative:
+    type: application
+    platform: macOS
+    deploymentTarget: '15.0'
+    sources:
+      - path: SYNNative
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: SYNNative/Resources/Info.plist
+      properties:
+        CFBundleIconFile: SYN7100FullBleed.icns
+        CFBundleShortVersionString: '7.10.6'
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrseivane.SYNNativeAlpha
+        PRODUCT_NAME: SYN Swift
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_VERSION: '5.0'
+        MACOSX_DEPLOYMENT_TARGET: '15.0'
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGNING_ALLOWED: NO
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: SYNNative/Resources/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: '$(inherited) @executable_path/../Frameworks'
