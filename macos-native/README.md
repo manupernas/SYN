@@ -1,8 +1,14 @@
-# SYN Native — macOS (7.10.6)
+# SYN Native — macOS (7.10.8)
 
 Código fuente de la aplicación IPTV **SYN**, implementada en SwiftUI/AppKit con VLCKit 3.7.3.
 
-Esta versión incluye perfiles Xtream y M3U, favoritos, EPG multicanal adaptable a filas completas, reproductor 16:9, gestión de fuentes y ajustes, y funciones nativas de macOS. Es una instantánea del código del 28 de octubre de 2026, reconstruida a partir del proyecto fuente aportado y los parches 7.9.7–7.10.6.
+Esta versión incluye perfiles Xtream y M3U, favoritos, EPG multicanal adaptable a filas completas, reproductor 16:9, gestión de fuentes y ajustes, y funciones nativas de macOS. Es una instantánea del código del 29 de octubre de 2026, reconstruida a partir del proyecto fuente aportado y los parches 7.9.7–7.10.6.
+
+## Cambios en 7.10.8
+
+- Paleta neón de ocho colores con texto blanco uniforme y degradados (7.10.7).
+- Fichas informativas de la EPG ancladas lateralmente al cursor para evitar saltos de fila (7.10.8).
+- Se conservan las filas EPG adaptables, el reproductor y los perfiles de 7.10.6.
 
 **Este directorio contiene código y recursos, no una distribución compilada ni una release.** No se incluyen Pods, aplicaciones, bases de datos, perfiles privados ni contraseñas. Revisa requisitos y funcionamiento antes de distribuir.
 

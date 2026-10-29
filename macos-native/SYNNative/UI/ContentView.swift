@@ -1373,14 +1373,9 @@ struct ContentView: View {
         }
     }
 
+    // SYN 7.10.7 — Misma paleta neón para la EPG del canal y la guía multicanal.
     private func synEPGColor(_ index: Int) -> Color {
-        switch index % 5 {
-        case 0: return Color(red: 0.82, green: 0.33, blue: 0.46)
-        case 1: return Color(red: 0.47, green: 0.35, blue: 0.56)
-        case 2: return Color(red: 0.03, green: 0.53, blue: 0.51)
-        case 3: return Color(red: 0.89, green: 0.43, blue: 0.32)
-        default: return Color(red: 0.31, green: 0.44, blue: 0.65)
-        }
+        synGuideColor(index)
     }
 
     // SYN_EPG_GRADIENT_7104 — texto blanco sobre pastillas de color oscuro.
@@ -1448,14 +1443,18 @@ struct ContentView: View {
         return 300
     }
 
+    // SYN 7.10.7 — Pigmentos neón, sin alternar tipografía blanca/negra.
+    // El modificador ajusta el fondo por contraste; el borde conserva el tono fluor.
     private func synGuideColor(_ index: Int) -> Color {
-        switch index % 6 {
-        case 0: return Color(red: 0.83, green: 0.34, blue: 0.48)
-        case 1: return Color(red: 0.51, green: 0.38, blue: 0.56)
-        case 2: return Color(red: 0.00, green: 0.54, blue: 0.53)
-        case 3: return Color(red: 0.89, green: 0.45, blue: 0.36)
-        case 4: return Color(red: 0.34, green: 0.47, blue: 0.67)
-        default: return Color(red: 0.47, green: 0.49, blue: 0.35)
+        switch index % 8 {
+        case 0: return Color(red: 1.00, green: 0.11, blue: 0.72) // fucsia eléctrico
+        case 1: return Color(red: 0.00, green: 0.91, blue: 0.83) // turquesa fluor
+        case 2: return Color(red: 0.61, green: 0.35, blue: 1.00) // violeta neón
+        case 3: return Color(red: 0.20, green: 0.50, blue: 1.00) // azul eléctrico
+        case 4: return Color(red: 0.74, green: 0.95, blue: 0.12) // lima ácido
+        case 5: return Color(red: 1.00, green: 0.30, blue: 0.42) // coral intenso
+        case 6: return Color(red: 1.00, green: 0.53, blue: 0.12) // naranja eléctrico
+        default: return Color(red: 0.10, green: 0.90, blue: 0.60) // verde menta
         }
     }
 
@@ -2667,21 +2666,41 @@ private struct SYNMouseDragScrollBridge: NSViewRepresentable {
     }
 }
 
-// SYN_EPG_GRADIENT_7104 — degradado cromático de izquierda a derecha.
-// Texto siempre blanco: oscurecemos el propio color de la pastilla (sin negro puro)
-// para mantener la identidad rosa/teal/naranja/azul de cada programa.
+// SYN_EPG_NEON_7107 — pigmentos fluorescentes con letra BLANCA en toda la EPG.
+// El color base se oscurece solo lo necesario para un contraste minimo 5.3:1
+// sobre blanco; la linea de luz superior mantiene la sensacion neón.
 private struct SYNEPGGradient7104: ViewModifier {
     let tint: Color
     let enabled: Bool
 
     private func shaded(_ darkness: CGFloat) -> Color {
         let original = NSColor(tint).usingColorSpace(.deviceRGB) ?? NSColor.systemTeal
-        let factor = 1.0 - darkness
-        return Color(
-            red: Double(original.redComponent * factor),
-            green: Double(original.greenComponent * factor),
-            blue: Double(original.blueComponent * factor)
-        )
+        let r = original.redComponent
+        let g = original.greenComponent
+        let b = original.blueComponent
+
+        func linear(_ v: CGFloat) -> CGFloat {
+            let c = min(1, max(0, v))
+            return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        func contrast(_ scale: CGFloat) -> CGFloat {
+            let luminance = 0.2126 * linear(r * scale)
+                + 0.7152 * linear(g * scale)
+                + 0.0722 * linear(b * scale)
+            return 1.05 / (luminance + 0.05)
+        }
+        // Máximo brillo que mantiene el texto blanco legible, también en lima/cian.
+        var low: CGFloat = 0
+        var high: CGFloat = max(0, min(1, 1 - darkness))
+        if contrast(high) >= 5.3 { low = high }
+        else {
+            for _ in 0..<13 {
+                let mid = (low + high) / 2
+                if contrast(mid) >= 5.3 { low = mid }
+                else { high = mid }
+            }
+        }
+        return Color(red: Double(r * low), green: Double(g * low), blue: Double(b * low))
     }
 
     func body(content: Content) -> some View {
@@ -2690,22 +2709,33 @@ private struct SYNEPGGradient7104: ViewModifier {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(LinearGradient(
                         stops: [
-                            .init(color: shaded(0.20), location: 0),
-                            .init(color: shaded(0.28), location: 0.52),
-                            .init(color: shaded(0.45), location: 1)
+                            .init(color: shaded(0.10), location: 0),
+                            .init(color: shaded(0.23), location: 0.48),
+                            .init(color: shaded(0.43), location: 1)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
                     ))
+                    .overlay(alignment: .top) {
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [tint.opacity(0.92), tint.opacity(0.10)],
+                                startPoint: .leading, endPoint: .trailing
+                            ))
+                            .frame(height: enabled ? 2 : 1)
+                            .padding(.horizontal, 7)
+                            .padding(.top, 1)
+                            .allowsHitTesting(false)
+                    }
             }
             .overlay {
                 if enabled {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.white.opacity(0.20), lineWidth: 1)
+                        .strokeBorder(.white.opacity(0.17), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
             }
-            .shadow(color: .black.opacity(enabled ? 0.13 : 0), radius: 2, y: 1)
+            .shadow(color: .black.opacity(enabled ? 0.12 : 0), radius: 2, y: 1)
     }
 }
 
@@ -2774,16 +2804,29 @@ private struct SYNEPGHoverAnchor797: NSViewRepresentable {
         guard !popover.isShown, let window = view.window,
               let contentView = window.contentView else { return }
 
-        // Anclar a la raíz REAL de la ventana, no al rectángulo virtual de 14.550
-        // puntos ni a un .offset SwiftUI. La pantalla y el ratón mandan.
-        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        // SYN_EPG_POPOVER_7108 — anclar al puntero REAL, no al origen de la
+        // fila virtual (14.550 pt). El borde vertical anterior (.maxY) ponía
+        // la burbuja ENCIMA del ratón, sobre filas diferentes en la EPG inferior.
+        // Abrimos al LADO del puntero: la flecha permanece a la altura de la
+        // pastilla bajo el ratón incluso con scroll vertical y horizontal.
+        let screenPoint = NSEvent.mouseLocation
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let mouse = contentView.convert(windowPoint, from: nil)
         guard contentView.bounds.contains(mouse) else { return }
+
+        // Seleccionar izquierda/derecha según el espacio real de la pantalla;
+        // evita que AppKit desplace la ficha de vuelta hacia la parte superior.
+        let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+        let spaceRight = visibleFrame.maxX - screenPoint.x
+        let spaceLeft = screenPoint.x - visibleFrame.minX
+        let preferredSide: NSRectEdge = (spaceRight >= 380 || spaceRight >= spaceLeft)
+            ? .maxX : .minX
+
         popover.contentViewController = NSHostingController(rootView: SYNEPGPopoverContent797(
             item: item, start: start, end: end
         ))
-        popover.show(relativeTo: NSRect(x: mouse.x, y: mouse.y, width: 2, height: 2),
-                     of: contentView, preferredEdge: .maxY)
+        popover.show(relativeTo: NSRect(x: mouse.x, y: mouse.y, width: 3, height: 3),
+                     of: contentView, preferredEdge: preferredSide)
     }
 }
 

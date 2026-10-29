@@ -17,7 +17,7 @@ targets:
       path: SYNNative/Resources/Info.plist
       properties:
         CFBundleIconFile: SYN7100FullBleed.icns
-        CFBundleShortVersionString: '7.10.6'
+        CFBundleShortVersionString: '7.10.8'
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:
