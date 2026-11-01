@@ -161,14 +161,19 @@ final class SYNVideoHost: NSView {
         #endif
         SYNSharedLive70.shared.releaseUnrecorded(except: url)
         guard let url else { return }
-        if url.pathComponents.contains("live") {
+        // SYN_POOL_31: no direct IPTV URL fallback (would exceed subscription limit).
+        let isRemote = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        let isVOD = ["mp4", "mkv", "avi", "mov", "m4v"].contains(url.pathExtension.lowercased())
+        if isRemote && !isVOD {
             SYNSharedLive70.shared.session(for: url) { [weak self] session in
                 guard let self, self.loadSerial70 == serial, self.currentURL == url else { return }
                 self.liveSession70 = session
-                self.playMedia70(session?.local ?? url)
+                if let session { self.playMedia70(session.local) }
+                else { NSSound.beep() /* Límite de sesiones o receptor no disponible. */ }
                 self.updateRecording70()
             }
         } else {
+            SYNSharedLive70.shared.releaseUnrecorded(except: nil)
             playMedia70(url)
         }
     }
@@ -270,18 +275,15 @@ final class SYNVideoHost: NSView {
         startReplay70(snapshot: snapshot, targetSeconds: max(0, snapshot.duration + sender.doubleValue))
     }
     @objc private func toggleREC70() {
-        guard let session = liveSession70 else { NSSound.beep(); return }
-        if session.isRecording { session.stopRecording() }
-        else {
-            do { try session.beginRecording() }
-            catch { NSAlert(error: error).runModal() }
+        guard let url = currentURL, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            NSSound.beep(); return
         }
+        do { _ = try SYNUnifiedDVR2.toggle(url: url, channel: channelTitle) }
+        catch { NSAlert(error: error).runModal() }
         updateRecording70()
-        SYNSharedLive70.shared.releaseUnrecorded(except: currentURL)
     }
-    // SYN_MINI_STATUS_795: same live recorder used by fullscreen; no duplicate feed.
-    func synMiniCanRecord795() -> Bool { liveSession70 != nil }
-    func synMiniIsRecording795() -> Bool { liveSession70?.isRecording ?? false }
+    func synMiniCanRecord795() -> Bool { currentURL != nil }
+    func synMiniIsRecording795() -> Bool { SYNUnifiedDVR2.isRecording(url: currentURL) }
     func synMiniToggleRecording795() { toggleREC70() }
     func synMiniActualResolution795() -> String {
         #if canImport(VLCKit)
@@ -294,10 +296,10 @@ final class SYNVideoHost: NSView {
     }
 
     private func updateRecording70() {
-        let active = liveSession70?.isRecording ?? false
+        let active = SYNUnifiedDVR2.isRecording(url: currentURL)
         recButton70?.title = active ? "■ REC" : "● REC"
         recButton70?.contentTintColor = active ? .systemRed : .white
-        recButton70?.toolTip = active ? "Detener grabación del canal actual" : "Grabar este canal usando su única conexión"
+        recButton70?.toolTip = active ? "Detener grabación autónoma del canal actual" : "Grabar con SYN DVR Engine 2.0"
     }
     func configurePrograms70(now: SYNProgram70, next: SYNProgram70) {
         programNow70 = now
@@ -872,6 +874,7 @@ final class SYNVideoHost: NSView {
         player.stop()
         #endif
         currentURL = nil
+        SYNSharedLive70.shared.releaseUnrecorded(except: nil)
     }
     deinit {
         if let observer = nativeEnterObserver794 { NotificationCenter.default.removeObserver(observer) }

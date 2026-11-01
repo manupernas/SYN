@@ -9,7 +9,41 @@ import AppKit
 final class SYNSharedLive70 {
     static let shared = SYNSharedLive70()
     private var streams: [URL: Stream] = [:]
+    private var viewerSource31: URL?
+    private var viewerTimer31: Timer?
     private init() {}
+
+    private func publishViewer31() {
+        guard let source = viewerSource31 else { return }
+        let root = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0", isDirectory: true)
+        let path = root.appendingPathComponent("viewer.json")
+        let payload: [String: Any] = ["url":source.absoluteString,
+                                       "pid":ProcessInfo.processInfo.processIdentifier,
+                                       "updatedAt":Date().timeIntervalSince1970]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        do {
+            try data.write(to:path,options:.atomic)
+            try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o600)],
+                                                  ofItemAtPath:path.path)
+        } catch { /* Fail closed: the pool will reject an unregistered viewer. */ }
+    }
+    private func tuneViewer31(_ url: URL) {
+        viewerSource31 = url
+        publishViewer31()
+        if viewerTimer31 == nil {
+            viewerTimer31 = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.publishViewer31() }
+            }
+        }
+    }
+    private func releaseViewer31() {
+        viewerSource31 = nil
+        viewerTimer31?.invalidate(); viewerTimer31 = nil
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/viewer.json")
+        try? FileManager.default.removeItem(at:path)
+    }
 
     private static func executable(_ possibilities: [String]) -> URL? {
         for candidate in possibilities where FileManager.default.isExecutableFile(atPath: candidate) {
@@ -24,8 +58,17 @@ final class SYNSharedLive70 {
         let folder: URL
         let playlist: URL
         let local: URL
-        private let ffmpeg = Process()
+        // SYN_DVR_RECOVERY_801: conservar sesión HLS y archivo DVR al reabrir el origen.
+        private var ffmpeg = Process()
         private let server = Process()
+        private var ffmpegBinary: URL!
+        private var ffmpegArguments: [String] = []
+        private var recoveryTimer: Timer?
+        private var nextRetryAt = Date.distantPast
+        private var recoveryAttempts = 0
+        private var lastFeedProgress = Date()
+        private var lastPublishedSegment: String?
+        private var shuttingDown = false
         private var writer: FileHandle?
         private var recordingTimer: Timer?
         private var seen: Set<String> = []
@@ -36,43 +79,29 @@ final class SYNSharedLive70 {
         private var lastWrittenSegmentAt = Date()
         var isRecording: Bool { writer != nil }
 
+        // SYN_POOL_31: the engine exclusively owns upstream FFmpeg and loopback HLS.
+        // This viewer MUST NOT start its own HTTP connection or a second FFmpeg.
+        private let pooled = true
+        private let poolJoinedAt = Date().timeIntervalSince1970
         init?(remote: URL) {
-            guard let ffmpegURL = SYNSharedLive70.executable(["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]),
-                  let pythonURL = SYNSharedLive70.executable(["/opt/homebrew/bin/python3", "/usr/bin/python3", "/usr/local/bin/python3"]) else { return nil }
+            let base = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0", isDirectory: true)
+            guard let raw = try? String(contentsOf: base.appendingPathComponent("pool.port"), encoding: .utf8),
+                  let port = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  (1...65535).contains(port) else { return nil }
+            var hash: UInt64 = 14695981039346656037
+            for b in remote.absoluteString.utf8 { hash = (hash ^ UInt64(b)) &* 1099511628211 }
+            let key = String(format: "%016llx", hash)
             self.remote = remote
-            folder = FileManager.default.temporaryDirectory.appendingPathComponent("SYN-LIVE-\(UUID().uuidString)", isDirectory: true)
+            folder = base.appendingPathComponent("live/" + key, isDirectory: true)
             playlist = folder.appendingPathComponent("live.m3u8")
-            // Bound to localhost only. This HTTP connection is LOCAL, not an Xtream login.
-            let port = Int.random(in: 50000...60000)
-            local = URL(string: "http://127.0.0.1:\(port)/live.m3u8")!
-            do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
-            catch { return nil }
-
-            server.executableURL = pythonURL
-            server.arguments = ["-m", "http.server", "\(port)", "--bind", "127.0.0.1", "--directory", folder.path]
-            server.standardOutput = FileHandle.nullDevice
-            server.standardError = FileHandle.nullDevice
-            do { try server.run() } catch { return nil }
-
-            ffmpeg.executableURL = ffmpegURL
-            ffmpeg.arguments = [
-                "-nostdin", "-hide_banner", "-loglevel", "error",
-                "-user_agent", "VLC/3.0.21 LibVLC/3.0.21",
-                "-i", remote.absoluteString,
-                "-map", "0:v?", "-map", "0:a?", "-c", "copy",
-                "-f", "hls", "-hls_time", "2", "-hls_list_size", "180",
-                "-hls_flags", "delete_segments+append_list+omit_endlist+program_date_time",
-                "-hls_segment_filename", folder.appendingPathComponent("segment_%07d.ts").path,
-                playlist.path
-            ]
-            ffmpeg.standardInput = FileHandle.nullDevice
-            ffmpeg.standardOutput = FileHandle.nullDevice
-            ffmpeg.standardError = FileHandle.nullDevice // never log URLs with credentials
-            do { try ffmpeg.run() } catch {
-                server.terminate()
-                return nil
-            }
+            guard let loopback = URL(string: "http://127.0.0.1:\(port)/\(key)/live.m3u8") else { return nil }
+            local = loopback
+            // FFmpeg, HTTP server and all subscribers belong to the engine.
+            // The stream wrapper only reads the engine's files. It never owns those processes.
         }
+
+        private func monitorFeed801() { /* SYN_POOL_31: engine owns reconnection. */ }
 
         func waitUntilReady(_ completion: @escaping (Bool) -> Void) {
             var attempts = 0
@@ -84,12 +113,22 @@ final class SYNSharedLive70 {
                     if text?.contains(".ts") == true {
                         timer.invalidate()
                         completion(true)
-                    } else if !self.ffmpeg.isRunning || attempts >= 55 {
+                    } else if attempts >= 55 || self.viewerWasRejected31() {
                         timer.invalidate()
                         completion(false)
                     }
                 }
             }
+        }
+
+        private func viewerWasRejected31() -> Bool {
+            let path = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/pool.status.json")
+            guard let data = try? Data(contentsOf: path),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let stamp = obj["timestamp"] as? Double, stamp >= poolJoinedAt,
+                  let allowed = obj["viewerAllowed"] as? Bool else { return false }
+            return !allowed
         }
 
         // Turn the currently buffered live segments into a seekable local VOD
@@ -127,6 +166,9 @@ final class SYNSharedLive70 {
         }
 
         func beginRecording() throws {
+            throw NSError(domain: "SYNPOOL", code: 31,
+                userInfo:[NSLocalizedDescriptionKey:"REC lo gestiona exclusivamente SYN DVR Engine 3.1"])
+            // Legacy body is deliberately unreachable; removed in final migration.
             if isRecording { return }
             let fm = FileManager.default
             let location = SYNRecordingFolder75.current
@@ -148,13 +190,11 @@ final class SYNSharedLive70 {
 
         private func flushRecording() {
             guard let writer else { return }
-            if Date().timeIntervalSince(lastWrittenSegmentAt) > 18 || !ffmpeg.isRunning {
-                lastRecordingError = ffmpeg.isRunning ? "No llegan nuevos segmentos del canal" : "FFmpeg ha dejado de recibir el canal"
-                recordingTimer?.invalidate()
-                recordingTimer = nil
-                try? writer.close()
-                self.writer = nil
-                return
+            // Un microcorte no debe abortar ni cerrar el archivo DVR.
+            // monitorFeed801() recupera el origen, y aquí se reanuda la escritura
+            // de los segmentos completados en el MISMO archivo.
+            if Date().timeIntervalSince(lastWrittenSegmentAt) > 90 {
+                lastRecordingError = "Recepción interrumpida: intentando recuperar el canal"
             }
             for segment in publishedSegments() where !seen.contains(segment) {
                 let path = folder.appendingPathComponent(segment)
@@ -189,17 +229,20 @@ final class SYNSharedLive70 {
         }
 
         func stop() {
+            shuttingDown = true
+            recoveryTimer?.invalidate()
+            recoveryTimer = nil
             flushPendingAndClose()
-            if ffmpeg.isRunning { ffmpeg.terminate() }
-            if server.isRunning { server.terminate() }
+            // SYN_POOL_31: no engine process is stopped by the viewer.
         }
         deinit {
-            if ffmpeg.isRunning { ffmpeg.terminate() }
-            if server.isRunning { server.terminate() }
+            recoveryTimer?.invalidate()
+            // SYN_POOL_31: no engine process is stopped by the viewer.
         }
     }
 
     func session(for url: URL, completion: @escaping (Stream?) -> Void) {
+        tuneViewer31(url)
         if let existing = streams[url] {
             existing.waitUntilReady { ok in completion(ok ? existing : nil) }
             return
@@ -236,10 +279,12 @@ final class SYNSharedLive70 {
         releaseUnrecorded(except: current)
     }
     func shutdown() {
+        releaseViewer31()
         for stream in streams.values { stream.stop() }
         streams.removeAll()
     }
     func releaseUnrecorded(except current: URL?) {
+        if current == nil { releaseViewer31() }
         let old = streams.filter { $0.key != current && !$0.value.isRecording }
         for (url, stream) in old {
             stream.stop()

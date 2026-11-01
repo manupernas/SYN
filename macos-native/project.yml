@@ -20,6 +20,11 @@ targets:
         CFBundleShortVersionString: '7.10.8'
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+    dependencies:
+      - framework: .syn-vlc-local/VLCKit.xcframework
+        link: true
+        embed: true
+        codeSign: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mrseivane.SYNNativeAlpha
@@ -33,3 +38,27 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: SYNNative/Resources/Info.plist
         LD_RUNPATH_SEARCH_PATHS: '$(inherited) @executable_path/../Frameworks'
+
+        FRAMEWORK_SEARCH_PATHS: '$(inherited) $(PROJECT_DIR)/.syn-vlc-local/VLCKit.xcframework/macos-arm64_x86_64'
+        OTHER_LDFLAGS: '$(inherited) -ObjC -framework VLCKit'
+  SYNDVRMenu:
+    type: application
+    platform: macOS
+    deploymentTarget: '15.0'
+    sources:
+      - path: SYNDVRMenu
+        excludes:
+          - Resources/Info.plist
+    info:
+      path: SYNDVRMenu/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mrseivane.SYNDVRMenu
+        PRODUCT_NAME: SYN DVR
+        SWIFT_VERSION: '5.0'
+        MACOSX_DEPLOYMENT_TARGET: '15.0'
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGNING_ALLOWED: NO
+        INFOPLIST_FILE: SYNDVRMenu/Resources/Info.plist

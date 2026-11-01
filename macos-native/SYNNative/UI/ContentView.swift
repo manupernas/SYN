@@ -37,6 +37,7 @@ struct ContentView: View {
     // SYN_DVR_SHARED_70: force UI refresh on shared recording stop/start.
     @State private var sharedRecorderRefresh70 = 0
     @State private var synRecordingCount71 = 0
+    @State private var synDVRRetryingCount803 = 0 // SYN_DVR_STATUS_803
     @State private var synNotice71 = ""
     @State private var synIssuesSeen71 = Set<String>()
     @State private var synWasRecording71 = false
@@ -294,27 +295,11 @@ struct ContentView: View {
         // Works in ALL tabs. Reports starts/stops/failures without opening DVR.
         .onReceive(Timer.publish(every: 2.0, on: .main, in: .common).autoconnect()) { _ in
             synDVR54Jobs = SYNBackgroundDVR54.list()
-            let live = SYNSharedLive70.shared.recordings().count
-            let background = synDVR54Jobs.filter { $0.state == "recording" }.count
-            let total = live + background + (synDVR53.isRecording ? 1 : 0)
-            if synWasRecording71 && total == 0 {
-                synNotice71 = "Grabación finalizada. Consulta el archivo en DVR."
-            }
+            let total = synDVR54Jobs.filter { ["recording", "reconnecting", "stopping"].contains($0.state) }.count
             synWasRecording71 = total > 0
             synRecordingCount71 = total
-            let issues = SYNSharedLive70.shared.recordingIssues()
-            for issue in issues where !synIssuesSeen71.contains(issue) {
-                synNotice71 = "REC interrumpido: " + issue
-                synIssuesSeen71.insert(issue)
-            }
-            // Surface failed autonomous jobs, too.
-            for job in synDVR54Jobs where job.state == "failed" {
-                let key = "dvr-" + job.id
-                if !synIssuesSeen71.contains(key) {
-                    synIssuesSeen71.insert(key)
-                    synNotice71 = "La grabación de " + job.title + " ha fallado."
-                }
-            }
+            synRecordingCount71 = total
+            // La barra no repite fallos históricos: los estados definitivos quedan en DVR.
             sharedRecorderRefresh70 += 1
         }
                 .tint(colors.accent)
@@ -970,12 +955,12 @@ struct ContentView: View {
             .padding(.horizontal, 9)
             Spacer()
             // SYN_72_REC_DISCRETO: estado persistente, sin cubrir el vídeo.
-            if synRecordingCount71 > 0 || !synNotice71.isEmpty {
+            if synRecordingCount71 > 0 || synDVRRetryingCount803 > 0 || !synNotice71.isEmpty {
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 7) {
-                        Image(systemName: synRecordingCount71 > 0 ? "record.circle.fill" : "exclamationmark.circle.fill")
+                        Image(systemName: synRecordingCount71 > 0 ? "record.circle.fill" : (synDVRRetryingCount803 > 0 ? "arrow.clockwise.circle.fill" : "exclamationmark.circle.fill"))
                             .foregroundStyle(synRecordingCount71 > 0 ? Color.red : Color.orange)
-                        Text(synRecordingCount71 > 0 ? "REC · \(synRecordingCount71) activa(s)" : "Aviso de grabación")
+                        Text(synRecordingCount71 > 0 ? "REC · \(synRecordingCount71) activa(s)" : (synDVRRetryingCount803 > 0 ? "DVR · Reconectando" : "Aviso de grabación"))
                             .font(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
                         Spacer(minLength: 2)
@@ -1218,7 +1203,7 @@ struct ContentView: View {
                     case .dvr: EmptyView()
                     }
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden)
+                .listStyle(.plain).scrollContentBackground(.hidden).scrollIndicators(.automatic)
             }
             HStack {
                 Text(state.status).lineLimit(1)
@@ -1742,7 +1727,7 @@ struct ContentView: View {
                                     }
                                 }
                             }
-                            .scrollIndicators(.visible)
+                            .scrollIndicators(.automatic)
                             .onAppear { synGuideFocusRevision += 1 }
                             .onChange(of: synGuideBusy) { _, busy in
                                 if !busy { synGuideFocusRevision += 1 }
@@ -2260,6 +2245,37 @@ struct ContentView: View {
         }
     }
 
+    // SYN_DVR_REGRESSION_802: una sola lógica para las dos vistas DVR.
+    // "Eliminar" retira el trabajo terminado de la cola, NUNCA el .ts grabado.
+    @ViewBuilder
+    private func synDVRJobAction802(
+        _ job: (id: String, title: String, start: Date, end: Date, state: String)
+    ) -> some View {
+        if SYNBackgroundDVR54.isRemovable802(job.state) {
+            Button("Eliminar", role: .destructive) {
+                do {
+                    try SYNBackgroundDVR54.remove802(job.id)
+                    synDVR54Jobs = SYNBackgroundDVR54.list()
+                    if synNotice71.contains(job.title) && synNotice71.contains("ha fallado") {
+                        synNotice71 = ""
+                    }
+                    synDVR54Message = "Entrada eliminada de DVR. El vídeo grabado se conserva."
+                } catch {
+                    synDVR54Message = "No se pudo eliminar la entrada: " + error.localizedDescription
+                }
+            }
+            .help("Eliminar esta tarea de la lista sin borrar el vídeo")
+        } else if SYNBackgroundDVR54.isCancellable802(job.state) {
+            Button("Cancelar") {
+                SYNBackgroundDVR54.cancel(job.id)
+                synDVR54Jobs = SYNBackgroundDVR54.list()
+            }
+            .help("Solicitar la cancelación de la grabación o programación")
+        } else if job.state == "stopping" {
+            Text("Deteniendo…").foregroundStyle(.secondary)
+        }
+    }
+
     private var synDVRGTK55: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -2330,23 +2346,10 @@ struct ContentView: View {
                         }
                         do {
                             let url = try client.liveURL(selected)
-                            if url == state.playingURL {
-                                // Same tuned channel: share the existing HLS source; one provider connection.
-                                guard let session = SYNSharedLive70.shared.existing(for: url) else {
-                                    synDVR54Message = "La reproducción compartida todavía no está lista. Vuelve a probar."; return
-                                }
-                                if session.isRecording {
-                                    synDVR54Message = "Este canal ya se está grabando. Detén la grabación desde la lista."; return
-                                }
-                                try session.beginRecording()
-                                synDVR54Message = "REC activo · misma conexión que la reproducción."
-                            } else {
-                                // Different channel: independent scheduled worker, second upstream allowed.
-                                try SYNBackgroundDVR54.add(url: url, channel: selected.name,
-                                    title: selected.name, start: Date(), end: Date().addingTimeInterval(3600))
-                                synDVR54Message = "Grabación del otro canal iniciada en segundo plano (1 h)."
-                                synDVR54Jobs = SYNBackgroundDVR54.list()
-                            }
+                            try SYNBackgroundDVR54.add(url: url, channel: selected.name,
+                                title: selected.name, start: Date(), end: Date().addingTimeInterval(3600))
+                            synDVR54Message = "REC gestionado por SYN DVR Engine 2.0 (1 h)."
+                            synDVR54Jobs = SYNBackgroundDVR54.list()
                             sharedRecorderRefresh70 += 1
                         } catch { synDVR54Message = error.localizedDescription }
                     } label: {
@@ -2370,21 +2373,6 @@ struct ContentView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 9) {
                     Text("Programadas y grabadas").font(.system(size: 17, weight: .semibold))
-                    if !SYNSharedLive70.shared.recordings().isEmpty {
-                        Text("REC desde la conexión compartida").font(.caption).foregroundStyle(.secondary)
-                        ForEach(SYNSharedLive70.shared.recordings()) { entry in
-                            HStack(spacing: 8) {
-                                Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                                Text(entry.file.lastPathComponent).font(.caption).lineLimit(1)
-                                Spacer()
-                                Button("Detener") {
-                                    SYNSharedLive70.shared.stopRecording(for: entry.source, current: state.playingURL)
-                                    sharedRecorderRefresh70 += 1
-                                }
-                            }
-                        }
-                    }
-
                     HStack(spacing: 8) {
                         Text("Destino: \(synDVR53.folder.path)")
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -2404,12 +2392,8 @@ struct ContentView: View {
                                             .font(.system(size: 12)).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    if job.state != "finished" && job.state != "completed" {
-                                        Button("Cancelar") {
-                                            SYNBackgroundDVR54.cancel(job.id)
-                                            synDVR54Jobs = SYNBackgroundDVR54.list()
-                                        }.font(.system(size: 12))
-                                    }
+                                    synDVRJobAction802(job)
+                                        .font(.system(size: 12))
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 13)
@@ -2495,27 +2479,18 @@ struct ContentView: View {
                 }
             }
             HStack(spacing: 10) {
-                if synDVR53.isRecording {
-                    Circle().fill(.red).frame(width: 8, height: 8)
-                    Text("REC · \(synDVR53.channel)").lineLimit(1)
-                    Button("Detener grabación", role: .destructive) { synDVR53.stop() }
-                } else {
-                    Button {
-                        if let session = SYNSharedLive70.shared.existing(for: state.playingURL) {
-                            do {
-                                if session.isRecording { session.stopRecording() }
-                                else { try session.beginRecording() }
-                                sharedRecorderRefresh70 += 1
-                            } catch { synDVR54Message = error.localizedDescription }
-                        } else {
-                            synDVR54Message = "No existe todavía un búfer compartido para este canal."
-                        }
-                    } label: {
-                        Label("REC canal actual · una conexión", systemImage: "record.circle.fill")
-                    }
-                    .disabled(state.playingURL == nil)
-                    Text("Grabación directa, sin recomprimir").font(.caption).foregroundStyle(.secondary)
+                Button {
+                    guard let url = state.playingURL else { return }
+                    do {
+                        let started = try SYNUnifiedDVR2.toggle(url: url, channel: state.playingTitle)
+                        synDVR54Message = started ? "REC iniciado en DVR 2.0." : "Detención solicitada a DVR 2.0."
+                        synDVR54Jobs = SYNBackgroundDVR54.list()
+                    } catch { synDVR54Message = error.localizedDescription }
+                } label: {
+                    Label("REC canal actual · DVR 2.0", systemImage: "record.circle.fill")
                 }
+                .disabled(state.playingURL == nil)
+                Text("Grabación sin recomprimir; independiente del reproductor").font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             HStack {
@@ -2542,7 +2517,7 @@ struct ContentView: View {
                             .font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Cancelar") { SYNBackgroundDVR54.cancel(job.id); synDVR54Jobs = SYNBackgroundDVR54.list() }
+                    synDVRJobAction802(job)
                 }
             }
             if !synDVR53.message.isEmpty {
@@ -3340,11 +3315,15 @@ private final class SYNDVRRecorder53: ObservableObject {
 private struct SYNBackgroundDVR54 {
     static var directory: URL {
         FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/SYN Native DVR/jobs", isDirectory: true)
+            .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/jobs", isDirectory: true)
     }
     static func add(url: URL, channel: String, title: String, start: Date, end: Date) throws {
         guard end > Date(), end > start, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NSError(domain: "SYN DVR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Horario o URL inválido"])
+        }
+        guard SYNUnifiedDVR2.workerOnline else {
+            throw NSError(domain: "SYN DVR", code: 2000, userInfo: [NSLocalizedDescriptionKey:
+                "El motor SYN DVR 2.0 no está activo. Revisa el servicio antes de grabar."])
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let id = UUID().uuidString
@@ -3376,10 +3355,53 @@ private struct SYNBackgroundDVR54 {
                 state: record?["state"] as? String ?? "programada")
         }.sorted { $0.start < $1.start }
     }
+    // SYN_DVR_REGRESSION_802: cancelar solo tareas aún ejecutables;
+    // el worker recibe la orden mediante .cancel, sin detener su servicio.
+    static func isCancellable802(_ state: String) -> Bool {
+        ["scheduled", "programada", "recording", "retrying", "reconnecting"].contains(state)
+    }
+    static func isRemovable802(_ state: String) -> Bool {
+        ["failed", "cancelled", "expired", "partial"].contains(state)
+    }
+    static func remove802(_ id: String) throws {
+        guard UUID(uuidString: id) != nil else {
+            throw NSError(domain: "SYN DVR", code: 802,
+                          userInfo: [NSLocalizedDescriptionKey: "Identificador no válido"])
+        }
+        let fm = FileManager.default
+        let jobURL = directory.appendingPathComponent(id + ".json")
+        let statusURL = directory.appendingPathComponent(id + ".status.json")
+        guard fm.fileExists(atPath: jobURL.path),
+              let data = try? Data(contentsOf: statusURL),
+              let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = record["state"] as? String,
+              isRemovable802(state) else {
+            throw NSError(domain: "SYN DVR", code: 803,
+                          userInfo: [NSLocalizedDescriptionKey:
+                                     "Solo se pueden eliminar tareas fallidas, canceladas o caducadas"])
+        }
+        // Eliminar primero el trabajo impide que el worker vuelva a descubrirlo.
+        // Ni el archivo de vídeo ni el directorio de grabaciones se modifican.
+        for url in [jobURL, statusURL, directory.appendingPathComponent(id + ".cancel")] {
+            if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+        }
+    }
     static func cancel(_ id: String) {
         guard UUID(uuidString: id) != nil else { return }
         let path = directory.appendingPathComponent(id + ".cancel")
         FileManager.default.createFile(atPath: path.path, contents: Data(), attributes: [.posixPermissions: NSNumber(value: 0o600)])
+    }
+    static func removeUnified(_ id: String) {
+        guard UUID(uuidString: id) != nil else { return }
+        let fm = FileManager.default
+        let statusPath = directory.appendingPathComponent(id + ".status.json")
+        guard let data = try? Data(contentsOf: statusPath),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let state = object["state"] as? String,
+              ["failed", "cancelled", "expired", "partial"].contains(state) else { return }
+        for suffix in [".json", ".status.json", ".cancel"] {
+            try? fm.removeItem(at: directory.appendingPathComponent(id + suffix))
+        }
     }
 }
 
@@ -3528,5 +3550,56 @@ private struct SYNResponsiveSplit7106 {
         rows = rowCount
         guideHeight = Self.chromeHeight + CGFloat(rowCount) * Self.rowStep
         playerHeight = max(90, min(maxVideoHeight, available - guideHeight))
+    }
+}
+
+// SYN_UNIFIED_DVR_2_0 — Bridge único REC/EPG/programador/menú.
+// No altera el HLS de VLC y nunca ejecuta FFmpeg dentro de la interfaz.
+enum SYNUnifiedDVR2 {
+    static let root = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0", isDirectory: true)
+    static var directory: URL { root.appendingPathComponent("jobs", isDirectory: true) }
+    static var workerOnline: Bool {
+        let path = root.appendingPathComponent("worker.heartbeat.json")
+        guard let data = try? Data(contentsOf: path),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let stamp = object["timestamp"] as? Double else { return false }
+        let age = Date().timeIntervalSince1970 - stamp
+        return age >= -5 && age < 12
+    }
+    static func activeJob(for url: URL) -> String? {
+        let fm = FileManager.default
+        let now = Date().timeIntervalSince1970
+        let entries = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for path in entries where path.pathExtension == "json" && UUID(uuidString: path.deletingPathExtension().lastPathComponent) != nil {
+            guard let data = try? Data(contentsOf: path),
+                  let job = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let source = job["url"] as? String, source == url.absoluteString,
+                  let start = job["start"] as? Double, let end = job["end"] as? Double,
+                  start < now + 3, end > now else { continue }
+            let id = path.deletingPathExtension().lastPathComponent
+            let statusURL = directory.appendingPathComponent(id + ".status.json")
+            let statusData = (try? Data(contentsOf: statusURL)) ?? Data()
+            let status = (try? JSONSerialization.jsonObject(with: statusData)) as? [String: Any]
+            let state = status?["state"] as? String ?? "scheduled"
+            if ["scheduled", "programada", "recording", "retrying", "reconnecting", "stopping"].contains(state) {
+                return id
+            }
+        }
+        return nil
+    }
+    static func isRecording(url: URL?) -> Bool {
+        guard let url else { return false }
+        return activeJob(for: url) != nil
+    }
+    @discardableResult
+    static func toggle(url: URL, channel: String) throws -> Bool {
+        if let id = activeJob(for: url) {
+            SYNBackgroundDVR54.cancel(id)
+            return false
+        }
+        try SYNBackgroundDVR54.add(url: url, channel: channel, title: channel,
+            start: Date(), end: Date().addingTimeInterval(7200))
+        return true
     }
 }
