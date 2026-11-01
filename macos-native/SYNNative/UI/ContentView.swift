@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import CryptoKit
+import Security
 
 struct ContentView: View {
     // SYN_M3U_XMLTV_79: perfiles M3U independientes de Xtream.
@@ -41,9 +43,15 @@ struct ContentView: View {
     @State private var synNotice71 = ""
     @State private var synIssuesSeen71 = Set<String>()
     @State private var synWasRecording71 = false
+    // SYN_EPG_MARGINS_90: per-program prompt, scheduling uses the existing unified DVR queue.
+    @State private var synEPGPending90: SYNEPGMarginRequest90?
     @State private var synDVR54Message = ""
     @State private var synDVR54Jobs: [(id: String, title: String, start: Date, end: Date, state: String)] = []
     @StateObject private var synDVR53 = SYNDVRRecorder53()
+    // SYN_RECORDING_IN_WINDOW_94
+    @ObservedObject private var synRecording94 = SYNRecordingWindow93.shared
+    // SYN_RECORDING_PANEL_95: ventana normal con sidebar; fullscreen sin sidebar.
+    @State private var synRecordingFullscreen95 = false
     @AppStorage("syn.native.dvrFolderPath.v1") private var synDVRFolderPath75 = ""
     @State private var synDVR55Day = Date()
     @State private var synDVR55StartHour = 19
@@ -220,13 +228,14 @@ struct ContentView: View {
             // y restaba espacio al reproductor. REC permanece visible en la sidebar.
             // SYN_SIDEBAR_781 — columna con tamaño fijo; nunca ocupa media ventana.
             HStack(spacing: 0) {
-                if !synSidebarCollapsed781 {
+                if !synSidebarCollapsed781 && !(synRecording94.file != nil && synRecordingFullscreen95) {
                     sidebar
                         .frame(width: 244)
                         .frame(maxHeight: .infinity)
                     Divider()
                 }
                 VStack(spacing: 0) {
+                    if !(synRecording94.file != nil && synRecordingFullscreen95) {
                     HStack(spacing: 10) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.22)) {
@@ -252,8 +261,9 @@ struct ContentView: View {
                     .frame(height: state.section == .tv || state.section == .favorites ? 24 : 38)
                     .padding(.horizontal, 10)
                     Divider().opacity(0.24)
+                    }
                     HStack(spacing: 0) {
-                    if state.section != .dvr && state.section != .movies && state.section != .series && state.section != .epg {
+                    if synRecording94.file == nil && state.section != .dvr && state.section != .movies && state.section != .series && state.section != .epg {
                         if let playlist = synM3UProfile79 {
                             SYNM3UChannelList79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79)
                                 .frame(width: 290)
@@ -265,21 +275,44 @@ struct ContentView: View {
                     // La vista VLC sigue montada; al abrir Guía no se destruye el player.
                     ZStack {
                         detailColumn
-                            .opacity(state.section == .epg ? 0 : 1)
-                            .allowsHitTesting(state.section != .epg)
-                        if state.section == .epg {
+                            // Mantener VLC del directo montado y conectado, pero no interactivo.
+                            .opacity(state.section == .epg || synRecording94.file != nil ? 0 : 1)
+                            .allowsHitTesting(state.section != .epg && synRecording94.file == nil)
+                        if state.section == .epg && synRecording94.file == nil {
                             if let playlist = synM3UProfile79 {
-                                SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79)
+                                SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79,
+                                    onScheduleEPG90: synAskM3UEPG90)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else {
                                 synFullGuide73.frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
+                        }
+                        // SYN_RECORDING_PANEL_95: el reproductor queda a la derecha
+                        // de la sidebar, sin lista de canales ni EPG.
+                        if synRecording94.file != nil {
+                            synRecordingPanel95
+                                .zIndex(10)
                         }
                     }
                     .frame(minWidth: 480, minHeight: 480)
                     }
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .synRecordingPlayback94Changed)) { event in
+            if event.userInfo?["active"] as? Bool == true {
+                state.section = .dvr
+                synSidebarCollapsed781 = false
+                synRecordingFullscreen95 = NSApp.mainWindow?.styleMask.contains(.fullScreen) ?? false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { event in
+            if synRecording94.file != nil, event.object is NSWindow {
+                synRecordingFullscreen95 = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { event in
+            if event.object is NSWindow { synRecordingFullscreen95 = false }
         }
         .onChange(of: state.query) { _, _ in
             synVisibleLimit = 100
@@ -312,6 +345,16 @@ struct ContentView: View {
             Button("Cancelar", role: .cancel) { }
         } message: {
             Text("URL HTTPS o HTTP de una imagen. Se guarda solo para este canal y perfil.")
+        }
+        .sheet(item: $synEPGPending90) { request in
+            SYNEPGMarginChooser90(title: request.title, epgStart: request.start, epgEnd: request.end) { start, end in
+                try SYNBackgroundDVR54.add(url: request.url, channel: request.channel,
+                    title: request.title, start: start, end: end, epg: true, eventDate: request.start)
+                synDVR54Jobs = SYNBackgroundDVR54.list()
+                synDVR54Message = "Grabación programada: " + request.title
+            } onClose: {
+                synEPGPending90 = nil
+            }
         }
         .sheet(isPresented: $synSettingsVisible58) {
             synSettingsSheet58
@@ -750,6 +793,9 @@ struct ContentView: View {
                         Task { await synLoadMultiGuide() }
                     }
                 }
+            }
+            synSettingsBlock78("SYN DVR · Servidor") {
+                SYNRemotePairing40()
             }
             synSettingsBlock78("Biblioteca local") {
                 synSettingsAction7102("Carpeta de grabaciones", subtitle: synDVR53.folder.lastPathComponent, icon: "record.circle", tint: .red) {
@@ -1548,20 +1594,18 @@ struct ContentView: View {
             .modifier(SYNEPGGradient7104(tint: synGuideColor(index), enabled: synEPGGlass78))
             .modifier(SYNEPGInfoCard(item: item, start: synEPGDate(item.start, timestamp: item.startTimestamp), end: synEPGDate(item.end, timestamp: item.stopTimestamp)))
             .contextMenu {
-                Button("Programar grabación de este programa") {
+                Button("Programar grabación…") {
                     guard let begin = synEPGDate(item.start, timestamp: item.startTimestamp),
-                        let finish = synEPGDate(item.end, timestamp: item.stopTimestamp),
-                        finish > Date(), let client = state.client else {
+                          let finish = synEPGDate(item.end, timestamp: item.stopTimestamp),
+                          finish > Date(), finish > begin, let client = state.client else {
                         synDVR54Message = "Este programa no tiene un horario válido de inicio y fin."
                         return
                     }
                     do {
                         let link = try client.liveURL(channel)
-                        try SYNBackgroundDVR54.add(url: link, channel: channel.name,
-                            title: item.titleText, start: max(Date(), begin), end: finish)
-                        synDVR54Message = "Grabación programada: \(item.titleText)"
-                        synDVR54Jobs = SYNBackgroundDVR54.list()
-                    } catch { synDVR54Message = "No se pudo programar: \(error.localizedDescription)" }
+                        synEPGPending90 = SYNEPGMarginRequest90(url: link, channel: channel.name,
+                            title: item.titleText, start: begin, end: finish)
+                    } catch { synDVR54Message = "No se pudo preparar la grabación: \(error.localizedDescription)" }
                 }
             }
             // SYN_EPG_OFFSET_RESTORE_772: situar la pastilla en su hora real.
@@ -1823,10 +1867,22 @@ struct ContentView: View {
         // IDs válidos de TODOS los canales Xtream; EPG se consulta al aparecer cada fila.
         // No lanzamos miles de peticiones a la vez.
         synAvailableChannels74.map { channel in
-            SYNGuideChannel70(id: channel.id, name: synCleanChannelName(channel.name),
+            let original = (channel.streamIcon ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let custom = (synLogoOverrides[synLogoKey(channel)] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return SYNGuideChannel70(id: channel.id, name: synCleanChannelName(channel.name),
                 now: "", next: "", isFavorite: state.isFavorite(channel),
-                category: state.categories.first(where: { $0.id == channel.categoryID?.value })?.categoryName ?? "Sin categoría")
+                category: state.categories.first(where: { $0.id == channel.categoryID?.value })?.categoryName ?? "Sin categoría",
+                logo: custom.isEmpty ? original : custom,
+                fallbackLogo: custom.isEmpty ? "" : original)
         }
+    }
+
+    private func synAskM3UEPG90(_ channel: SYNM3UChannel79, _ program: SYNM3UProgramme79) {
+        guard program.end > Date(), program.end > program.start else {
+            synDVR54Message = "Este programa no tiene un horario válido para programar."; return
+        }
+        synEPGPending90 = SYNEPGMarginRequest90(url: channel.stream, channel: channel.name,
+            title: program.title, start: program.start, end: program.end)
     }
 
     // SYN_GUIDE_DVR_73: una ÚNICA pantalla de guía, accesible por barra lateral y fullscreen.
@@ -1907,6 +1963,81 @@ struct ContentView: View {
         .task { if synCatalog74.isEmpty { await synLoadCatalog74() } }
     }
 
+    // SYN_RECORDING_PANEL_95: misma interfaz principal de SYN.
+    // En tamaño normal hay marco 16:9 y controles de archivo; en fullscreen,
+    // solo vídeo y controles de reproducción (nunca canales ni EPG).
+    private var synRecordingPanel95: some View {
+        VStack(spacing: 0) {
+            if !synRecordingFullscreen95 {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Grabación · SYN DVR")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(synRecording94.file?.deletingPathExtension().lastPathComponent ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button(action: synCloseRecording95) {
+                        Label("Volver a DVR", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+            }
+            if let video = synRecording94.file {
+                GeometryReader { bounds in
+                    SYNRecordingPlayback93(file: video, fullscreen: synRecordingFullscreen95)
+                        .id(video.path)
+                        // Mini 16:9 con marco; fullscreen ocupa toda el área.
+                        // La misma instancia VLC conserva la posición al cambiar de modo.
+                        .frame(width: bounds.size.width,
+                               height: synRecordingFullscreen95
+                                   ? bounds.size.height
+                                   : min(bounds.size.height, bounds.size.width * 9.0 / 16.0))
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: synRecordingFullscreen95 ? 0 : 15,
+                                                    style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: synRecordingFullscreen95 ? 0 : 15,
+                                             style: .continuous)
+                                .stroke(Color.primary.opacity(synRecordingFullscreen95 ? 0 : 0.20), lineWidth: 1)
+                                .allowsHitTesting(false)
+                        }
+                }
+                .padding(.horizontal, synRecordingFullscreen95 ? 0 : 12)
+            }
+            if !synRecordingFullscreen95 { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(synRecordingFullscreen95 ? Color.black : colors.background)
+        .overlay(alignment: .topLeading) {
+            if synRecordingFullscreen95 {
+                Button(action: synCloseRecording95) {
+                    Label("Volver a DVR", systemImage: "chevron.left")
+                        .padding(8)
+                        .background(.black.opacity(0.75), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .padding(14)
+            }
+        }
+    }
+
+    private func synCloseRecording95() {
+        if synRecordingFullscreen95 {
+            SYNRecordingWindow93.shared.toggleFullscreen()
+        }
+        synRecording94.close()
+        state.section = .dvr
+        synDVR53.refresh()
+    }
+
     private var detailColumn: some View {
         GeometryReader { synAvailableArea7106 in
         let synIsTVGuide7106 = state.section == .tv || state.section == .favorites
@@ -1926,7 +2057,8 @@ struct ContentView: View {
                     nowProgram70: synM3UProfile79 == nil ? synSchedule70(for: state.channels.first(where: { $0.name == state.playingTitle })).0 : synM3UNowNext79.0,
                     nextProgram70: synM3UProfile79 == nil ? synSchedule70(for: state.channels.first(where: { $0.name == state.playingTitle })).1 : synM3UNowNext79.1,
                     guideChannels70: synM3UProfile79 == nil ? synFullscreenGuide70 : synM3UStore79.channels.map { ch in
-                        SYNGuideChannel70(id: ch.id, name: ch.name, now: "", next: "", isFavorite: false, category: ch.group)
+                        SYNGuideChannel70(id: ch.id, name: ch.name, now: "", next: "", isFavorite: false,
+                            category: ch.group, logo: ch.logo ?? "")
                     },
                     tune70: { id in
                         if synM3UProfile79 != nil {
@@ -1961,6 +2093,29 @@ struct ContentView: View {
                                   let to = synEPGDate(item.end, timestamp: item.stopTimestamp), to > from else { return nil }
                             return SYNGuideProgramme74(title: item.titleText, start: from, end: to)
                         }
+                    }, scheduleGuide70: { channelID, title, start, end in
+                        let source: URL
+                        let channelName: String
+                        if synM3UProfile79 != nil {
+                            guard let channel = synM3UStore79.channels.first(where: { $0.id == channelID }) else {
+                                throw NSError(domain: "SYN EPG", code: 90,
+                                    userInfo: [NSLocalizedDescriptionKey:"No se encuentra el canal M3U."])
+                            }
+                            source = channel.stream
+                            channelName = channel.name
+                        } else {
+                            guard let channel = synAvailableChannels74.first(where: { $0.id == channelID }),
+                                  let client = state.client else {
+                                throw NSError(domain: "SYN EPG", code: 90,
+                                    userInfo: [NSLocalizedDescriptionKey:"No se encuentra el canal Xtream."])
+                            }
+                            source = try client.liveURL(channel)
+                            channelName = channel.name
+                        }
+                        try SYNBackgroundDVR54.add(url: source, channel: channelName, title: title,
+                            start: start, end: end, epg: true)
+                        synDVR54Jobs = SYNBackgroundDVR54.list()
+                        synDVR54Message = "Grabación programada: " + title
                     }) // SYN_ALPHA27_APPLETV
                 if (synM3UProfile79 == nil ? state.playingURL : synM3UPlaying79?.stream) == nil {
                     VStack(spacing: 10) {
@@ -2003,7 +2158,7 @@ struct ContentView: View {
              } else if state.section == .tv || state.section == .favorites {
                 if let playlist = synM3UProfile79 {
                     SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79,
-                                  compactRows7106: synSplit7106.rows)
+                                  compactRows7106: synSplit7106.rows, onScheduleEPG90: synAskM3UEPG90)
                         .frame(height: synSplit7106.guideHeight, alignment: .top)
                 } else {
                 synMultiGuide
@@ -2409,7 +2564,7 @@ struct ContentView: View {
                                         Text("Grabación guardada").font(.system(size: 12)).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Button("Reproducir") { NSWorkspace.shared.open(file) }.font(.caption)
+                                    Button("Ver en SYN") { SYNRecordingWindow93.shared.open(file) }.font(.caption)
                                     Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: {
                                         Image(systemName: "folder")
                                     }.help("Mostrar en Finder")
@@ -2534,7 +2689,7 @@ struct ContentView: View {
                                 Image(systemName: "film").foregroundStyle(.secondary)
                                 Text(file.deletingPathExtension().lastPathComponent).lineLimit(1)
                                 Spacer()
-                                Button("Abrir") { NSWorkspace.shared.open(file) }
+                                Button("Ver en SYN") { SYNRecordingWindow93.shared.open(file) }
                                 Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: {
                                     Image(systemName: "folder")
                                 }.help("Mostrar en Finder")
@@ -2856,7 +3011,7 @@ private struct SYNEPGPopoverContent797: View {
 
 
 // SYN_CHANNEL_ART_43 — pastilla con paleta real o lettering vectorial
-private struct SYNChannelArtworkPill: View {
+struct SYNChannelArtworkPill: View {
     let name: String
     let source: String
     var fallbackSource: String = ""
@@ -3235,13 +3390,44 @@ private final class SYNDVRRecorder53: ObservableObject {
 
     func refresh() {
         let manager = FileManager.default
-        files = ((try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])) ?? [])
-            .filter { ["ts", "mkv", "mp4"].contains($0.pathExtension.lowercased()) }
-            .sorted { a, b in
-                let aa = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let bb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return aa > bb
+        // SYN_RECORDING_IN_WINDOW_94: la versión 3.1 guarda MKV en SYN-DVR2_UUID.
+        // Mostrar los terminados sin moverlos a la raíz; ignorar piezas part_*.ts.
+        // No se modifica ningún vídeo, directorio ni archivo de estado.
+        var roots: [URL] = [folder]
+        let remote = manager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Remote/server.json")
+        if let data = try? Data(contentsOf: remote),
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let chosen = config["recordingsFolder"] as? String, chosen.hasPrefix("/") {
+            let extra = URL(fileURLWithPath: chosen, isDirectory: true).standardizedFileURL
+            if !roots.contains(extra) { roots.append(extra) }
+        }
+        var found: [URL: URL] = [:]
+        let allowed: Set<String> = ["mkv", "mp4", "mov", "ts"]
+        for root in roots where manager.fileExists(atPath: root.path) {
+            // Conservar archivos directos, más una carpeta de grabación por tarea.
+            let children = (try? manager.contentsOfDirectory(at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles])) ?? []
+            for item in children {
+                let directory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                let candidates: [URL] = directory && item.lastPathComponent.hasPrefix("SYN-DVR2_")
+                    ? ((try? manager.contentsOfDirectory(at: item,
+                       includingPropertiesForKeys: [.contentModificationDateKey],
+                       options: [.skipsHiddenFiles])) ?? [])
+                    : (directory ? [] : [item])
+                for candidate in candidates {
+                    guard allowed.contains(candidate.pathExtension.lowercased()),
+                          !candidate.lastPathComponent.hasPrefix("part_") else { continue }
+                    found[candidate.standardizedFileURL] = candidate
+                }
             }
+        }
+        files = found.values.sorted { a, b in
+            let aa = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let bb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return aa > bb
+        }
     }
 
     func record(url: URL?, title: String) {
@@ -3317,7 +3503,30 @@ private struct SYNBackgroundDVR54 {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/jobs", isDirectory: true)
     }
-    static func add(url: URL, channel: String, title: String, start: Date, end: Date) throws {
+    // SYN_NAMES_92 — nombres de tareas de grabación, sin alterar las URL ni los tiempos.
+    // YY/DD/MM significa año/día/mes, literalmente como se ha solicitado.
+    private static func recordingName92(channel: String, title: String,
+                                        start: Date, isEPG: Bool) -> String {
+        let cleanChannel = channel.replacingOccurrences(of: #"[\r\n\t]"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = title.replacingOccurrences(of: #"[\r\n\t]"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let date = DateFormatter()
+        date.locale = Locale(identifier: "es_ES_POSIX")
+        date.timeZone = .current
+        date.dateFormat = "yy/dd/MM"
+        let day = date.string(from: start)
+        let channelName = cleanChannel.isEmpty ? "Canal" : cleanChannel
+        if isEPG {
+            let program = cleanTitle.isEmpty ? "Programa" : cleanTitle
+            return "\(program) - \(channelName) - \(day)"
+        }
+        date.dateFormat = "HH:mm"
+        return "\(channelName) - \(day) - \(date.string(from: start))"
+    }
+
+    static func add(url: URL, channel: String, title: String, start: Date, end: Date,
+                    epg: Bool? = nil, eventDate: Date? = nil) throws {
         guard end > Date(), end > start, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NSError(domain: "SYN DVR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Horario o URL inválido"])
         }
@@ -3327,10 +3536,17 @@ private struct SYNBackgroundDVR54 {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let id = UUID().uuidString
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanChannel = channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredEPG = !cleanTitle.isEmpty &&
+            cleanTitle.localizedCaseInsensitiveCompare(cleanChannel) != .orderedSame
+        let label = recordingName92(channel: channel, title: title,
+                                    start: eventDate ?? start, isEPG: epg ?? inferredEPG)
         let data = try JSONSerialization.data(withJSONObject: [
-            "url": url.absoluteString, "channel": channel, "title": title,
+            "url": url.absoluteString, "channel": channel, "title": label,
             "start": start.timeIntervalSince1970, "end": end.timeIntervalSince1970,
-            "folder": SYNRecordingFolder75.current.path
+            "folder": SYNRecordingFolder75.current.path,
+            "namingVersion": 2
         ])
         let staging = directory.appendingPathComponent(id + ".pending")
         let final = directory.appendingPathComponent(id + ".json")
@@ -3405,6 +3621,119 @@ private struct SYNBackgroundDVR54 {
     }
 }
 
+
+// SYN_EPG_MARGINS_90: horarios de emisión EPG + margen opcional, sin alterar el motor.
+struct SYNEPGMarginRequest90: Identifiable {
+    let id = UUID()
+    let url: URL
+    let channel: String
+    let title: String
+    let start: Date
+    let end: Date
+}
+
+struct SYNEPGMarginChooser90: View {
+    let title: String
+    let epgStart: Date
+    let epgEnd: Date
+    let onSchedule: (Date, Date) throws -> Void
+    let onClose: () -> Void
+
+    @State private var before: Int
+    @State private var after: Int
+    @State private var errorMessage = ""
+
+    init(title: String, epgStart: Date, epgEnd: Date,
+         onSchedule: @escaping (Date, Date) throws -> Void,
+         onClose: @escaping () -> Void) {
+        self.title = title
+        self.epgStart = epgStart
+        self.epgEnd = epgEnd
+        self.onSchedule = onSchedule
+        self.onClose = onClose
+        let prefs = UserDefaults.standard
+        _before = State(initialValue: max(0, min(120,
+            (prefs.object(forKey: "syn.native.epgMarginBefore90") as? Int) ?? 5)))
+        _after = State(initialValue: max(0, min(180,
+            (prefs.object(forKey: "syn.native.epgMarginAfter90") as? Int) ?? 10)))
+    }
+
+    private var actualStart: Date {
+        max(Date(), epgStart.addingTimeInterval(Double(-before) * 60))
+    }
+    private var actualEnd: Date {
+        epgEnd.addingTimeInterval(Double(after) * 60)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Programar grabación", systemImage: "record.circle.fill")
+                    .font(.title3.bold())
+                Spacer()
+                Button { onClose() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+            }
+            Text(title).font(.headline).lineLimit(2)
+            Text("Horario anunciado: " +
+                epgStart.formatted(date: .abbreviated, time: .shortened) + " – " +
+                epgEnd.formatted(date: .omitted, time: .shortened))
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Stepper(value: $before, in: 0...120, step: 1) {
+                HStack {
+                    Text("Empezar antes")
+                    Spacer()
+                    Text("\(before) min").monospacedDigit().bold()
+                }
+            }
+            Stepper(value: $after, in: 0...180, step: 1) {
+                HStack {
+                    Text("Terminar después")
+                    Spacer()
+                    Text("\(after) min").monospacedDigit().bold()
+                }
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Text("La grabación se programará de:")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(actualStart.formatted(date: .abbreviated, time: .shortened) +
+                     " → " + actualEnd.formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                if epgStart.addingTimeInterval(Double(-before) * 60) < Date() {
+                    Text("El inicio previsto ya ha pasado: comenzará ahora.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            if !errorMessage.isEmpty {
+                Text(errorMessage).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Button("Cancelar", action: onClose)
+                Spacer()
+                Button("Programar") {
+                    guard actualEnd > actualStart else {
+                        errorMessage = "El programa ya ha terminado."; return
+                    }
+                    do {
+                        try onSchedule(actualStart, actualEnd)
+                        UserDefaults.standard.set(before, forKey: "syn.native.epgMarginBefore90")
+                        UserDefaults.standard.set(after, forKey: "syn.native.epgMarginAfter90")
+                        onClose()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(actualEnd <= actualStart)
+            }
+        }
+        .padding(22)
+        .frame(width: 455)
+    }
+}
 
 // SYN_DVR_CALENDAR_57 — calendario de tamaño real, sin DatePicker gráfico compacto.
 private struct SYN_DVR_CALENDAR_57: View {
@@ -3601,5 +3930,132 @@ enum SYNUnifiedDVR2 {
         try SYNBackgroundDVR54.add(url: url, channel: channel, title: channel,
             start: Date(), end: Date().addingTimeInterval(7200))
         return true
+    }
+}
+
+// SYN_REMOTE_PAIRING_40 — SYN client: IP + port + optional password ONLY.
+// TOFU: remember first successfully authenticated server certificate in Keychain;
+// refuse subsequent certificate changes (including when password is optional).
+private final class SYNRemotePin40: NSObject, URLSessionDelegate {
+    private let expected: String?
+    private(set) var observed: String?
+    private(set) var mismatch = false
+
+    init(expected: String?) {
+        self.expected=expected?.uppercased()
+    }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust=challenge.protectionSpace.serverTrust,
+              let cert=SecTrustGetCertificateAtIndex(trust,0) else {
+            completionHandler(.cancelAuthenticationChallenge,nil);return
+        }
+        let data=SecCertificateCopyData(cert) as Data
+        let actual=SHA256.hash(data:data).map { String(format:"%02X",$0) }.joined()
+        if let expected, expected != actual {
+            mismatch=true
+            completionHandler(.cancelAuthenticationChallenge,nil);return
+        }
+        observed=actual
+        completionHandler(.useCredential,URLCredential(trust:trust))
+    }
+}
+
+@MainActor
+private struct SYNRemotePairing40: View {
+    @AppStorage("syn.remote.dvr.host") private var host="127.0.0.1"
+    @AppStorage("syn.remote.dvr.port") private var port="8090"
+    @State private var password=""
+    @State private var result="Servidor todavía no comprobado"
+    @State private var testing=false
+    private var target: String { host.trimmingCharacters(in:.whitespacesAndNewlines) + ":" + port }
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("Conectar con SYN DVR").font(.headline)
+            HStack {
+                TextField("Dirección IP",text:$host).textFieldStyle(.roundedBorder)
+                TextField("Puerto",text:$port).textFieldStyle(.roundedBorder).frame(width:90)
+            }
+            SecureField("Contraseña (opcional)",text:$password).textFieldStyle(.roundedBorder)
+            HStack {
+                Button(testing ? "Conectando…" : "Conectar") { test() }.disabled(testing)
+                Spacer()
+                Label("Conexión HTTPS",systemImage:"lock.shield")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        .onAppear { password=readSecret(service:"SYN DVR Password") ?? "" }
+        .onChange(of:host) { _ in password=readSecret(service:"SYN DVR Password") ?? "" }
+        .onChange(of:port) { _ in password=readSecret(service:"SYN DVR Password") ?? "" }
+    }
+
+    private func readSecret(service:String) -> String? {
+        let query:[String:Any]=[
+            kSecClass as String:kSecClassGenericPassword,
+            kSecAttrService as String:service,
+            kSecAttrAccount as String:target,
+            kSecReturnData as String:true,
+            kSecMatchLimit as String:kSecMatchLimitOne]
+        var value:CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary,&value)==errSecSuccess,
+              let data=value as? Data else { return nil }
+        return String(data:data,encoding:.utf8)
+    }
+    @discardableResult
+    private func saveSecret(_ value:String?,service:String) -> Bool {
+        let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,
+                                 kSecAttrService as String:service,
+                                 kSecAttrAccount as String:target]
+        SecItemDelete(query as CFDictionary)
+        guard let value,let data=value.data(using:.utf8), !value.isEmpty else {return true}
+        var add=query
+        add[kSecValueData as String]=data
+        add[kSecAttrAccessible as String]=kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary,nil)==errSecSuccess
+    }
+    private func test() {
+        let ip=host.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard let n=Int(port), (1024...65535).contains(n),
+              !ip.isEmpty,!ip.contains("/"),!ip.contains("@"),!ip.contains(" ") else {
+            result="Comprueba la dirección IP y el puerto (1024–65535).";return
+        }
+        var components=URLComponents()
+        components.scheme="https";components.host=ip;components.port=n
+        components.path="/api/v1/status"
+        guard let url=components.url else {result="Dirección IP o puerto no válidos.";return}
+        testing=true
+        let pin=SYNRemotePin40(expected:readSecret(service:"SYN DVR TLS Pin"))
+        let session=URLSession(configuration:.ephemeral,delegate:pin,delegateQueue:nil)
+        var req=URLRequest(url:url);req.timeoutInterval=8
+        if !password.isEmpty {
+            req.setValue(Data(password.utf8).base64EncodedString(),forHTTPHeaderField:"X-SYN-DVR-Password-B64")
+        }
+        Task {
+            defer {session.invalidateAndCancel();testing=false}
+            do {
+                let (data,response)=try await session.data(for:req)
+                guard let http=response as? HTTPURLResponse else { result="Respuesta inválida.";return }
+                if http.statusCode==401 {result="El servidor requiere otra contraseña.";return}
+                guard http.statusCode==200 else { result="Error del servidor: \(http.statusCode)";return }
+                guard let status=try JSONSerialization.jsonObject(with:data) as? [String:Any],
+                      status["product"] as? String == "SYN DVR" else {
+                    result="El servicio respondió, pero no es un servidor SYN DVR.";return
+                }
+                guard let observed=pin.observed else {result="No se pudo verificar el certificado HTTPS.";return}
+                if !saveSecret(observed,service:"SYN DVR TLS Pin") ||
+                   !saveSecret(password,service:"SYN DVR Password") {
+                    result="Conectado, pero el Llavero no pudo guardar los datos.";return
+                }
+                let engine=status["engine"] as? [String:Any] ?? [:]
+                result="Conectado a SYN DVR · Motor \((engine["running"] as? Bool ?? false) ? "activo" : "sin respuesta")"
+            } catch {
+                result=pin.mismatch
+                    ? "El certificado del servidor ha cambiado. Conexión bloqueada para protegerte."
+                    : "No se pudo conectar. Comprueba IP, puerto y estado de SYN DVR."
+            }
+        }
     }
 }

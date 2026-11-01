@@ -305,6 +305,8 @@ struct SYNGuideChannel70: Identifiable, Equatable {
     var next: String
     var isFavorite: Bool
     var category: String = ""
+    var logo: String = ""
+    var fallbackLogo: String = ""
 }
 struct SYNGuideProgramme74: Identifiable, Equatable, Sendable {
     var title: String
@@ -315,11 +317,21 @@ struct SYNGuideProgramme74: Identifiable, Equatable, Sendable {
 
 // SYN 7.4 — Fullscreen EPG; same NSWindow as the active VLC canvas.
 // Grid occupies the screen, but media/audio stays alive underneath it.
+private struct SYNFullscreenMarginRequest90: Identifiable {
+    let id = UUID()
+    let channelID: String
+    let title: String
+    let start: Date
+    let end: Date
+}
+
 struct SYNFullscreenGuide70: View {
     let channels: [SYNGuideChannel70]
     let tune: (String) -> Void
     let close: () -> Void
     let load: (String) async -> [SYNGuideProgramme74]
+    let schedule: (String, String, Date, Date) throws -> Void
+    @State private var pendingMargin90: SYNFullscreenMarginRequest90?
     @State private var query = ""
     @State private var favorites = false
     @State private var category = ""
@@ -327,8 +339,9 @@ struct SYNFullscreenGuide70: View {
     @State private var hourOffset = 0
     @State private var fetched: [String: [SYNGuideProgramme74]] = [:]
     @State private var preparing77 = false
+    // SYN_FULLSCREEN_GUIDE_84: el raton desplaza el NSScrollView horizontal real.
     private let slotWidth: CGFloat = 168
-    private let channelWidth: CGFloat = 190
+    private let channelWidth: CGFloat = 265
     private let rowHeight: CGFloat = 51
     private let totalSlots = 12
 
@@ -342,25 +355,22 @@ struct SYNFullscreenGuide70: View {
             (query.isEmpty || channel.name.localizedStandardContains(query))
         }
     }
-    // Solo exponer una secuencia CONTIGUA de filas listas; nunca filas vacías en cascada.
+    // SYN_FULLSCREEN_GUIDE_82: mostrar todas las filas disponibles sin
+    // recortarlas por un canal cuya EPG todavía no se ha descargado.
     private var shown: [SYNGuideChannel70] {
-        var ready: [SYNGuideChannel70] = []
-        for channel in filtered.prefix(limit) {
-            guard fetched[channel.id] != nil else { break }
-            ready.append(channel)
-        }
-        return ready
+        Array(filtered.prefix(limit))
     }
 
     @MainActor private func preloadFullGuide77() async {
         let missing = Array(filtered.prefix(limit)).map(\.id).filter { fetched[$0] == nil }
         guard !missing.isEmpty else { return }
         preparing77 = true
-        var result: [String: [SYNGuideProgramme74]] = [:]
+        defer { preparing77 = false }
         for start in stride(from: 0, to: missing.count, by: 8) {
             if Task.isCancelled { return }
             let ids = Array(missing[start..<min(start + 8, missing.count)])
-            let batch = await withTaskGroup(of: (String, [SYNGuideProgramme74]).self, returning: [(String, [SYNGuideProgramme74])].self) { group in
+            let batch = await withTaskGroup(of: (String, [SYNGuideProgramme74]).self,
+                                            returning: [(String, [SYNGuideProgramme74])].self) { group in
                 for id in ids {
                     group.addTask { (id, await load(id)) }
                 }
@@ -368,11 +378,11 @@ struct SYNFullscreenGuide70: View {
                 for await pair in group { list.append(pair) }
                 return list
             }
-            for (id, programmes) in batch { result[id] = programmes }
+            if Task.isCancelled { return }
+            // Publicar inmediatamente cada lote: la tabla ya está completa
+            // en canales y se rellenan las pastillas según llega la EPG.
+            for (id, programmes) in batch { fetched[id] = programmes }
         }
-        guard !Task.isCancelled else { return }
-        fetched.merge(result) { _, new in new }
-        preparing77 = false
     }
     private var origin: Date {
         let now = Date().addingTimeInterval(TimeInterval(hourOffset) * 3600)
@@ -381,7 +391,7 @@ struct SYNFullscreenGuide70: View {
     private func left(for date: Date) -> CGFloat {
         CGFloat(date.timeIntervalSince(origin) / 1800) * slotWidth
     }
-    private func row(_ ch: SYNGuideChannel70) -> some View {
+    private func row(_ ch: SYNGuideChannel70, height: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             Color.white.opacity(0.035)
             let programs = fetched[ch.id] ?? []
@@ -395,18 +405,28 @@ struct SYNFullscreenGuide70: View {
                         Text(program.title).font(.system(size: 11, weight: .semibold)).lineLimit(2)
                     }
                     .padding(6)
-                    .frame(width: width, height: rowHeight - 3, alignment: .topLeading)
+                    .frame(width: width, height: height - 3, alignment: .topLeading)
                     .background(Color(hue: Double(abs(ch.id.hashValue % 10)) / 10, saturation: 0.50, brightness: 0.60), in: RoundedRectangle(cornerRadius: 6))
+                    .contextMenu {
+                        Button("Programar grabación…") {
+                            pendingMargin90 = SYNFullscreenMarginRequest90(channelID: ch.id,
+                                title: program.title, start: program.start, end: program.end)
+                        }
+                    }
                     .offset(x: x, y: 1)
                 }
             }
-            if programs.isEmpty {
+            if fetched[ch.id] == nil {
+                Text("Cargando programación…")
+                    .foregroundStyle(.white.opacity(0.53)).font(.caption)
+                    .padding(.leading, 10).frame(height: height)
+            } else if programs.isEmpty {
                 Text("Sin programación disponible")
                     .foregroundStyle(.white.opacity(0.53)).font(.caption)
-                    .padding(.leading, 10).frame(height: rowHeight)
+                    .padding(.leading, 10).frame(height: height)
             }
         }
-        .frame(width: slotWidth * CGFloat(totalSlots), height: rowHeight)
+        .frame(width: slotWidth * CGFloat(totalSlots), height: height)
         .clipped()
 
     }
@@ -450,7 +470,11 @@ struct SYNFullscreenGuide70: View {
                 .frame(width: 174)
                 .background(.white.opacity(0.07))
                 Divider()
-                VStack(spacing: 0) {
+                GeometryReader { guideArea83 in
+                    // Se aprovecha la altura del monitor sin fabricar canales nuevos.
+                    // Con muchos canales las filas mantienen su altura y hay scroll vertical.
+                    let visibleRowHeight83 = max(rowHeight,
+                        min(90, (guideArea83.size.height - 40) / CGFloat(max(1, shown.count))))
                     ScrollView(.vertical) {
                         HStack(alignment: .top, spacing: 0) {
                             VStack(spacing: 2) {
@@ -462,13 +486,21 @@ struct SYNFullscreenGuide70: View {
                                         tune(ch.id)
                                         close()
                                     } label: {
-                                        HStack(spacing: 5) {
-                                            if ch.isFavorite { Image(systemName: "heart.fill").foregroundStyle(.orange) }
-                                            Text(ch.name).lineLimit(1)
+                                        HStack(spacing: 8) {
+                                            SYNChannelArtworkPill(
+                                                name: ch.name,
+                                                source: ch.logo,
+                                                fallbackSource: ch.fallbackLogo)
+                                                .frame(width: 106, height: 43)
+                                            Text(ch.name).lineLimit(2)
                                             Spacer(minLength: 0)
+                                            if ch.isFavorite {
+                                                Image(systemName: "heart.fill")
+                                                    .foregroundStyle(.orange)
+                                            }
                                         }
-                                        .font(.system(size: 12, weight: .medium))
-                                        .frame(width: channelWidth - 8, height: rowHeight, alignment: .leading)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .frame(width: channelWidth - 8, height: visibleRowHeight83, alignment: .leading)
                                         .padding(.leading, 8)
                                         .background(.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 6))
                                     }.buttonStyle(.plain)
@@ -492,26 +524,41 @@ struct SYNFullscreenGuide70: View {
                                         .frame(minWidth: 380, minHeight: 180)
                                     } else {
                                         LazyVStack(spacing: 2) {
-                                            ForEach(shown) { channel in row(channel) }
+                                            ForEach(shown) { channel in row(channel, height: visibleRowHeight83) }
                                         }
                                     }
                                 }
+                                .background(SYNFullscreenGuideMousePan84())
                             }
+                            .id(hourOffset) // Nuevo rango horario: volver al extremo inicial.
+                            .frame(width: max(1, guideArea83.size.width - channelWidth), alignment: .leading)
+                            .help("Mantén pulsado y arrastra horizontalmente para recorrer la EPG")
                         }
                         if shown.count < filtered.count {
                             Button("Ver más canales (\(shown.count) de \(filtered.count))") { limit += 35 }
                                 .padding(12)
                         }
                     }
+                    .scrollIndicators(.visible)
+                    .frame(width: guideArea83.size.width, height: guideArea83.size.height)
+                    .background(Color.white.opacity(0.035))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .buttonStyle(.bordered)
         .foregroundStyle(.white)
-        .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black.opacity(0.93))
+        .background(Color.black)
         .environment(\.colorScheme, .dark)
+        .sheet(item: $pendingMargin90) { request in
+            SYNEPGMarginChooser90(title: request.title, epgStart: request.start, epgEnd: request.end) { start, end in
+                try schedule(request.channelID, request.title, start, end)
+            } onClose: {
+                pendingMargin90 = nil
+            }
+        }
         .task(id: "\(category)|\(favorites)|\(query)|\(limit)") {
             await preloadFullGuide77()
         }
@@ -527,5 +574,100 @@ extension SYNSharedLive70.Stream {
             if let value = Double(raw) { durations.append(value) }
         }
         return min(360, durations.reduce(0, +))
+    }
+}
+
+// SYN_FULLSCREEN_GUIDE_84: AppKit pan del timeline, sin bloquear botones ni trackpad.
+private struct SYNFullscreenGuideMousePan84: NSViewRepresentable {
+    func makeNSView(context: Context) -> SYNFullscreenGuideMousePanView84 {
+        SYNFullscreenGuideMousePanView84(frame: .zero)
+    }
+    func updateNSView(_ view: SYNFullscreenGuideMousePanView84, context: Context) {
+        view.scheduleMonitor84()
+    }
+}
+
+private final class SYNFullscreenGuideMousePanView84: NSView {
+    private var monitor84: Any?
+    private weak var scroll84: NSScrollView?
+    private var down84: NSPoint?
+    private var downScrollX84: CGFloat = 0
+    private var dragging84 = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { removeMonitor84() }
+        else { scheduleMonitor84() }
+    }
+
+    func scheduleMonitor84() {
+        guard monitor84 == nil else { return }
+        DispatchQueue.main.async { [weak self] in self?.installMonitor84() }
+    }
+
+    private func installMonitor84() {
+        guard monitor84 == nil, window != nil else { return }
+        var ancestor: NSView? = superview
+        while let node = ancestor {
+            if let scroll = node as? NSScrollView {
+                scroll84 = scroll
+                break
+            }
+            ancestor = node.superview
+        }
+        guard scroll84 != nil else { return }
+        monitor84 = NSEvent.addLocalMonitorForEvents(matching: [
+            .leftMouseDown, .leftMouseDragged, .leftMouseUp
+        ]) { [weak self] event in
+            self?.handleEvent84(event)
+            return event // No interceptar controles ni la interacción de VLC.
+        }
+    }
+
+    private func handleEvent84(_ event: NSEvent) {
+        guard let scroll = scroll84,
+              let ownWindow = window,
+              event.window === ownWindow else { return }
+        let clip = scroll.contentView
+        switch event.type {
+        case .leftMouseDown:
+            let point = clip.convert(event.locationInWindow, from: nil)
+            if clip.bounds.contains(point) {
+                down84 = event.locationInWindow
+                downScrollX84 = clip.bounds.origin.x
+                dragging84 = false
+            } else { down84 = nil; dragging84 = false }
+        case .leftMouseDragged:
+            guard let down = down84 else { return }
+            let dx = event.locationInWindow.x - down.x
+            let dy = event.locationInWindow.y - down.y
+            if !dragging84 && abs(dx) > 7 && abs(dx) > abs(dy) * 1.2 {
+                dragging84 = true
+            }
+            guard dragging84 else { return }
+            let documentWidth = scroll.documentView?.bounds.width ?? clip.bounds.width
+            let maxX = max(0, documentWidth - clip.bounds.width)
+            let nextX = min(max(0, downScrollX84 - dx), maxX)
+            clip.scroll(to: NSPoint(x: nextX, y: clip.bounds.origin.y))
+            scroll.reflectScrolledClipView(clip)
+        case .leftMouseUp:
+            down84 = nil
+            dragging84 = false
+        default: break
+        }
+    }
+
+    private func removeMonitor84() {
+        if let monitor84 { NSEvent.removeMonitor(monitor84) }
+        monitor84 = nil
+        scroll84 = nil
+        down84 = nil
+        dragging84 = false
+    }
+
+    deinit {
+        if let monitor84 { NSEvent.removeMonitor(monitor84) }
     }
 }

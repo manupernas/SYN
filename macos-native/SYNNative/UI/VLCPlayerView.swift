@@ -63,6 +63,14 @@ final class SYNVideoHost: NSView {
     private var pausedByUser = false
     private var volumeValue: Double = 80
     private var muted = false
+    // SYN_RECORDING_IN_WINDOW_94: audio en directo silenciado en visor MKV.
+    private var recordingPlaybackMuted94 = false
+    func setRecordingPlaybackMuted94(_ active: Bool) {
+        recordingPlaybackMuted94 = active
+        #if canImport(VLCKit)
+        player.audio?.volume = Int32(active || muted ? 0 : volumeValue)
+        #endif
+    }
     private var slider: NSSlider?
     private var channelLabel: NSTextField?
     // SYN_FS_CLICK_PURO_621: no gradients, no movement reveal, no timer.
@@ -80,6 +88,7 @@ final class SYNVideoHost: NSView {
     var onGuideRefresh70: (() -> Void)?
     var onLoadGuideProgrammes74: ((String) async -> [SYNGuideProgramme74])?
     var onSelectChannel70: ((String) -> Void)?
+    var onScheduleGuide90: ((String, String, Date, Date) throws -> Void)?
     private var guidePanel70: NSView?
     // SYN_AIRPLAY_FULLSCREEN_797: AirPlay vive solo en el Space fullscreen.
     // El HLS local compartido sigue alimentando DVR; VLC deja de reproducir.
@@ -190,7 +199,7 @@ final class SYNVideoHost: NSView {
         if hardware == "none" { media.addOption(":avcodec-hw=none") }
         player.media = media
         player.play()
-        player.audio?.volume = Int32(muted ? 0 : volumeValue)
+        player.audio?.volume = Int32(recordingPlaybackMuted94 || muted ? 0 : volumeValue)
         #endif
     }
 
@@ -208,7 +217,7 @@ final class SYNVideoHost: NSView {
     func setVolume(_ value: Double) {
         volumeValue = max(0, min(value, 100))
         #if canImport(VLCKit)
-        player.audio?.volume = Int32(muted ? 0 : volumeValue)
+        player.audio?.volume = Int32(recordingPlaybackMuted94 || muted ? 0 : volumeValue)
         #endif
         slider?.doubleValue = volumeValue
     }
@@ -580,7 +589,9 @@ final class SYNVideoHost: NSView {
     func configureGuide70(channels: [SYNGuideChannel70],
                           tune: @escaping (String) -> Void,
                           refresh: @escaping () -> Void,
-                          load: @escaping (String) async -> [SYNGuideProgramme74]) {
+                          load: @escaping (String) async -> [SYNGuideProgramme74],
+                          schedule: @escaping (String, String, Date, Date) throws -> Void) {
+        onScheduleGuide90 = schedule
         onLoadGuideProgrammes74 = load
         guideChannels70 = channels
         onSelectChannel70 = tune
@@ -592,6 +603,9 @@ final class SYNVideoHost: NSView {
                 load: { [weak self] id in
                     guard let loader = self?.onLoadGuideProgrammes74 else { return [] }
                     return await loader(id)
+                }, schedule: { [weak self] id, title, start, end in
+                    guard let action = self?.onScheduleGuide90 else { return }
+                    try action(id, title, start, end)
                 })
         }
     }
@@ -609,6 +623,9 @@ final class SYNVideoHost: NSView {
             load: { [weak self] id in
                 guard let loader = self?.onLoadGuideProgrammes74 else { return [] }
                 return await loader(id)
+            }, schedule: { [weak self] id, title, start, end in
+                guard let action = self?.onScheduleGuide90 else { return }
+                try action(id, title, start, end)
             }))
         panel.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(panel)
@@ -898,11 +915,13 @@ private struct SYNVideoSurface: NSViewRepresentable {
     let tune: (String) -> Void
     let refreshGuide: () -> Void
     let loadGuide: (String) async -> [SYNGuideProgramme74]
+    let scheduleGuide: (String, String, Date, Date) throws -> Void
     func makeNSView(context: Context) -> SYNVideoHost { host }
     func updateNSView(_ view: SYNVideoHost, context: Context) {
         view.configureTitle(title)
         view.configurePrograms70(now: now, next: next)
-        view.configureGuide70(channels: channels, tune: tune, refresh: refreshGuide, load: loadGuide)
+        view.configureGuide70(channels: channels, tune: tune, refresh: refreshGuide, load: loadGuide,
+            schedule: scheduleGuide)
         view.play(url)
     }
 }
@@ -922,6 +941,7 @@ struct VLCPlayerView: View {
     var tune70: (String) -> Void = { _ in }
     var refreshGuide70: () -> Void = {}
     var loadGuide74: (String) async -> [SYNGuideProgramme74] = { _ in [] }
+    var scheduleGuide70: (String, String, Date, Date) throws -> Void = { _, _, _, _ in }
 
     init(url: URL?, channelTitle: String = "Televisión en directo",
          onPreviousChannel: (() -> Void)? = nil,
@@ -932,7 +952,8 @@ struct VLCPlayerView: View {
          guideChannels70: [SYNGuideChannel70] = [],
          tune70: @escaping (String) -> Void = { _ in },
          refreshGuide70: @escaping () -> Void = {},
-         loadGuide74: @escaping (String) async -> [SYNGuideProgramme74] = { _ in [] }) {
+         loadGuide74: @escaping (String) async -> [SYNGuideProgramme74] = { _ in [] },
+         scheduleGuide70: @escaping (String, String, Date, Date) throws -> Void = { _, _, _, _ in }) {
         self.url = url
         self.channelTitle = channelTitle
         self.onPreviousChannel = onPreviousChannel
@@ -944,6 +965,7 @@ struct VLCPlayerView: View {
         self.tune70 = tune70
         self.refreshGuide70 = refreshGuide70
         self.loadGuide74 = loadGuide74
+        self.scheduleGuide70 = scheduleGuide70
     }
 
     @State private var host = SYNVideoHost(frame: .zero)
@@ -999,7 +1021,7 @@ struct VLCPlayerView: View {
             SYNVideoSurface(host: host, url: url, title: channelTitle,
                             now: nowProgram70, next: nextProgram70,
                             channels: guideChannels70, tune: tune70, refreshGuide: refreshGuide70,
-                            loadGuide: loadGuide74)
+                            loadGuide: loadGuide74, scheduleGuide: scheduleGuide70)
 
             if isActive {
                 VStack(spacing: 0) {
@@ -1120,5 +1142,9 @@ struct VLCPlayerView: View {
             updateMiniStatus795()
         }
         .clipped()
-    }
+            // SYN_RECORDING_IN_WINDOW_94: no alterar FFmpeg ni liberar conexiones.
+        .onReceive(NotificationCenter.default.publisher(for: .synRecordingPlayback94Changed)) { event in
+            host.setRecordingPlaybackMuted94(event.userInfo?["active"] as? Bool ?? false)
+        }
+}
 }
