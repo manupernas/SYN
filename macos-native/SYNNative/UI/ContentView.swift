@@ -100,6 +100,9 @@ struct ContentView: View {
     @State private var synGuideFocusRevision: Int = 0 // SYN_FIX41_CENTER
     // SYN_GTK_PILLS_42: personalización por perfil + ID, conservada en el Mac.
     @State private var synLogoOverrides: [String: String] = UserDefaults.standard.dictionary(forKey: "syn.native.logoOverrides") as? [String: String] ?? [:]
+    // SYN_PROVIDER_LOGO_REFRESH_96: interfaz y caché específica.
+    @State private var synLogoReloadRevision96 = 0
+    @State private var synLogoRefreshMessage96 = "Descarga de nuevo los logos originales; conserva los personalizados, perfiles y favoritos."
     @State private var synLogoEditingKey = ""
     @State private var synLogoDraft = ""
     @State private var synLogoURLVisible = false
@@ -266,6 +269,8 @@ struct ContentView: View {
                     if synRecording94.file == nil && state.section != .dvr && state.section != .movies && state.section != .series && state.section != .epg {
                         if let playlist = synM3UProfile79 {
                             SYNM3UChannelList79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79)
+                                // AsyncImage M3U vuelve a consultar sus URLs conocidas.
+                                .id(synLogoReloadRevision96)
                                 .frame(width: 290)
                         } else {
                             channelColumn.frame(width: 290)
@@ -946,9 +951,18 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.plain)
             }
-            synSettingsAction7102("Personalizar logos", subtitle: "Haz clic derecho sobre un canal para cambiar su imagen", icon: "photo.on.rectangle.angled", tint: .teal) {
-                synSettingsVisible58 = false
-                state.section = .tv
+            synSettingsBlock78("Logos de canales") {
+                VStack(spacing: 10) {
+                    synSettingsAction7102("Recargar logos del proveedor",
+                        subtitle: synLogoRefreshMessage96,
+                        icon: "arrow.clockwise.circle.fill", tint: .teal) {
+                        synReloadProviderLogos96()
+                    }
+                    synSettingsAction7102("Personalizar logos", subtitle: "Haz clic derecho sobre un canal para cambiar su imagen", icon: "photo.on.rectangle.angled", tint: .teal) {
+                        synSettingsVisible58 = false
+                        state.section = .tv
+                    }
+                }
             }
         }
     }
@@ -1291,6 +1305,8 @@ struct ContentView: View {
         let chosen = custom.isEmpty ? original : custom
         return SYNChannelArtworkPill(name: ch.name, source: chosen,
                                      fallbackSource: custom.isEmpty ? "" : original)
+            // Recrea solo la vista del logo al pedir recarga, no el canal ni sus datos.
+            .id(synLogoReloadRevision96)
             .frame(width: 106, height: 43)
             .help("\(ch.name) · Clic derecho para cambiar logo")
     }
@@ -1307,6 +1323,21 @@ struct ContentView: View {
         Button("Restaurar logo Xtream", systemImage: "arrow.uturn.backward") {
             synLogoOverrides.removeValue(forKey: synLogoKey(ch))
             synPersistLogos()
+        }
+    }
+
+    // SYN_PROVIDER_LOGO_REFRESH_96: no se llama a la carga del perfil ni al DVR.
+    private func synReloadProviderLogos96() {
+        // Solo las URLs originales publicadas por las fuentes; nunca el override
+        // del usuario ni el contenido de SYNNative/ChannelLogos.
+        let xtreamOriginals = (state.channels + synCatalog74).compactMap { $0.streamIcon }
+        let m3uOriginals = synM3UStore79.channels.compactMap { $0.logo }
+        let count = SYNChannelImageStore.invalidateProviderImages96(xtreamOriginals + m3uOriginals)
+        if count > 0 {
+            synLogoReloadRevision96 &+= 1
+            synLogoRefreshMessage96 = "Solicitada la recarga de \(count) logos. Se descargarán al mostrar los canales; tus personalizaciones siguen intactas."
+        } else {
+            synLogoRefreshMessage96 = "No hay URLs de logos cargadas. Abre TV y vuelve a intentarlo. No se ha modificado ningún dato."
         }
     }
 
@@ -3011,6 +3042,7 @@ private struct SYNEPGPopoverContent797: View {
 
 
 // SYN_CHANNEL_ART_43 — pastilla con paleta real o lettering vectorial
+// SYN_PLACEHOLDER_FLAT_POP_972: solo cuando no existe logo del canal.
 struct SYNChannelArtworkPill: View {
     let name: String
     let source: String
@@ -3021,58 +3053,45 @@ struct SYNChannelArtworkPill: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(imageStore.image.map(SYNChannelImageStore.pillColor) ?? placeholderColor)
+
             if let img = imageStore.image {
+                // Los logos reales (incluidos los personalizados) se muestran como antes.
                 if imageStore.hasOwnBackground {
-                    // SYN_622_OWN_BG_FULLBLEED — conserva los píxeles reales del fondo.
-                    // Crop center/foreground to fill the 106x43 capsule. No invented color.
                     Image(nsImage: imageStore.ownBackgroundCrop ?? img)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFill()
-                        // Logo sólido del proveedor: elevar sombras y perfilar texto
-                        // sin desdibujar el emblema ni sustituir colores de marca.
                         .contrast(1.12)
                         .brightness(0.085)
                         .frame(width: 106, height: 43)
                         .clipped()
                 } else {
-                    // Transparent / floating logos keep the contrast logic + padding.
-                    Image(nsImage: img).resizable().scaledToFit()
-                        .padding(.horizontal, 7).padding(.vertical, 4)
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
                 }
             } else {
-                // SYN_ALPHA47_EDITORIAL: ilustración geométrica editorial sin logo.
                 GeometryReader { geo in
                     ZStack {
+                        // Flat: solo rellenos planos, sin blanco, sin sombras y sin degradados.
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(LinearGradient(colors: [placeholderColor.opacity(0.80), placeholderColor],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Circle().fill(.white.opacity(0.09))
-                            .frame(width: 66, height: 66)
-                            .offset(x: geo.size.width * 0.37, y: -17)
-                        Circle().stroke(.white.opacity(0.42), lineWidth: 1.2)
-                            .frame(width: 49, height: 49)
-                            .offset(x: geo.size.width * 0.37, y: -17)
-                        Rectangle().fill(.white.opacity(0.17))
-                            .frame(width: 9, height: 130)
-                            .rotationEffect(.degrees(35))
-                            .offset(x: -geo.size.width * 0.36)
-                        RoundedRectangle(cornerRadius: 1).fill(.white.opacity(0.72))
-                            .frame(width: 23, height: 2)
-                            .offset(x: -geo.size.width * 0.33, y: -14)
-                        VStack(spacing: 1) {
-                            Text(cleanName)
-                                .font(.system(size: cleanName.count > 13 ? 9 : 12,
-                                              weight: .heavy, design: .serif))
-                                .tracking(cleanName.count > 13 ? -0.3 : 0.5)
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.65)
-                                .multilineTextAlignment(.center)
-                            Rectangle().fill(.white.opacity(0.7))
-                                .frame(width: 24, height: 1)
-                        }
-                        .padding(.horizontal, 7)
+                            .fill(placeholderPalette[0])
+
+                        popShapes(popVariant, width: geo.size.width,
+                                  height: geo.size.height, colors: placeholderPalette)
+
+                        Text(cleanName)
+                            .font(.system(size: nameFontSize, weight: .black, design: .rounded))
+                            .tracking(cleanName.count > 19 ? -0.35 : 0.10)
+                            .foregroundStyle(Self.popColor(0x172138))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.64)
+                            .allowsTightening(true)
+                            .multilineTextAlignment(.center)
+                            .frame(width: max(40, geo.size.width - 13),
+                                   height: max(20, geo.size.height - 3))
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
@@ -3085,20 +3104,118 @@ struct SYNChannelArtworkPill: View {
         .onChange(of: fallbackSource) { _, next in imageStore.load(source, fallback: next) }
     }
 
-    private var cleanName: String {
-        synCleanChannelName(name).uppercased()
+    private var cleanName: String { synCleanChannelName(name).uppercased() }
+
+    private var nameFontSize: CGFloat {
+        if cleanName.count > 26 { return 8.0 }
+        if cleanName.count > 17 { return 9.0 }
+        if cleanName.count > 11 { return 10.2 }
+        return 11.8
     }
 
-    private var placeholderColor: Color {
-        // Neutros profundos y estables, no pretendidos colores corporativos.
-        let tones: [(Double, Double, Double)] = [
-            (0.13, 0.29, 0.32), (0.24, 0.26, 0.34), (0.28, 0.25, 0.26),
-            (0.16, 0.30, 0.27), (0.24, 0.28, 0.32)]
-        let hash = cleanName.utf8.reduce(UInt64(1469598103934665603)) {
+    private var hash64: UInt64 {
+        cleanName.utf8.reduce(UInt64(1469598103934665603)) {
             ($0 ^ UInt64($1)) &* 1099511628211
         }
-        let t = tones[Int(hash % UInt64(tones.count))]
-        return Color(red: t.0, green: t.1, blue: t.2)
+    }
+
+    // Variante geométrica independiente de la paleta. Permanece estable para cada canal.
+    private var popVariant: Int { Int((hash64 >> 21) % 12) }
+
+    private static func popColor(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 255) / 255,
+              green: Double((hex >> 8) & 255) / 255,
+              blue: Double(hex & 255) / 255)
+    }
+
+    // 20 paletas luminosas, saturadas y sin blanco; 12 formas = 240 combinaciones.
+    // En todas, el texto azul-negro tiene contraste suficiente con el fondo y los acentos.
+    private var placeholderPalette: [Color] {
+        let palettes: [[UInt32]] = [
+            [0xFFE344, 0xFF67B7, 0x49EAD1, 0xB693FF],
+            [0xBFFF4E, 0xFE8953, 0x5DCEFF, 0xF98EC7],
+            [0x54EEDA, 0xFF7373, 0xE78CFF, 0xF3CC38],
+            [0x6EDEFF, 0xFFAA33, 0xFF6AA7, 0x91F445],
+            [0xFFB351, 0x4ACFD8, 0xB693FF, 0xC6F35C],
+            [0xFF8FC7, 0x5DCEFF, 0x91F445, 0xF3CC38],
+            [0xC1AAFF, 0xFE8953, 0x49EAD1, 0xFFAA33],
+            [0xFFAA8B, 0x7AEC7E, 0x5DCEFF, 0xE78CFF],
+            [0x90E887, 0xFF67B7, 0xF3A457, 0x8AB5FF],
+            [0xFFCF66, 0x4ACFD8, 0xFF6AA7, 0xB693FF],
+            [0x7ADBF2, 0xFF7373, 0xC6F35C, 0xF98EC7],
+            [0xF9A2DB, 0x49EAD1, 0xFFAA33, 0x8AB5FF],
+            [0x9FE7AC, 0xE78CFF, 0xFF7373, 0x5DCEFF],
+            [0xE4BCFF, 0xF3CC38, 0x49EAD1, 0xFE8953],
+            [0xE5F05A, 0xFF6AA7, 0xB693FF, 0x4ACFD8],
+            [0x9CC5FF, 0xFE8953, 0x91F445, 0xF98EC7],
+            [0xFFB16F, 0x49EAD1, 0xE78CFF, 0xC6F35C],
+            [0xE6B0FB, 0x4ACFD8, 0xFFAA33, 0x7AEC7E],
+            [0x7AEFD5, 0xFF67B7, 0xF3CC38, 0x8AB5FF],
+            [0xFFD47C, 0xE78CFF, 0x5DCEFF, 0x91F445]
+        ]
+        return palettes[Int(hash64 % UInt64(palettes.count))].map(Self.popColor)
+    }
+
+    private var placeholderColor: Color { placeholderPalette[0] }
+
+    // 12 composiciones asimétricas: geometría en los bordes, nombre despejado.
+    @ViewBuilder private func popShapes(_ variant: Int, width w: CGFloat,
+                                        height h: CGFloat, colors c: [Color]) -> some View {
+        switch variant {
+        case 0: // dos discos
+            Circle().fill(c[1]).frame(width: 43, height: 43).offset(x: -w * 0.43, y: -h * 0.19)
+            Circle().fill(c[2]).frame(width: 25, height: 25).offset(x: w * 0.43, y: h * 0.22)
+        case 1: // diagonales recortadas
+            Rectangle().fill(c[1]).frame(width: 17, height: 92).rotationEffect(.degrees(-27)).offset(x: -w * 0.41)
+            Rectangle().fill(c[2]).frame(width: 11, height: 92).rotationEffect(.degrees(27)).offset(x: w * 0.43)
+        case 2: // cuadrícula pop
+            ForEach(0..<3, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 2).fill(i == 1 ? c[2] : c[1])
+                    .frame(width: 16, height: 11).offset(x: -w * 0.43, y: CGFloat(i - 1) * 15)
+            }
+            Circle().fill(c[3]).frame(width: 32, height: 32).offset(x: w * 0.46, y: h * 0.20)
+        case 3: // anillos cortados
+            Circle().stroke(c[1], lineWidth: 7).frame(width: 54, height: 54).offset(x: -w * 0.48, y: h * 0.05)
+            Circle().fill(c[2]).frame(width: 21, height: 21).offset(x: w * 0.44, y: -h * 0.19)
+        case 4: // barras verticales y punto
+            RoundedRectangle(cornerRadius: 3).fill(c[1]).frame(width: 9, height: 48).offset(x: -w * 0.48, y: 2)
+            RoundedRectangle(cornerRadius: 3).fill(c[2]).frame(width: 8, height: 38).offset(x: -w * 0.35, y: -7)
+            Circle().fill(c[3]).frame(width: 26, height: 26).offset(x: w * 0.44, y: h * 0.26)
+        case 5: // confeti geométrico
+            Circle().fill(c[1]).frame(width: 17, height: 17).offset(x: -w * 0.42, y: -h * 0.24)
+            Rectangle().fill(c[2]).frame(width: 13, height: 13).rotationEffect(.degrees(28)).offset(x: w * 0.44, y: -h * 0.17)
+            Capsule().fill(c[3]).frame(width: 27, height: 9).rotationEffect(.degrees(-32)).offset(x: -w * 0.40, y: h * 0.30)
+        case 6: // semicircunferencias
+            Circle().fill(c[1]).frame(width: 62, height: 62).offset(x: -w * 0.52, y: 0)
+            Circle().fill(c[2]).frame(width: 43, height: 43).offset(x: -w * 0.61, y: 0)
+            Circle().fill(c[3]).frame(width: 42, height: 42).offset(x: w * 0.52, y: -h * 0.04)
+        case 7: // damero asimétrico
+            ForEach(0..<2, id: \.self) { row in
+                ForEach(0..<2, id: \.self) { col in
+                    Rectangle().fill((row + col) % 2 == 0 ? c[1] : c[2])
+                        .frame(width: 15, height: 14)
+                        .offset(x: -w * 0.44 + CGFloat(col) * 15, y: -h * 0.33 + CGFloat(row) * 14)
+                }
+            }
+            Circle().fill(c[3]).frame(width: 28, height: 28).offset(x: w * 0.45, y: h * 0.22)
+        case 8: // doble chevrón
+            Rectangle().fill(c[1]).frame(width: 13, height: 55).rotationEffect(.degrees(-36)).offset(x: -w * 0.44, y: -h * 0.19)
+            Rectangle().fill(c[2]).frame(width: 13, height: 55).rotationEffect(.degrees(36)).offset(x: -w * 0.44, y: h * 0.20)
+            Capsule().fill(c[3]).frame(width: 10, height: 40).offset(x: w * 0.46, y: 0)
+        case 9: // sol pop recortado
+            Circle().fill(c[1]).frame(width: 43, height: 43).offset(x: w * 0.47, y: -h * 0.18)
+            Circle().stroke(c[2], lineWidth: 4).frame(width: 61, height: 61).offset(x: w * 0.47, y: -h * 0.18)
+            RoundedRectangle(cornerRadius: 4).fill(c[3]).frame(width: 22, height: 28).offset(x: -w * 0.46, y: h * 0.26)
+        case 10: // cápsulas y puntos
+            Capsule().fill(c[1]).frame(width: 42, height: 14).rotationEffect(.degrees(49)).offset(x: -w * 0.47, y: h * 0.04)
+            Circle().fill(c[2]).frame(width: 10, height: 10).offset(x: w * 0.37, y: -h * 0.28)
+            Circle().fill(c[3]).frame(width: 16, height: 16).offset(x: w * 0.48, y: h * 0.21)
+        default: // marcos de color y bloques
+            RoundedRectangle(cornerRadius: 5).stroke(c[1], lineWidth: 7)
+                .frame(width: 39, height: 46).rotationEffect(.degrees(21)).offset(x: -w * 0.47, y: 0)
+            Rectangle().fill(c[2]).frame(width: 24, height: 18).rotationEffect(.degrees(-18)).offset(x: w * 0.47, y: -h * 0.22)
+            Capsule().fill(c[3]).frame(width: 31, height: 7).offset(x: w * 0.42, y: h * 0.34)
+        }
     }
 }
 
@@ -3109,6 +3226,23 @@ private final class SYNChannelImageStore: ObservableObject {
     private var current = ""
     private var task: URLSessionDataTask?
     private static var cache: [String: NSImage] = [:]
+    // Las URL de logos del proveedor se fuerzan a red sin vaciar URLCache global.
+    private static var providerInvalidated96: Set<String> = []
+
+    static func invalidateProviderImages96(_ sources: [String]) -> Int {
+        let urls = Set(sources.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { value in
+            guard let url = URL(string: value), let scheme = url.scheme?.lowercased() else { return false }
+            return scheme == "http" || scheme == "https"
+        })
+        for value in urls {
+            cache.removeValue(forKey: value) // Solo el objeto descargado del proveedor.
+            providerInvalidated96.insert(value)
+            if let url = URL(string: value) {
+                URLCache.shared.removeCachedResponse(for: URLRequest(url: url))
+            }
+        }
+        return urls.count
+    }
 
     private var requestedFallback = ""
 
@@ -3132,7 +3266,11 @@ private final class SYNChannelImageStore: ObservableObject {
         }
         if let cached = Self.cache[clean] { setImage622(cached); return }
         if let url = URL(string: clean), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
-            var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 16)
+            let forceRemote96 = Self.providerInvalidated96.contains(clean)
+            var request = URLRequest(url: url,
+                                     cachePolicy: forceRemote96 ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad,
+                                     timeoutInterval: 16)
+            if forceRemote96 { request.setValue("no-cache", forHTTPHeaderField: "Cache-Control") }
             // Varios proveedores Xtream/CDN rechazan el User-Agent por defecto de URLSession.
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             request.setValue("image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5", forHTTPHeaderField: "Accept")
@@ -3144,6 +3282,7 @@ private final class SYNChannelImageStore: ObservableObject {
                     guard let self, self.current == token else { return }
                     if let decoded {
                         Self.cache[clean] = decoded
+                        Self.providerInvalidated96.remove(clean)
                         self.setImage622(decoded)
                     } else if allowFallback {
                         self.useOriginal(token: token, previous: clean)
