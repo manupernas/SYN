@@ -173,6 +173,7 @@ private struct SYNReconnectVisual112: View {
 // SYN_FULLSCREEN_RETURN_11231: el canvas VLCKit viaja al Space fullscreen.
 // El reproductor embebido NO crea otro vídeo: solo informa y ofrece regresar.
 private struct SYNFullscreenReturn1123: View {
+    let animate: Bool
     let restore: () -> Void
 
     private let sand: [Color] = [
@@ -193,7 +194,7 @@ private struct SYNFullscreenReturn1123: View {
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
             VStack(spacing: 12) {
-                TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+                TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !animate)) { timeline in
                     let t = timeline.date.timeIntervalSinceReferenceDate
                     ZStack {
                         Circle()
@@ -283,6 +284,10 @@ final class SYNVideoHost: NSView {
     private weak var originalWindow: NSWindow?
     // SYN_FULLSCREEN_RETURN_1123: panel interactivo solo en la ventana original.
     private var fullscreenReturn1123: NSHostingView<SYNFullscreenReturn1123>?
+    // SYN_CPU_1126: no actualizar la esfera si el Space de la ventana original no es visible.
+    private var fullscreenReturnSpaceObserver1126: NSObjectProtocol?
+    private var fullscreenReturnOcclusionObserver1126: NSObjectProtocol?
+    private var fullscreenReturnAnimating1126: Bool?
     private var topBar: NSView?
     private var bottomBar: NSView?
     private var localMouseMonitor: Any?
@@ -1273,19 +1278,50 @@ final class SYNVideoHost: NSView {
         return false
     }
 
-    // La vista original muestra una salida util, nunca una segunda instancia de VLC.
+    // SYN_CPU_1126: nunca renderizar 24 FPS en otro Space. La ventana mantiene
+    // su esfera animada al regresar a ella, sin duplicar el reproductor VLC.
+    private func updateFullscreenReturn1126() {
+        guard let panel = fullscreenReturn1123, let original = originalWindow else { return }
+        let shouldAnimate = original.isOnActiveSpace && original.occlusionState.contains(.visible)
+        guard fullscreenReturnAnimating1126 != shouldAnimate else { return }
+        fullscreenReturnAnimating1126 = shouldAnimate
+        panel.rootView = SYNFullscreenReturn1123(animate: shouldAnimate,
+                                                  restore: { [weak self] in self?.exitFullscreen() })
+    }
+
+    // La vista original muestra una salida útil, nunca una segunda instancia de VLC.
     private func showFullscreenReturn1123() {
         guard fullscreenReturn1123 == nil else { return }
         let panel = NSHostingView(rootView: SYNFullscreenReturn1123(
-            restore: { [weak self] in self?.exitFullscreen() }
+            animate: false, restore: { [weak self] in self?.exitFullscreen() }
         ))
         panel.frame = bounds
         panel.autoresizingMask = [.width, .height]
         addSubview(panel, positioned: .above, relativeTo: nil)
         fullscreenReturn1123 = panel
+        fullscreenReturnAnimating1126 = false
+        // activeSpaceDidChangeNotification no requiere sondeo ni temporizador.
+        fullscreenReturnSpaceObserver1126 = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.updateFullscreenReturn1126() }
+        fullscreenReturnOcclusionObserver1126 = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: originalWindow, queue: .main
+        ) { [weak self] _ in self?.updateFullscreenReturn1126() }
+        updateFullscreenReturn1126()
     }
 
     private func removeFullscreenReturn1123() {
+        if let observer = fullscreenReturnSpaceObserver1126 {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            fullscreenReturnSpaceObserver1126 = nil
+        }
+        if let observer = fullscreenReturnOcclusionObserver1126 {
+            NotificationCenter.default.removeObserver(observer)
+            fullscreenReturnOcclusionObserver1126 = nil
+        }
+        fullscreenReturnAnimating1126 = nil
         fullscreenReturn1123?.removeFromSuperview()
         fullscreenReturn1123 = nil
     }
