@@ -73,6 +73,9 @@ private struct SYNDVRNoScroller433<Content: View>: NSViewRepresentable {
         }
         scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
+        // SYN_DVR_HEADER_442: evita conservar un desplazamiento inicial fantasma.
+        // Si la persona ha desplazado la lista, se conserva su posicion.
+        scroll.restoreInitialTop442()
         scroll.refreshThumb433()
     }
 }
@@ -84,6 +87,9 @@ private final class SYNDVRScrollThumb433: NSView {
 private final class SYNDVRPanelScroll433: NSScrollView {
     private let synThumb433 = SYNDVRScrollThumb433(frame:.zero)
     private var hideTask433: DispatchWorkItem?
+    // No confundir cambios de tamano del documento con scroll hecho por el usuario.
+    private var userScrolled442 = false
+    private var restoringTop442 = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -121,6 +127,26 @@ private final class SYNDVRPanelScroll433: NSScrollView {
         refreshThumb433()
     }
     func configureThumb433() { refreshThumb433() }
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.scrollingDeltaY) > 0.1 { userScrolled442 = true }
+        super.scrollWheel(with: event)
+    }
+    func restoreInitialTop442() {
+        guard !userScrolled442, !restoringTop442,
+              let document = documentView, contentView.bounds.height > 1 else { return }
+        // NSHostingView puede utilizar coordenadas invertidas (flipped).
+        // La posicion inicial depende de esa orientacion, no del alto del popup.
+        let docBounds = document.bounds
+        let topY = document.isFlipped
+            ? docBounds.minY
+            : max(docBounds.minY, docBounds.maxY - contentView.bounds.height)
+        if abs(contentView.bounds.minY - topY) > 0.5 {
+            restoringTop442 = true
+            contentView.scroll(to: NSPoint(x: contentView.bounds.minX, y: topY))
+            reflectScrolledClipView(contentView)
+            restoringTop442 = false
+        }
+    }
     func refreshThumb433() {
         let visibleHeight = contentView.bounds.height
         let documentHeight = documentView?.fittingSize.height ?? 0
@@ -138,7 +164,7 @@ private final class SYNDVRPanelScroll433: NSScrollView {
         synThumb433.frame = NSRect(x: bounds.width - 6, y: y, width: 3, height: thumbHeight)
     }
     @objc private func scrollDidMove433(_ notification: Notification) {
-        guard window != nil else { return }
+        guard window != nil, !restoringTop442 else { return }
         refreshThumb433()
         if (documentView?.fittingSize.height ?? 0) <= contentView.bounds.height + 2 { return }
         synThumb433.isHidden = false
@@ -190,7 +216,7 @@ private struct DVRDashboard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
                         Text("SYN DVR").font(.system(size: 19, weight: .bold))
-                        Text("4.4.1 beta").font(.system(size: 11, weight: .medium))
+                        Text("4.4.6 beta").font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     Text(dvr.workerOnline ? (dvr.isRecording ? "Grabando en directo" : "Preparado para grabar") : "Motor desconectado")
@@ -237,6 +263,8 @@ private struct DVRDashboard: View {
                     else { settingsContent }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // El primer titulo nunca debe tocar el borde recortado del NSClipView.
+                .padding(.top, 12)
                 .padding(.trailing, 7)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -571,7 +599,7 @@ private struct SYNRemoteServerSettings40: View {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/SYN DVR Remote")
     }
-    private var program: URL { support.appendingPathComponent("syn_dvr_remote.py") }
+    private var program: URL { SYNBundledRuntime446.remote ?? support.appendingPathComponent("syn_dvr_remote.py") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -673,7 +701,7 @@ private struct SYNRemoteServerSettings40: View {
             alreadyHasPassword=fm.fileExists(atPath:support.appendingPathComponent("auth.json").path)
         }
         if fm.isExecutableFile(atPath:program.path) {
-            information=shell("/usr/bin/python3",[program.path,"info"])
+            information=shell(SYNBundledRuntime446.python?.path ?? "/usr/bin/python3",[program.path,"info"])
         } else { information="Instala primero SYN DVR Remote 4.1." }
         if let data=try? Data(contentsOf:support.appendingPathComponent("server.heartbeat.json")),
            let json=try? JSONSerialization.jsonObject(with:data) as? [String:Any],
@@ -724,7 +752,7 @@ private struct SYNRemoteServerSettings40: View {
                                   "authRequired":passwordEnabled]
         password=""
         DispatchQueue.global(qos:.userInitiated).async {
-            let p=Process();p.executableURL=URL(fileURLWithPath:"/usr/bin/python3")
+            let p=Process();p.executableURL=URL(fileURLWithPath:SYNBundledRuntime446.python?.path ?? "/usr/bin/python3")
             p.arguments=[program.path,"configure-stdin"]
             let pipe=Pipe();let result=Pipe()
             p.standardInput=pipe;p.standardOutput=result;p.standardError=result
@@ -761,9 +789,9 @@ private final class SYNStandaloneController42: ObservableObject {
 
     private var support: URL { fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/SYN DVR Remote") }
     private var marker: URL { support.appendingPathComponent("standalone.enabled") }
-    private var script: URL { support.appendingPathComponent("standalone_supervisor.py") }
+    private var script: URL { SYNBundledRuntime446.supervisor ?? support.appendingPathComponent("standalone_supervisor.py") }
     private var status: URL { support.appendingPathComponent("standalone.status.json") }
-    var enabled: Bool { fm.fileExists(atPath:marker.path) }
+    var enabled: Bool { SYNBundledRuntime446.available || fm.fileExists(atPath:marker.path) }
 
     private init() {
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -775,11 +803,18 @@ private final class SYNStandaloneController42: ObservableObject {
     func start() {
         guard enabled else { detail = "Activa primero el modo autónomo"; return }
         if process?.isRunning == true { refresh(); return }
+        // SYN_DVR_PLUG_PLAY_446: first-run preparation is automatic.
+        // No external Python, Homebrew, installer or user terminal is needed.
+        if SYNBundledRuntime446.available {
+            do { try SYNBundledRuntime446.prepare() }
+            catch { detail = "Runtime autónomo incompleto: \(error.localizedDescription)"; return }
+        }
         guard fm.fileExists(atPath:script.path) else { detail = "Falta el supervisor autónomo"; return }
         let child = Process()
         let pipe = Pipe()
-        child.executableURL = URL(fileURLWithPath:"/usr/bin/python3")
+        child.executableURL = SYNBundledRuntime446.python ?? URL(fileURLWithPath:"/usr/bin/python3")
         child.arguments = [script.path, "run"]
+        if SYNBundledRuntime446.available { child.environment = SYNBundledRuntime446.environment() }
         child.standardInput = pipe
         child.standardOutput = FileHandle.nullDevice
         child.standardError = FileHandle.nullDevice
