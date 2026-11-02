@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import CryptoKit
+import Security
 
 struct ContentView: View {
     // SYN_M3U_XMLTV_79: perfiles M3U independientes de Xtream.
@@ -41,9 +43,19 @@ struct ContentView: View {
     @State private var synNotice71 = ""
     @State private var synIssuesSeen71 = Set<String>()
     @State private var synWasRecording71 = false
+    // SYN_EPG_MARGINS_90: per-program prompt, scheduling uses the existing unified DVR queue.
+    @State private var synEPGPending90: SYNEPGMarginRequest90?
     @State private var synDVR54Message = ""
     @State private var synDVR54Jobs: [(id: String, title: String, start: Date, end: Date, state: String)] = []
     @StateObject private var synDVR53 = SYNDVRRecorder53()
+    // SYN_RECORDING_IN_WINDOW_94
+    @ObservedObject private var synRecording94 = SYNRecordingWindow93.shared
+    // SYN_DVR_UI_98: borrar solo mediante Papelera y ocultar tareas archivadas sin vídeo.
+    @State private var synDVRDeleteCandidate98: URL? = nil
+    @State private var synDVRDeleteConfirmation98 = false
+    @State private var synDVRHiddenJobs98: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "syn.native.dvr.hiddenJobs98") ?? [])
+    // SYN_RECORDING_PANEL_95: ventana normal con sidebar; fullscreen sin sidebar.
+    @State private var synRecordingFullscreen95 = false
     @AppStorage("syn.native.dvrFolderPath.v1") private var synDVRFolderPath75 = ""
     @State private var synDVR55Day = Date()
     @State private var synDVR55StartHour = 19
@@ -92,6 +104,9 @@ struct ContentView: View {
     @State private var synGuideFocusRevision: Int = 0 // SYN_FIX41_CENTER
     // SYN_GTK_PILLS_42: personalización por perfil + ID, conservada en el Mac.
     @State private var synLogoOverrides: [String: String] = UserDefaults.standard.dictionary(forKey: "syn.native.logoOverrides") as? [String: String] ?? [:]
+    // SYN_PROVIDER_LOGO_REFRESH_96: interfaz y caché específica.
+    @State private var synLogoReloadRevision96 = 0
+    @State private var synLogoRefreshMessage96 = "Descarga de nuevo los logos originales; conserva los personalizados, perfiles y favoritos."
     @State private var synLogoEditingKey = ""
     @State private var synLogoDraft = ""
     @State private var synLogoURLVisible = false
@@ -220,13 +235,15 @@ struct ContentView: View {
             // y restaba espacio al reproductor. REC permanece visible en la sidebar.
             // SYN_SIDEBAR_781 — columna con tamaño fijo; nunca ocupa media ventana.
             HStack(spacing: 0) {
-                if !synSidebarCollapsed781 {
+                if !synSidebarCollapsed781 && !(synRecording94.file != nil && synRecordingFullscreen95) {
                     sidebar
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                         .frame(width: 244)
                         .frame(maxHeight: .infinity)
                     Divider()
                 }
                 VStack(spacing: 0) {
+                    if !(synRecording94.file != nil && synRecordingFullscreen95) {
                     HStack(spacing: 10) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.22)) {
@@ -252,10 +269,13 @@ struct ContentView: View {
                     .frame(height: state.section == .tv || state.section == .favorites ? 24 : 38)
                     .padding(.horizontal, 10)
                     Divider().opacity(0.24)
+                    }
                     HStack(spacing: 0) {
-                    if state.section != .dvr && state.section != .movies && state.section != .series && state.section != .epg {
+                    if synRecording94.file == nil && state.section != .dvr && state.section != .movies && state.section != .series && state.section != .epg {
                         if let playlist = synM3UProfile79 {
                             SYNM3UChannelList79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79)
+                                // AsyncImage M3U vuelve a consultar sus URLs conocidas.
+                                .id(synLogoReloadRevision96)
                                 .frame(width: 290)
                         } else {
                             channelColumn.frame(width: 290)
@@ -265,19 +285,50 @@ struct ContentView: View {
                     // La vista VLC sigue montada; al abrir Guía no se destruye el player.
                     ZStack {
                         detailColumn
-                            .opacity(state.section == .epg ? 0 : 1)
-                            .allowsHitTesting(state.section != .epg)
-                        if state.section == .epg {
+                            // Mantener VLC del directo montado y conectado, pero no interactivo.
+                            .opacity(state.section == .epg || synRecording94.file != nil ? 0 : 1)
+                            .allowsHitTesting(state.section != .epg && synRecording94.file == nil)
+                        if state.section == .epg && synRecording94.file == nil {
                             if let playlist = synM3UProfile79 {
-                                SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79)
+                                SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79,
+                                    onScheduleEPG90: synAskM3UEPG90)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                             } else {
                                 synFullGuide73.frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
                         }
+                        // SYN_RECORDING_PANEL_95: el reproductor queda a la derecha
+                        // de la sidebar, sin lista de canales ni EPG.
+                        if synRecording94.file != nil {
+                            synRecordingPanel95
+                                .zIndex(10)
+                        }
                     }
                     .frame(minWidth: 480, minHeight: 480)
                     }
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .synRecordingPlayback94Changed)) { event in
+            if event.userInfo?["active"] as? Bool == true {
+                state.section = .dvr
+                synSidebarCollapsed781 = false
+                synRecordingFullscreen95 = NSApp.mainWindow?.styleMask.contains(.fullScreen) ?? false
+            }
+        }
+        // SYN_RECORDING_ZOOM_99: esperar al final de la animación nativa.
+        // No desmontar el vídeo ni reconfigurar el contenido durante el cambio de Space.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { event in
+            if synRecording94.file != nil, event.object is NSWindow {
+                withAnimation(.easeInOut(duration: 0.36)) {
+                    synRecordingFullscreen95 = true
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { event in
+            if event.object is NSWindow {
+                withAnimation(.easeInOut(duration: 0.36)) {
+                    synRecordingFullscreen95 = false
                 }
             }
         }
@@ -312,6 +363,16 @@ struct ContentView: View {
             Button("Cancelar", role: .cancel) { }
         } message: {
             Text("URL HTTPS o HTTP de una imagen. Se guarda solo para este canal y perfil.")
+        }
+        .sheet(item: $synEPGPending90) { request in
+            SYNEPGMarginChooser90(title: request.title, epgStart: request.start, epgEnd: request.end) { start, end in
+                try SYNBackgroundDVR54.add(url: request.url, channel: request.channel,
+                    title: request.title, start: start, end: end, epg: true, eventDate: request.start)
+                synDVR54Jobs = SYNBackgroundDVR54.list()
+                synDVR54Message = "Grabación programada: " + request.title
+            } onClose: {
+                synEPGPending90 = nil
+            }
         }
         .sheet(isPresented: $synSettingsVisible58) {
             synSettingsSheet58
@@ -366,6 +427,11 @@ struct ContentView: View {
     @State private var synSettingsTab58 = 0
     @AppStorage("syn.native.vlc.networkCaching799") private var synVLCNetworkCache799 = 1000
     @AppStorage("syn.native.vlc.hardware799") private var synVLCHardware799 = "auto"
+    // SYN_CURSOR_OPTION_11241: persistente, activado por defecto.
+    @AppStorage("syn.native.fullscreenHideCursor11241") private var synFullscreenHideCursor11241 = true
+    // SYN_PLAYBACK_USER_AGENT_911: guarda la elección sin tocar perfiles ni favoritos.
+    @AppStorage("syn.native.vlc.userAgentPreset911") private var synUserAgentPreset911 = "vlc"
+    @AppStorage("syn.native.vlc.userAgentCustom911") private var synUserAgentCustom911 = ""
     @State private var synProfileToDelete581: XtreamProfile? = nil
     @State private var synRenameProfile799: XtreamProfile? = nil
     @State private var synRenameText799 = ""
@@ -751,6 +817,9 @@ struct ContentView: View {
                     }
                 }
             }
+            synSettingsBlock78("SYN DVR · Servidor") {
+                SYNRemotePairing40()
+            }
             synSettingsBlock78("Biblioteca local") {
                 synSettingsAction7102("Carpeta de grabaciones", subtitle: synDVR53.folder.lastPathComponent, icon: "record.circle", tint: .red) {
                     synChooseDVRFolder75()
@@ -803,6 +872,34 @@ struct ContentView: View {
                 }
                 .font(.system(size: 10)).foregroundStyle(.secondary)
             }
+            // SYN_PLAYBACK_USER_AGENT_911 — cabeceras de las fuentes abiertas por SYN.
+            synSettingsBlock78("User-Agent", caption: "Identificación HTTP de la reproducción. No cambia tu perfil ni las credenciales.") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Identificarse como", selection: $synUserAgentPreset911) {
+                        Text("VLC (actual · predeterminado)").tag("vlc")
+                        Text("Safari · macOS").tag("safari")
+                        Text("Chrome · macOS").tag("chrome")
+                        Text("Firefox · macOS").tag("firefox")
+                        Text("Kodi").tag("kodi")
+                        Text("Personalizado…").tag("custom")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if synUserAgentPreset911 == "custom" {
+                        TextField("Introduce tu User-Agent HTTP", text: $synUserAgentCustom911)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                        Text(synUserAgentCustom911.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                             ? "Sin valor personalizado se utilizará el User-Agent de VLC."
+                             : "Se enviará el texto indicado al abrir una nueva reproducción.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Text("Se aplica a VLC al abrir una nueva fuente. En TV, el proveedor ve el User-Agent del motor SYN DVR, que se configura por separado.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
             synSettingsBlock78("Decodificación de vídeo", caption: "Automática aprovecha la aceleración del equipo cuando está disponible.") {
                 HStack(spacing: 10) {
                     synSettingsChoice7102("Automática", subtitle: "Recomendada", icon: "cpu", selected: synVLCHardware799 == "auto", tint: .teal) {
@@ -813,6 +910,18 @@ struct ContentView: View {
                     }
                 }
             }
+            synSettingsBlock78("Pantalla completa") {
+                Toggle(isOn: $synFullscreenHideCursor11241) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Ocultar cursor en pantalla completa")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Se oculta tras 15 segundos sin actividad; vuelve al mover el ratón.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
             HStack {
                 Label("VLC se ajusta al abrir el siguiente vídeo.", systemImage: "info.circle")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -820,6 +929,9 @@ struct ContentView: View {
                 Button("Restablecer") {
                     synVLCNetworkCache799 = 1000
                     synVLCHardware799 = "auto"
+                    synFullscreenHideCursor11241 = true
+                    synUserAgentPreset911 = "vlc"
+                    synUserAgentCustom911 = ""
                 }
                 .buttonStyle(.bordered)
             }
@@ -900,9 +1012,18 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.plain)
             }
-            synSettingsAction7102("Personalizar logos", subtitle: "Haz clic derecho sobre un canal para cambiar su imagen", icon: "photo.on.rectangle.angled", tint: .teal) {
-                synSettingsVisible58 = false
-                state.section = .tv
+            synSettingsBlock78("Logos de canales") {
+                VStack(spacing: 10) {
+                    synSettingsAction7102("Recargar logos del proveedor",
+                        subtitle: synLogoRefreshMessage96,
+                        icon: "arrow.clockwise.circle.fill", tint: .teal) {
+                        synReloadProviderLogos96()
+                    }
+                    synSettingsAction7102("Personalizar logos", subtitle: "Haz clic derecho sobre un canal para cambiar su imagen", icon: "photo.on.rectangle.angled", tint: .teal) {
+                        synSettingsVisible58 = false
+                        state.section = .tv
+                    }
+                }
             }
         }
     }
@@ -1245,6 +1366,8 @@ struct ContentView: View {
         let chosen = custom.isEmpty ? original : custom
         return SYNChannelArtworkPill(name: ch.name, source: chosen,
                                      fallbackSource: custom.isEmpty ? "" : original)
+            // Recrea solo la vista del logo al pedir recarga, no el canal ni sus datos.
+            .id(synLogoReloadRevision96)
             .frame(width: 106, height: 43)
             .help("\(ch.name) · Clic derecho para cambiar logo")
     }
@@ -1261,6 +1384,21 @@ struct ContentView: View {
         Button("Restaurar logo Xtream", systemImage: "arrow.uturn.backward") {
             synLogoOverrides.removeValue(forKey: synLogoKey(ch))
             synPersistLogos()
+        }
+    }
+
+    // SYN_PROVIDER_LOGO_REFRESH_96: no se llama a la carga del perfil ni al DVR.
+    private func synReloadProviderLogos96() {
+        // Solo las URLs originales publicadas por las fuentes; nunca el override
+        // del usuario ni el contenido de SYNNative/ChannelLogos.
+        let xtreamOriginals = (state.channels + synCatalog74).compactMap { $0.streamIcon }
+        let m3uOriginals = synM3UStore79.channels.compactMap { $0.logo }
+        let count = SYNChannelImageStore.invalidateProviderImages96(xtreamOriginals + m3uOriginals)
+        if count > 0 {
+            synLogoReloadRevision96 &+= 1
+            synLogoRefreshMessage96 = "Solicitada la recarga de \(count) logos. Se descargarán al mostrar los canales; tus personalizaciones siguen intactas."
+        } else {
+            synLogoRefreshMessage96 = "No hay URLs de logos cargadas. Abre TV y vuelve a intentarlo. No se ha modificado ningún dato."
         }
     }
 
@@ -1548,20 +1686,18 @@ struct ContentView: View {
             .modifier(SYNEPGGradient7104(tint: synGuideColor(index), enabled: synEPGGlass78))
             .modifier(SYNEPGInfoCard(item: item, start: synEPGDate(item.start, timestamp: item.startTimestamp), end: synEPGDate(item.end, timestamp: item.stopTimestamp)))
             .contextMenu {
-                Button("Programar grabación de este programa") {
+                Button("Programar grabación…") {
                     guard let begin = synEPGDate(item.start, timestamp: item.startTimestamp),
-                        let finish = synEPGDate(item.end, timestamp: item.stopTimestamp),
-                        finish > Date(), let client = state.client else {
+                          let finish = synEPGDate(item.end, timestamp: item.stopTimestamp),
+                          finish > Date(), finish > begin, let client = state.client else {
                         synDVR54Message = "Este programa no tiene un horario válido de inicio y fin."
                         return
                     }
                     do {
                         let link = try client.liveURL(channel)
-                        try SYNBackgroundDVR54.add(url: link, channel: channel.name,
-                            title: item.titleText, start: max(Date(), begin), end: finish)
-                        synDVR54Message = "Grabación programada: \(item.titleText)"
-                        synDVR54Jobs = SYNBackgroundDVR54.list()
-                    } catch { synDVR54Message = "No se pudo programar: \(error.localizedDescription)" }
+                        synEPGPending90 = SYNEPGMarginRequest90(url: link, channel: channel.name,
+                            title: item.titleText, start: begin, end: finish)
+                    } catch { synDVR54Message = "No se pudo preparar la grabación: \(error.localizedDescription)" }
                 }
             }
             // SYN_EPG_OFFSET_RESTORE_772: situar la pastilla en su hora real.
@@ -1823,10 +1959,22 @@ struct ContentView: View {
         // IDs válidos de TODOS los canales Xtream; EPG se consulta al aparecer cada fila.
         // No lanzamos miles de peticiones a la vez.
         synAvailableChannels74.map { channel in
-            SYNGuideChannel70(id: channel.id, name: synCleanChannelName(channel.name),
+            let original = (channel.streamIcon ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let custom = (synLogoOverrides[synLogoKey(channel)] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return SYNGuideChannel70(id: channel.id, name: synCleanChannelName(channel.name),
                 now: "", next: "", isFavorite: state.isFavorite(channel),
-                category: state.categories.first(where: { $0.id == channel.categoryID?.value })?.categoryName ?? "Sin categoría")
+                category: state.categories.first(where: { $0.id == channel.categoryID?.value })?.categoryName ?? "Sin categoría",
+                logo: custom.isEmpty ? original : custom,
+                fallbackLogo: custom.isEmpty ? "" : original)
         }
+    }
+
+    private func synAskM3UEPG90(_ channel: SYNM3UChannel79, _ program: SYNM3UProgramme79) {
+        guard program.end > Date(), program.end > program.start else {
+            synDVR54Message = "Este programa no tiene un horario válido para programar."; return
+        }
+        synEPGPending90 = SYNEPGMarginRequest90(url: channel.stream, channel: channel.name,
+            title: program.title, start: program.start, end: program.end)
     }
 
     // SYN_GUIDE_DVR_73: una ÚNICA pantalla de guía, accesible por barra lateral y fullscreen.
@@ -1907,6 +2055,73 @@ struct ContentView: View {
         .task { if synCatalog74.isEmpty { await synLoadCatalog74() } }
     }
 
+    // SYN_RECORDING_PANEL_95: misma interfaz principal de SYN.
+    // En tamaño normal hay marco 16:9 y controles de archivo; en fullscreen,
+    // solo vídeo y controles de reproducción (nunca canales ni EPG).
+    private var synRecordingPanel95: some View {
+        VStack(spacing: 0) {
+            if !synRecordingFullscreen95 {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Grabación · SYN DVR")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(synRecording94.file?.deletingPathExtension().lastPathComponent ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Button(action: synCloseRecording95) {
+                        Label("Volver a DVR", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            if let video = synRecording94.file {
+                GeometryReader { bounds in
+                    SYNRecordingPlayback93(file: video, fullscreen: synRecordingFullscreen95)
+                        .id(video.path)
+                        // Mini 16:9 con marco; fullscreen ocupa toda el área.
+                        // La misma instancia VLC conserva la posición al cambiar de modo.
+                        .frame(width: bounds.size.width,
+                               height: synRecordingFullscreen95
+                                   ? bounds.size.height
+                                   : min(bounds.size.height, bounds.size.width * 9.0 / 16.0))
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: synRecordingFullscreen95 ? 0 : 15,
+                                                    style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: synRecordingFullscreen95 ? 0 : 15,
+                                             style: .continuous)
+                                .stroke(Color.primary.opacity(synRecordingFullscreen95 ? 0 : 0.20), lineWidth: 1)
+                                .allowsHitTesting(false)
+                        }
+                }
+                .padding(.horizontal, synRecordingFullscreen95 ? 0 : 12)
+            }
+            if !synRecordingFullscreen95 { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // SYN_RECORDING_ZOOM_99: frame/padding/radio de esquina animados juntos.
+        // Zoom suave pero sin escalar la superficie VLCKit por separado.
+        .animation(.easeInOut(duration: 0.36), value: synRecordingFullscreen95)
+        .background(synRecordingFullscreen95 ? Color.black : colors.background)
+    }
+
+    private func synCloseRecording95() {
+        if synRecordingFullscreen95 {
+            SYNRecordingWindow93.shared.toggleFullscreen()
+        }
+        synRecording94.close()
+        state.section = .dvr
+        synDVR53.refresh()
+    }
+
     private var detailColumn: some View {
         GeometryReader { synAvailableArea7106 in
         let synIsTVGuide7106 = state.section == .tv || state.section == .favorites
@@ -1926,7 +2141,8 @@ struct ContentView: View {
                     nowProgram70: synM3UProfile79 == nil ? synSchedule70(for: state.channels.first(where: { $0.name == state.playingTitle })).0 : synM3UNowNext79.0,
                     nextProgram70: synM3UProfile79 == nil ? synSchedule70(for: state.channels.first(where: { $0.name == state.playingTitle })).1 : synM3UNowNext79.1,
                     guideChannels70: synM3UProfile79 == nil ? synFullscreenGuide70 : synM3UStore79.channels.map { ch in
-                        SYNGuideChannel70(id: ch.id, name: ch.name, now: "", next: "", isFavorite: false, category: ch.group)
+                        SYNGuideChannel70(id: ch.id, name: ch.name, now: "", next: "", isFavorite: false,
+                            category: ch.group, logo: ch.logo ?? "")
                     },
                     tune70: { id in
                         if synM3UProfile79 != nil {
@@ -1961,6 +2177,29 @@ struct ContentView: View {
                                   let to = synEPGDate(item.end, timestamp: item.stopTimestamp), to > from else { return nil }
                             return SYNGuideProgramme74(title: item.titleText, start: from, end: to)
                         }
+                    }, scheduleGuide70: { channelID, title, start, end in
+                        let source: URL
+                        let channelName: String
+                        if synM3UProfile79 != nil {
+                            guard let channel = synM3UStore79.channels.first(where: { $0.id == channelID }) else {
+                                throw NSError(domain: "SYN EPG", code: 90,
+                                    userInfo: [NSLocalizedDescriptionKey:"No se encuentra el canal M3U."])
+                            }
+                            source = channel.stream
+                            channelName = channel.name
+                        } else {
+                            guard let channel = synAvailableChannels74.first(where: { $0.id == channelID }),
+                                  let client = state.client else {
+                                throw NSError(domain: "SYN EPG", code: 90,
+                                    userInfo: [NSLocalizedDescriptionKey:"No se encuentra el canal Xtream."])
+                            }
+                            source = try client.liveURL(channel)
+                            channelName = channel.name
+                        }
+                        try SYNBackgroundDVR54.add(url: source, channel: channelName, title: title,
+                            start: start, end: end, epg: true)
+                        synDVR54Jobs = SYNBackgroundDVR54.list()
+                        synDVR54Message = "Grabación programada: " + title
                     }) // SYN_ALPHA27_APPLETV
                 if (synM3UProfile79 == nil ? state.playingURL : synM3UPlaying79?.stream) == nil {
                     VStack(spacing: 10) {
@@ -2003,7 +2242,7 @@ struct ContentView: View {
              } else if state.section == .tv || state.section == .favorites {
                 if let playlist = synM3UProfile79 {
                     SYNM3UGuide79(store: synM3UStore79, profile: playlist, onTune: synM3UTune79,
-                                  compactRows7106: synSplit7106.rows)
+                                  compactRows7106: synSplit7106.rows, onScheduleEPG90: synAskM3UEPG90)
                         .frame(height: synSplit7106.guideHeight, alignment: .top)
                 } else {
                 synMultiGuide
@@ -2381,26 +2620,51 @@ struct ContentView: View {
                     }
                     ScrollView {
                         LazyVStack(spacing: 1) {
+                            // SYN_DVR_UI_98: una sola fila por tarea y vídeo finalizado.
                             ForEach(synDVR54Jobs.indices, id: \.self) { index in
                                 let job = synDVR54Jobs[index]
-                                HStack(spacing: 8) {
-                                    Circle().fill(job.state == "recording" ? Color.red : Color.secondary)
-                                        .frame(width: 7, height: 7)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(job.title).font(.system(size: 15, weight: .semibold)).lineLimit(2)
-                                        Text("\(job.start.formatted(date: .abbreviated, time: .shortened)) – \(job.end.formatted(date: .omitted, time: .shortened)) · \(job.state)")
-                                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                                if !synDVRHiddenJobs98.contains(job.id) {
+                                    let recorded = synDVRFileForJob98(job.id)
+                                    HStack(spacing: 8) {
+                                        Circle().fill(job.state == "recording" ? Color.red : Color.secondary)
+                                            .frame(width: 7, height: 7)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(job.title).font(.system(size: 15, weight: .semibold)).lineLimit(2)
+                                            Text("\(job.start.formatted(date: .abbreviated, time: .shortened)) – \(job.end.formatted(date: .omitted, time: .shortened)) · \(job.state)")
+                                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        if let recorded, synDVRIsFinished98(job.state) {
+                                            Button("Ver en SYN") { SYNRecordingWindow93.shared.open(recorded) }
+                                                .font(.caption)
+                                            Button { NSWorkspace.shared.activateFileViewerSelecting([recorded]) } label: {
+                                                Image(systemName: "folder")
+                                            }.help("Mostrar en Finder")
+                                            Button(role: .destructive) {
+                                                synDVRDeleteCandidate98 = recorded
+                                                synDVRDeleteConfirmation98 = true
+                                            } label: {
+                                                Image(systemName: "trash")
+                                            }.help("Mover grabación a la Papelera")
+                                        } else if synDVRIsFinished98(job.state) {
+                                            Button("Quitar de la lista") { synDVRHideJob98(job.id) }
+                                                .font(.caption)
+                                        } else {
+                                            Button("Cancelar") {
+                                                SYNBackgroundDVR54.cancel(job.id)
+                                                synDVR54Jobs = SYNBackgroundDVR54.list()
+                                            }.font(.system(size: 12))
+                                        }
                                     }
-                                    Spacer()
-                                    synDVRJobAction802(job)
-                                        .font(.system(size: 12))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 13)
+                                    .frame(maxWidth: .infinity, minHeight: 63, alignment: .leading)
+                                    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 13)
-                                .frame(maxWidth: .infinity, minHeight: 63, alignment: .leading)
-                                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
                             }
-                            ForEach(synDVR53.files, id: \.path) { file in
+                            ForEach(synDVR53.files.filter { file in
+                                !synDVRHasJobForFile98(file)
+                            }, id: \.path) { file in
                                 HStack(spacing: 10) {
                                     Image(systemName: "film").foregroundStyle(.secondary)
                                     VStack(alignment: .leading, spacing: 4) {
@@ -2409,10 +2673,18 @@ struct ContentView: View {
                                         Text("Grabación guardada").font(.system(size: 12)).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Button("Reproducir") { NSWorkspace.shared.open(file) }.font(.caption)
+                                    Button("Ver en SYN") { SYNRecordingWindow93.shared.open(file) }.font(.caption)
                                     Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: {
                                         Image(systemName: "folder")
                                     }.help("Mostrar en Finder")
+                                    if ["mkv", "mp4", "mov"].contains(file.pathExtension.lowercased()) {
+                                        Button(role: .destructive) {
+                                            synDVRDeleteCandidate98 = file
+                                            synDVRDeleteConfirmation98 = true
+                                        } label: {
+                                            Image(systemName: "trash")
+                                        }.help("Mover grabación a la Papelera")
+                                    }
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 13)
@@ -2435,10 +2707,98 @@ struct ContentView: View {
             .padding(.top, 10)
         }
         .padding(18)
+        .confirmationDialog("¿Mover la grabación a la Papelera?", isPresented: $synDVRDeleteConfirmation98) {
+            Button("Mover a la Papelera", role: .destructive) { synDVRMoveToTrash98() }
+            Button("Cancelar", role: .cancel) { synDVRDeleteCandidate98 = nil }
+        } message: {
+            Text("La grabación se puede recuperar desde la Papelera. No se modificará ninguna grabación en curso.")
+        }
         .onAppear {
             synDVR53.refresh()
             synDVR54Jobs = SYNBackgroundDVR54.list()
             if synDVR55ChannelID.isEmpty { synDVR55ChannelID = state.channels.first?.id ?? "" }
+        }
+    }
+
+    // SYN_DVR_UI_98: correlación estricta por UUID, NO por título (puede repetirse).
+    private func synDVRFileForJob98(_ id: String) -> URL? {
+        guard UUID(uuidString: id) != nil else { return nil }
+        let suffix = "_" + String(id.prefix(8))
+        return synDVR53.files.first { file in
+            file.deletingLastPathComponent().lastPathComponent == "SYN-DVR2_" + id ||
+            file.deletingPathExtension().lastPathComponent.hasSuffix(suffix)
+        }
+    }
+
+    private func synDVRIsFinished98(_ state: String) -> Bool {
+        ["finished", "completed", "cancelled", "failed", "partial", "expired"].contains(state.lowercased())
+    }
+
+    private func synDVRHasJobForFile98(_ file: URL) -> Bool {
+        synDVR54Jobs.contains { job in
+            synDVRFileForJob98(job.id)?.standardizedFileURL == file.standardizedFileURL &&
+            !synDVRHiddenJobs98.contains(job.id)
+        }
+    }
+
+    private func synDVRHideJob98(_ id: String) {
+        guard UUID(uuidString: id) != nil,
+              let job = synDVR54Jobs.first(where: { $0.id == id }),
+              synDVRIsFinished98(job.state) else { return }
+        synDVRHiddenJobs98.insert(id)
+        UserDefaults.standard.set(Array(synDVRHiddenJobs98).sorted(), forKey: "syn.native.dvr.hiddenJobs98")
+    }
+
+    private func synDVRMoveToTrash98() {
+        guard let file = synDVRDeleteCandidate98 else { return }
+        synDVRDeleteCandidate98 = nil
+        let selected = file.standardizedFileURL
+        // No borrar un archivo que la captura esté escribiendo ni un temporal TS.
+        guard ["mkv", "mp4", "mov"].contains(selected.pathExtension.lowercased()),
+              synDVR53.files.contains(where: { $0.standardizedFileURL == selected }) else {
+            synDVR54Message = "Solo se pueden enviar a la Papelera vídeos finalizados de la biblioteca."
+            return
+        }
+        if let job = synDVR54Jobs.first(where: { synDVRFileForJob98($0.id)?.standardizedFileURL == selected }),
+           !synDVRIsFinished98(job.state) {
+            synDVR54Message = "La grabación sigue activa y no puede eliminarse."
+            return
+        }
+        // El motor mantiene estados reales en otra carpeta distinta de la UI.
+        // Si es un MKV de SYN-DVR2, exigir estado final antes de tocarlo.
+        let parent = selected.deletingLastPathComponent().lastPathComponent
+        if parent.hasPrefix("SYN-DVR2_") {
+            let id = String(parent.dropFirst("SYN-DVR2_".count))
+            guard UUID(uuidString: id) != nil else {
+                synDVR54Message = "Identificador de grabación desconocido; no se elimina."
+                return
+            }
+            let statusURL = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/jobs")
+                .appendingPathComponent(id + ".status.json")
+            guard let raw = try? Data(contentsOf: statusURL),
+                  let status = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+                  let state = status["state"] as? String,
+                  synDVRIsFinished98(state) else {
+                synDVR54Message = "El motor no confirma que la grabación haya terminado; no se elimina."
+                return
+            }
+        }
+        if synDVR53.isRecording, synDVR53.destination?.standardizedFileURL == selected {
+            synDVR54Message = "La grabación continúa activa; no se elimina."
+            return
+        }
+        do {
+            try FileManager.default.trashItem(at: selected, resultingItemURL: nil)
+            if let job = synDVR54Jobs.first(where: { synDVRFileForJob98($0.id)?.standardizedFileURL == selected }) {
+                synDVRHideJob98(job.id)
+            }
+            if synRecording94.file?.standardizedFileURL == selected { synCloseRecording95() }
+            synDVR53.refresh()
+            synDVR54Jobs = SYNBackgroundDVR54.list()
+            synDVR54Message = "Grabación movida a la Papelera."
+        } catch {
+            synDVR54Message = "No se pudo mover la grabación a la Papelera: " + error.localizedDescription
         }
     }
 
@@ -2534,7 +2894,7 @@ struct ContentView: View {
                                 Image(systemName: "film").foregroundStyle(.secondary)
                                 Text(file.deletingPathExtension().lastPathComponent).lineLimit(1)
                                 Spacer()
-                                Button("Abrir") { NSWorkspace.shared.open(file) }
+                                Button("Ver en SYN") { SYNRecordingWindow93.shared.open(file) }
                                 Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: {
                                     Image(systemName: "folder")
                                 }.help("Mostrar en Finder")
@@ -2856,7 +3216,8 @@ private struct SYNEPGPopoverContent797: View {
 
 
 // SYN_CHANNEL_ART_43 — pastilla con paleta real o lettering vectorial
-private struct SYNChannelArtworkPill: View {
+// SYN_PLACEHOLDER_FLAT_POP_972: solo cuando no existe logo del canal.
+struct SYNChannelArtworkPill: View {
     let name: String
     let source: String
     var fallbackSource: String = ""
@@ -2866,58 +3227,45 @@ private struct SYNChannelArtworkPill: View {
         ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(imageStore.image.map(SYNChannelImageStore.pillColor) ?? placeholderColor)
+
             if let img = imageStore.image {
+                // Los logos reales (incluidos los personalizados) se muestran como antes.
                 if imageStore.hasOwnBackground {
-                    // SYN_622_OWN_BG_FULLBLEED — conserva los píxeles reales del fondo.
-                    // Crop center/foreground to fill the 106x43 capsule. No invented color.
                     Image(nsImage: imageStore.ownBackgroundCrop ?? img)
                         .resizable()
                         .interpolation(.high)
                         .scaledToFill()
-                        // Logo sólido del proveedor: elevar sombras y perfilar texto
-                        // sin desdibujar el emblema ni sustituir colores de marca.
                         .contrast(1.12)
                         .brightness(0.085)
                         .frame(width: 106, height: 43)
                         .clipped()
                 } else {
-                    // Transparent / floating logos keep the contrast logic + padding.
-                    Image(nsImage: img).resizable().scaledToFit()
-                        .padding(.horizontal, 7).padding(.vertical, 4)
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
                 }
             } else {
-                // SYN_ALPHA47_EDITORIAL: ilustración geométrica editorial sin logo.
                 GeometryReader { geo in
                     ZStack {
+                        // Flat: solo rellenos planos, sin blanco, sin sombras y sin degradados.
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(LinearGradient(colors: [placeholderColor.opacity(0.80), placeholderColor],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Circle().fill(.white.opacity(0.09))
-                            .frame(width: 66, height: 66)
-                            .offset(x: geo.size.width * 0.37, y: -17)
-                        Circle().stroke(.white.opacity(0.42), lineWidth: 1.2)
-                            .frame(width: 49, height: 49)
-                            .offset(x: geo.size.width * 0.37, y: -17)
-                        Rectangle().fill(.white.opacity(0.17))
-                            .frame(width: 9, height: 130)
-                            .rotationEffect(.degrees(35))
-                            .offset(x: -geo.size.width * 0.36)
-                        RoundedRectangle(cornerRadius: 1).fill(.white.opacity(0.72))
-                            .frame(width: 23, height: 2)
-                            .offset(x: -geo.size.width * 0.33, y: -14)
-                        VStack(spacing: 1) {
-                            Text(cleanName)
-                                .font(.system(size: cleanName.count > 13 ? 9 : 12,
-                                              weight: .heavy, design: .serif))
-                                .tracking(cleanName.count > 13 ? -0.3 : 0.5)
-                                .foregroundStyle(.white)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.65)
-                                .multilineTextAlignment(.center)
-                            Rectangle().fill(.white.opacity(0.7))
-                                .frame(width: 24, height: 1)
-                        }
-                        .padding(.horizontal, 7)
+                            .fill(placeholderPalette[0])
+
+                        popShapes(popVariant, width: geo.size.width,
+                                  height: geo.size.height, colors: placeholderPalette)
+
+                        Text(cleanName)
+                            .font(.system(size: nameFontSize, weight: .black, design: .rounded))
+                            .tracking(cleanName.count > 19 ? -0.35 : 0.10)
+                            .foregroundStyle(Self.popColor(0x172138))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.64)
+                            .allowsTightening(true)
+                            .multilineTextAlignment(.center)
+                            .frame(width: max(40, geo.size.width - 13),
+                                   height: max(20, geo.size.height - 3))
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipped()
@@ -2930,20 +3278,118 @@ private struct SYNChannelArtworkPill: View {
         .onChange(of: fallbackSource) { _, next in imageStore.load(source, fallback: next) }
     }
 
-    private var cleanName: String {
-        synCleanChannelName(name).uppercased()
+    private var cleanName: String { synCleanChannelName(name).uppercased() }
+
+    private var nameFontSize: CGFloat {
+        if cleanName.count > 26 { return 8.0 }
+        if cleanName.count > 17 { return 9.0 }
+        if cleanName.count > 11 { return 10.2 }
+        return 11.8
     }
 
-    private var placeholderColor: Color {
-        // Neutros profundos y estables, no pretendidos colores corporativos.
-        let tones: [(Double, Double, Double)] = [
-            (0.13, 0.29, 0.32), (0.24, 0.26, 0.34), (0.28, 0.25, 0.26),
-            (0.16, 0.30, 0.27), (0.24, 0.28, 0.32)]
-        let hash = cleanName.utf8.reduce(UInt64(1469598103934665603)) {
+    private var hash64: UInt64 {
+        cleanName.utf8.reduce(UInt64(1469598103934665603)) {
             ($0 ^ UInt64($1)) &* 1099511628211
         }
-        let t = tones[Int(hash % UInt64(tones.count))]
-        return Color(red: t.0, green: t.1, blue: t.2)
+    }
+
+    // Variante geométrica independiente de la paleta. Permanece estable para cada canal.
+    private var popVariant: Int { Int((hash64 >> 21) % 12) }
+
+    private static func popColor(_ hex: UInt32) -> Color {
+        Color(red: Double((hex >> 16) & 255) / 255,
+              green: Double((hex >> 8) & 255) / 255,
+              blue: Double(hex & 255) / 255)
+    }
+
+    // 20 paletas luminosas, saturadas y sin blanco; 12 formas = 240 combinaciones.
+    // En todas, el texto azul-negro tiene contraste suficiente con el fondo y los acentos.
+    private var placeholderPalette: [Color] {
+        let palettes: [[UInt32]] = [
+            [0xFFE344, 0xFF67B7, 0x49EAD1, 0xB693FF],
+            [0xBFFF4E, 0xFE8953, 0x5DCEFF, 0xF98EC7],
+            [0x54EEDA, 0xFF7373, 0xE78CFF, 0xF3CC38],
+            [0x6EDEFF, 0xFFAA33, 0xFF6AA7, 0x91F445],
+            [0xFFB351, 0x4ACFD8, 0xB693FF, 0xC6F35C],
+            [0xFF8FC7, 0x5DCEFF, 0x91F445, 0xF3CC38],
+            [0xC1AAFF, 0xFE8953, 0x49EAD1, 0xFFAA33],
+            [0xFFAA8B, 0x7AEC7E, 0x5DCEFF, 0xE78CFF],
+            [0x90E887, 0xFF67B7, 0xF3A457, 0x8AB5FF],
+            [0xFFCF66, 0x4ACFD8, 0xFF6AA7, 0xB693FF],
+            [0x7ADBF2, 0xFF7373, 0xC6F35C, 0xF98EC7],
+            [0xF9A2DB, 0x49EAD1, 0xFFAA33, 0x8AB5FF],
+            [0x9FE7AC, 0xE78CFF, 0xFF7373, 0x5DCEFF],
+            [0xE4BCFF, 0xF3CC38, 0x49EAD1, 0xFE8953],
+            [0xE5F05A, 0xFF6AA7, 0xB693FF, 0x4ACFD8],
+            [0x9CC5FF, 0xFE8953, 0x91F445, 0xF98EC7],
+            [0xFFB16F, 0x49EAD1, 0xE78CFF, 0xC6F35C],
+            [0xE6B0FB, 0x4ACFD8, 0xFFAA33, 0x7AEC7E],
+            [0x7AEFD5, 0xFF67B7, 0xF3CC38, 0x8AB5FF],
+            [0xFFD47C, 0xE78CFF, 0x5DCEFF, 0x91F445]
+        ]
+        return palettes[Int(hash64 % UInt64(palettes.count))].map(Self.popColor)
+    }
+
+    private var placeholderColor: Color { placeholderPalette[0] }
+
+    // 12 composiciones asimétricas: geometría en los bordes, nombre despejado.
+    @ViewBuilder private func popShapes(_ variant: Int, width w: CGFloat,
+                                        height h: CGFloat, colors c: [Color]) -> some View {
+        switch variant {
+        case 0: // dos discos
+            Circle().fill(c[1]).frame(width: 43, height: 43).offset(x: -w * 0.43, y: -h * 0.19)
+            Circle().fill(c[2]).frame(width: 25, height: 25).offset(x: w * 0.43, y: h * 0.22)
+        case 1: // diagonales recortadas
+            Rectangle().fill(c[1]).frame(width: 17, height: 92).rotationEffect(.degrees(-27)).offset(x: -w * 0.41)
+            Rectangle().fill(c[2]).frame(width: 11, height: 92).rotationEffect(.degrees(27)).offset(x: w * 0.43)
+        case 2: // cuadrícula pop
+            ForEach(0..<3, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 2).fill(i == 1 ? c[2] : c[1])
+                    .frame(width: 16, height: 11).offset(x: -w * 0.43, y: CGFloat(i - 1) * 15)
+            }
+            Circle().fill(c[3]).frame(width: 32, height: 32).offset(x: w * 0.46, y: h * 0.20)
+        case 3: // anillos cortados
+            Circle().stroke(c[1], lineWidth: 7).frame(width: 54, height: 54).offset(x: -w * 0.48, y: h * 0.05)
+            Circle().fill(c[2]).frame(width: 21, height: 21).offset(x: w * 0.44, y: -h * 0.19)
+        case 4: // barras verticales y punto
+            RoundedRectangle(cornerRadius: 3).fill(c[1]).frame(width: 9, height: 48).offset(x: -w * 0.48, y: 2)
+            RoundedRectangle(cornerRadius: 3).fill(c[2]).frame(width: 8, height: 38).offset(x: -w * 0.35, y: -7)
+            Circle().fill(c[3]).frame(width: 26, height: 26).offset(x: w * 0.44, y: h * 0.26)
+        case 5: // confeti geométrico
+            Circle().fill(c[1]).frame(width: 17, height: 17).offset(x: -w * 0.42, y: -h * 0.24)
+            Rectangle().fill(c[2]).frame(width: 13, height: 13).rotationEffect(.degrees(28)).offset(x: w * 0.44, y: -h * 0.17)
+            Capsule().fill(c[3]).frame(width: 27, height: 9).rotationEffect(.degrees(-32)).offset(x: -w * 0.40, y: h * 0.30)
+        case 6: // semicircunferencias
+            Circle().fill(c[1]).frame(width: 62, height: 62).offset(x: -w * 0.52, y: 0)
+            Circle().fill(c[2]).frame(width: 43, height: 43).offset(x: -w * 0.61, y: 0)
+            Circle().fill(c[3]).frame(width: 42, height: 42).offset(x: w * 0.52, y: -h * 0.04)
+        case 7: // damero asimétrico
+            ForEach(0..<2, id: \.self) { row in
+                ForEach(0..<2, id: \.self) { col in
+                    Rectangle().fill((row + col) % 2 == 0 ? c[1] : c[2])
+                        .frame(width: 15, height: 14)
+                        .offset(x: -w * 0.44 + CGFloat(col) * 15, y: -h * 0.33 + CGFloat(row) * 14)
+                }
+            }
+            Circle().fill(c[3]).frame(width: 28, height: 28).offset(x: w * 0.45, y: h * 0.22)
+        case 8: // doble chevrón
+            Rectangle().fill(c[1]).frame(width: 13, height: 55).rotationEffect(.degrees(-36)).offset(x: -w * 0.44, y: -h * 0.19)
+            Rectangle().fill(c[2]).frame(width: 13, height: 55).rotationEffect(.degrees(36)).offset(x: -w * 0.44, y: h * 0.20)
+            Capsule().fill(c[3]).frame(width: 10, height: 40).offset(x: w * 0.46, y: 0)
+        case 9: // sol pop recortado
+            Circle().fill(c[1]).frame(width: 43, height: 43).offset(x: w * 0.47, y: -h * 0.18)
+            Circle().stroke(c[2], lineWidth: 4).frame(width: 61, height: 61).offset(x: w * 0.47, y: -h * 0.18)
+            RoundedRectangle(cornerRadius: 4).fill(c[3]).frame(width: 22, height: 28).offset(x: -w * 0.46, y: h * 0.26)
+        case 10: // cápsulas y puntos
+            Capsule().fill(c[1]).frame(width: 42, height: 14).rotationEffect(.degrees(49)).offset(x: -w * 0.47, y: h * 0.04)
+            Circle().fill(c[2]).frame(width: 10, height: 10).offset(x: w * 0.37, y: -h * 0.28)
+            Circle().fill(c[3]).frame(width: 16, height: 16).offset(x: w * 0.48, y: h * 0.21)
+        default: // marcos de color y bloques
+            RoundedRectangle(cornerRadius: 5).stroke(c[1], lineWidth: 7)
+                .frame(width: 39, height: 46).rotationEffect(.degrees(21)).offset(x: -w * 0.47, y: 0)
+            Rectangle().fill(c[2]).frame(width: 24, height: 18).rotationEffect(.degrees(-18)).offset(x: w * 0.47, y: -h * 0.22)
+            Capsule().fill(c[3]).frame(width: 31, height: 7).offset(x: w * 0.42, y: h * 0.34)
+        }
     }
 }
 
@@ -2954,6 +3400,23 @@ private final class SYNChannelImageStore: ObservableObject {
     private var current = ""
     private var task: URLSessionDataTask?
     private static var cache: [String: NSImage] = [:]
+    // Las URL de logos del proveedor se fuerzan a red sin vaciar URLCache global.
+    private static var providerInvalidated96: Set<String> = []
+
+    static func invalidateProviderImages96(_ sources: [String]) -> Int {
+        let urls = Set(sources.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { value in
+            guard let url = URL(string: value), let scheme = url.scheme?.lowercased() else { return false }
+            return scheme == "http" || scheme == "https"
+        })
+        for value in urls {
+            cache.removeValue(forKey: value) // Solo el objeto descargado del proveedor.
+            providerInvalidated96.insert(value)
+            if let url = URL(string: value) {
+                URLCache.shared.removeCachedResponse(for: URLRequest(url: url))
+            }
+        }
+        return urls.count
+    }
 
     private var requestedFallback = ""
 
@@ -2977,7 +3440,11 @@ private final class SYNChannelImageStore: ObservableObject {
         }
         if let cached = Self.cache[clean] { setImage622(cached); return }
         if let url = URL(string: clean), ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
-            var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 16)
+            let forceRemote96 = Self.providerInvalidated96.contains(clean)
+            var request = URLRequest(url: url,
+                                     cachePolicy: forceRemote96 ? .reloadIgnoringLocalCacheData : .returnCacheDataElseLoad,
+                                     timeoutInterval: 16)
+            if forceRemote96 { request.setValue("no-cache", forHTTPHeaderField: "Cache-Control") }
             // Varios proveedores Xtream/CDN rechazan el User-Agent por defecto de URLSession.
             request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", forHTTPHeaderField: "User-Agent")
             request.setValue("image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5", forHTTPHeaderField: "Accept")
@@ -2989,6 +3456,7 @@ private final class SYNChannelImageStore: ObservableObject {
                     guard let self, self.current == token else { return }
                     if let decoded {
                         Self.cache[clean] = decoded
+                        Self.providerInvalidated96.remove(clean)
                         self.setImage622(decoded)
                     } else if allowFallback {
                         self.useOriginal(token: token, previous: clean)
@@ -3235,13 +3703,44 @@ private final class SYNDVRRecorder53: ObservableObject {
 
     func refresh() {
         let manager = FileManager.default
-        files = ((try? manager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles])) ?? [])
-            .filter { ["ts", "mkv", "mp4"].contains($0.pathExtension.lowercased()) }
-            .sorted { a, b in
-                let aa = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let bb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return aa > bb
+        // SYN_RECORDING_IN_WINDOW_94: la versión 3.1 guarda MKV en SYN-DVR2_UUID.
+        // Mostrar los terminados sin moverlos a la raíz; ignorar piezas part_*.ts.
+        // No se modifica ningún vídeo, directorio ni archivo de estado.
+        var roots: [URL] = [folder]
+        let remote = manager.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Remote/server.json")
+        if let data = try? Data(contentsOf: remote),
+           let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let chosen = config["recordingsFolder"] as? String, chosen.hasPrefix("/") {
+            let extra = URL(fileURLWithPath: chosen, isDirectory: true).standardizedFileURL
+            if !roots.contains(extra) { roots.append(extra) }
+        }
+        var found: [URL: URL] = [:]
+        let allowed: Set<String> = ["mkv", "mp4", "mov", "ts"]
+        for root in roots where manager.fileExists(atPath: root.path) {
+            // Conservar archivos directos, más una carpeta de grabación por tarea.
+            let children = (try? manager.contentsOfDirectory(at: root,
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles])) ?? []
+            for item in children {
+                let directory = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                let candidates: [URL] = directory && item.lastPathComponent.hasPrefix("SYN-DVR2_")
+                    ? ((try? manager.contentsOfDirectory(at: item,
+                       includingPropertiesForKeys: [.contentModificationDateKey],
+                       options: [.skipsHiddenFiles])) ?? [])
+                    : (directory ? [] : [item])
+                for candidate in candidates {
+                    guard allowed.contains(candidate.pathExtension.lowercased()),
+                          !candidate.lastPathComponent.hasPrefix("part_") else { continue }
+                    found[candidate.standardizedFileURL] = candidate
+                }
             }
+        }
+        files = found.values.sorted { a, b in
+            let aa = (try? a.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let bb = (try? b.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return aa > bb
+        }
     }
 
     func record(url: URL?, title: String) {
@@ -3263,7 +3762,7 @@ private final class SYNDVRRecorder53: ObservableObject {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: executable)
         task.arguments = ["-hide_banner", "-loglevel", "error", "-nostats", "-rw_timeout", "15000000",
-                          "-user_agent", "VLC/3.0.21 LibVLC/3.0.21", "-i", url.absoluteString,
+                          "-user_agent", SYNPlaybackUserAgent911.current, "-i", url.absoluteString,
                           "-map", "0:v?", "-map", "0:a?", "-c", "copy", "-f", "mpegts", target.path]
         let pipe = Pipe()
         task.standardInput = pipe
@@ -3317,7 +3816,30 @@ private struct SYNBackgroundDVR54 {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/jobs", isDirectory: true)
     }
-    static func add(url: URL, channel: String, title: String, start: Date, end: Date) throws {
+    // SYN_NAMES_92 — nombres de tareas de grabación, sin alterar las URL ni los tiempos.
+    // YY/DD/MM significa año/día/mes, literalmente como se ha solicitado.
+    private static func recordingName92(channel: String, title: String,
+                                        start: Date, isEPG: Bool) -> String {
+        let cleanChannel = channel.replacingOccurrences(of: #"[\r\n\t]"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = title.replacingOccurrences(of: #"[\r\n\t]"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let date = DateFormatter()
+        date.locale = Locale(identifier: "es_ES_POSIX")
+        date.timeZone = .current
+        date.dateFormat = "yy/dd/MM"
+        let day = date.string(from: start)
+        let channelName = cleanChannel.isEmpty ? "Canal" : cleanChannel
+        if isEPG {
+            let program = cleanTitle.isEmpty ? "Programa" : cleanTitle
+            return "\(program) - \(channelName) - \(day)"
+        }
+        date.dateFormat = "HH:mm"
+        return "\(channelName) - \(day) - \(date.string(from: start))"
+    }
+
+    static func add(url: URL, channel: String, title: String, start: Date, end: Date,
+                    epg: Bool? = nil, eventDate: Date? = nil) throws {
         guard end > Date(), end > start, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw NSError(domain: "SYN DVR", code: 1, userInfo: [NSLocalizedDescriptionKey: "Horario o URL inválido"])
         }
@@ -3327,10 +3849,17 @@ private struct SYNBackgroundDVR54 {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let id = UUID().uuidString
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanChannel = channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredEPG = !cleanTitle.isEmpty &&
+            cleanTitle.localizedCaseInsensitiveCompare(cleanChannel) != .orderedSame
+        let label = recordingName92(channel: channel, title: title,
+                                    start: eventDate ?? start, isEPG: epg ?? inferredEPG)
         let data = try JSONSerialization.data(withJSONObject: [
-            "url": url.absoluteString, "channel": channel, "title": title,
+            "url": url.absoluteString, "channel": channel, "title": label,
             "start": start.timeIntervalSince1970, "end": end.timeIntervalSince1970,
-            "folder": SYNRecordingFolder75.current.path
+            "folder": SYNRecordingFolder75.current.path,
+            "namingVersion": 2
         ])
         let staging = directory.appendingPathComponent(id + ".pending")
         let final = directory.appendingPathComponent(id + ".json")
@@ -3405,6 +3934,119 @@ private struct SYNBackgroundDVR54 {
     }
 }
 
+
+// SYN_EPG_MARGINS_90: horarios de emisión EPG + margen opcional, sin alterar el motor.
+struct SYNEPGMarginRequest90: Identifiable {
+    let id = UUID()
+    let url: URL
+    let channel: String
+    let title: String
+    let start: Date
+    let end: Date
+}
+
+struct SYNEPGMarginChooser90: View {
+    let title: String
+    let epgStart: Date
+    let epgEnd: Date
+    let onSchedule: (Date, Date) throws -> Void
+    let onClose: () -> Void
+
+    @State private var before: Int
+    @State private var after: Int
+    @State private var errorMessage = ""
+
+    init(title: String, epgStart: Date, epgEnd: Date,
+         onSchedule: @escaping (Date, Date) throws -> Void,
+         onClose: @escaping () -> Void) {
+        self.title = title
+        self.epgStart = epgStart
+        self.epgEnd = epgEnd
+        self.onSchedule = onSchedule
+        self.onClose = onClose
+        let prefs = UserDefaults.standard
+        _before = State(initialValue: max(0, min(120,
+            (prefs.object(forKey: "syn.native.epgMarginBefore90") as? Int) ?? 5)))
+        _after = State(initialValue: max(0, min(180,
+            (prefs.object(forKey: "syn.native.epgMarginAfter90") as? Int) ?? 10)))
+    }
+
+    private var actualStart: Date {
+        max(Date(), epgStart.addingTimeInterval(Double(-before) * 60))
+    }
+    private var actualEnd: Date {
+        epgEnd.addingTimeInterval(Double(after) * 60)
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Programar grabación", systemImage: "record.circle.fill")
+                    .font(.title3.bold())
+                Spacer()
+                Button { onClose() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain)
+            }
+            Text(title).font(.headline).lineLimit(2)
+            Text("Horario anunciado: " +
+                epgStart.formatted(date: .abbreviated, time: .shortened) + " – " +
+                epgEnd.formatted(date: .omitted, time: .shortened))
+                .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Stepper(value: $before, in: 0...120, step: 1) {
+                HStack {
+                    Text("Empezar antes")
+                    Spacer()
+                    Text("\(before) min").monospacedDigit().bold()
+                }
+            }
+            Stepper(value: $after, in: 0...180, step: 1) {
+                HStack {
+                    Text("Terminar después")
+                    Spacer()
+                    Text("\(after) min").monospacedDigit().bold()
+                }
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Text("La grabación se programará de:")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text(actualStart.formatted(date: .abbreviated, time: .shortened) +
+                     " → " + actualEnd.formatted(date: .abbreviated, time: .shortened))
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                if epgStart.addingTimeInterval(Double(-before) * 60) < Date() {
+                    Text("El inicio previsto ya ha pasado: comenzará ahora.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            if !errorMessage.isEmpty {
+                Text(errorMessage).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Button("Cancelar", action: onClose)
+                Spacer()
+                Button("Programar") {
+                    guard actualEnd > actualStart else {
+                        errorMessage = "El programa ya ha terminado."; return
+                    }
+                    do {
+                        try onSchedule(actualStart, actualEnd)
+                        UserDefaults.standard.set(before, forKey: "syn.native.epgMarginBefore90")
+                        UserDefaults.standard.set(after, forKey: "syn.native.epgMarginAfter90")
+                        onClose()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(actualEnd <= actualStart)
+            }
+        }
+        .padding(22)
+        .frame(width: 455)
+    }
+}
 
 // SYN_DVR_CALENDAR_57 — calendario de tamaño real, sin DatePicker gráfico compacto.
 private struct SYN_DVR_CALENDAR_57: View {
@@ -3601,5 +4243,132 @@ enum SYNUnifiedDVR2 {
         try SYNBackgroundDVR54.add(url: url, channel: channel, title: channel,
             start: Date(), end: Date().addingTimeInterval(7200))
         return true
+    }
+}
+
+// SYN_REMOTE_PAIRING_40 — SYN client: IP + port + optional password ONLY.
+// TOFU: remember first successfully authenticated server certificate in Keychain;
+// refuse subsequent certificate changes (including when password is optional).
+private final class SYNRemotePin40: NSObject, URLSessionDelegate {
+    private let expected: String?
+    private(set) var observed: String?
+    private(set) var mismatch = false
+
+    init(expected: String?) {
+        self.expected=expected?.uppercased()
+    }
+    func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust=challenge.protectionSpace.serverTrust,
+              let cert=SecTrustGetCertificateAtIndex(trust,0) else {
+            completionHandler(.cancelAuthenticationChallenge,nil);return
+        }
+        let data=SecCertificateCopyData(cert) as Data
+        let actual=SHA256.hash(data:data).map { String(format:"%02X",$0) }.joined()
+        if let expected, expected != actual {
+            mismatch=true
+            completionHandler(.cancelAuthenticationChallenge,nil);return
+        }
+        observed=actual
+        completionHandler(.useCredential,URLCredential(trust:trust))
+    }
+}
+
+@MainActor
+private struct SYNRemotePairing40: View {
+    @AppStorage("syn.remote.dvr.host") private var host="127.0.0.1"
+    @AppStorage("syn.remote.dvr.port") private var port="8090"
+    @State private var password=""
+    @State private var result="Servidor todavía no comprobado"
+    @State private var testing=false
+    private var target: String { host.trimmingCharacters(in:.whitespacesAndNewlines) + ":" + port }
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("Conectar con SYN DVR").font(.headline)
+            HStack {
+                TextField("Dirección IP",text:$host).textFieldStyle(.roundedBorder)
+                TextField("Puerto",text:$port).textFieldStyle(.roundedBorder).frame(width:90)
+            }
+            SecureField("Contraseña (opcional)",text:$password).textFieldStyle(.roundedBorder)
+            HStack {
+                Button(testing ? "Conectando…" : "Conectar") { test() }.disabled(testing)
+                Spacer()
+                Label("Conexión HTTPS",systemImage:"lock.shield")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(result).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+        }
+        .onAppear { password=readSecret(service:"SYN DVR Password") ?? "" }
+        .onChange(of:host) { _ in password=readSecret(service:"SYN DVR Password") ?? "" }
+        .onChange(of:port) { _ in password=readSecret(service:"SYN DVR Password") ?? "" }
+    }
+
+    private func readSecret(service:String) -> String? {
+        let query:[String:Any]=[
+            kSecClass as String:kSecClassGenericPassword,
+            kSecAttrService as String:service,
+            kSecAttrAccount as String:target,
+            kSecReturnData as String:true,
+            kSecMatchLimit as String:kSecMatchLimitOne]
+        var value:CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary,&value)==errSecSuccess,
+              let data=value as? Data else { return nil }
+        return String(data:data,encoding:.utf8)
+    }
+    @discardableResult
+    private func saveSecret(_ value:String?,service:String) -> Bool {
+        let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,
+                                 kSecAttrService as String:service,
+                                 kSecAttrAccount as String:target]
+        SecItemDelete(query as CFDictionary)
+        guard let value,let data=value.data(using:.utf8), !value.isEmpty else {return true}
+        var add=query
+        add[kSecValueData as String]=data
+        add[kSecAttrAccessible as String]=kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary,nil)==errSecSuccess
+    }
+    private func test() {
+        let ip=host.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard let n=Int(port), (1024...65535).contains(n),
+              !ip.isEmpty,!ip.contains("/"),!ip.contains("@"),!ip.contains(" ") else {
+            result="Comprueba la dirección IP y el puerto (1024–65535).";return
+        }
+        var components=URLComponents()
+        components.scheme="https";components.host=ip;components.port=n
+        components.path="/api/v1/status"
+        guard let url=components.url else {result="Dirección IP o puerto no válidos.";return}
+        testing=true
+        let pin=SYNRemotePin40(expected:readSecret(service:"SYN DVR TLS Pin"))
+        let session=URLSession(configuration:.ephemeral,delegate:pin,delegateQueue:nil)
+        var req=URLRequest(url:url);req.timeoutInterval=8
+        if !password.isEmpty {
+            req.setValue(Data(password.utf8).base64EncodedString(),forHTTPHeaderField:"X-SYN-DVR-Password-B64")
+        }
+        Task {
+            defer {session.invalidateAndCancel();testing=false}
+            do {
+                let (data,response)=try await session.data(for:req)
+                guard let http=response as? HTTPURLResponse else { result="Respuesta inválida.";return }
+                if http.statusCode==401 {result="El servidor requiere otra contraseña.";return}
+                guard http.statusCode==200 else { result="Error del servidor: \(http.statusCode)";return }
+                guard let status=try JSONSerialization.jsonObject(with:data) as? [String:Any],
+                      status["product"] as? String == "SYN DVR" else {
+                    result="El servicio respondió, pero no es un servidor SYN DVR.";return
+                }
+                guard let observed=pin.observed else {result="No se pudo verificar el certificado HTTPS.";return}
+                if !saveSecret(observed,service:"SYN DVR TLS Pin") ||
+                   !saveSecret(password,service:"SYN DVR Password") {
+                    result="Conectado, pero el Llavero no pudo guardar los datos.";return
+                }
+                let engine=status["engine"] as? [String:Any] ?? [:]
+                result="Conectado a SYN DVR · Motor \((engine["running"] as? Bool ?? false) ? "activo" : "sin respuesta")"
+            } catch {
+                result=pin.mismatch
+                    ? "El certificado del servidor ha cambiado. Conexión bloqueada para protegerte."
+                    : "No se pudo conectar. Comprueba IP, puerto y estado de SYN DVR."
+            }
+        }
     }
 }

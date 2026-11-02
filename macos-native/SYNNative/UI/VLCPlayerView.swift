@@ -1,8 +1,40 @@
+import Darwin
 import AppKit
 import SwiftUI
 #if canImport(VLCKit)
 import VLCKit
 #endif
+
+// SYN_PLAYBACK_USER_AGENT_911: VLC y entradas directas. El pool upstream se gestiona por separado.
+// No guarda credenciales. El motor DVR autónomo tiene su propia cabecera HTTP.
+enum SYNPlaybackUserAgent911 {
+    static let presetKey = "syn.native.vlc.userAgentPreset911"
+    static let customKey = "syn.native.vlc.userAgentCustom911"
+    static let vlcDefault = "VLC/3.0.21 LibVLC/3.0.21"
+
+    static var current: String {
+        let pref = UserDefaults.standard.string(forKey: presetKey) ?? "vlc"
+        switch pref {
+        case "safari":
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15"
+        case "chrome":
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        case "firefox":
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:130.0) Gecko/20100101 Firefox/130.0"
+        case "kodi":
+            return "Kodi/21.0"
+        case "custom":
+            let userText = UserDefaults.standard.string(forKey: customKey) ?? ""
+            let text = userText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Evitar inyección de cabeceras y entradas excesivas en la línea HTTP.
+            if !text.isEmpty && text.utf8.count <= 512 && !text.contains("\r") && !text.contains("\n") {
+                return text
+            }
+            return vlcDefault
+        default: return vlcDefault
+        }
+    }
+}
 
 // SYN Native Alpha 2.6: one VLC player and one drawable, even during fullscreen.
 // The full-screen controls are AppKit overlays; no second streaming connection is created.
@@ -37,15 +69,229 @@ private final class SYNFullscreenUniformDim621: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+// SYN_RECONNECT_112: overlay puramente visual. No arranca conexiones ni modifica el DVR.
+private final class SYNReconnectDisplay112: ObservableObject {
+    @Published var visible = false
+    @Published var prolonged = false
+}
+
+// Nunca interceptar clics, HUD, fullscreen ni gestos sobre el vídeo.
+private final class SYNReconnectHosting112: NSHostingView<SYNReconnectVisual112> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private struct SYNReconnectVisual112: View {
+    @ObservedObject var model: SYNReconnectDisplay112
+    private let sand: [Color] = [
+        Color(red: 0.99, green: 0.25, blue: 0.29),
+        Color(red: 1.00, green: 0.69, blue: 0.20),
+        Color(red: 0.99, green: 0.88, blue: 0.33),
+        Color(red: 0.35, green: 0.90, blue: 0.51),
+        Color(red: 0.24, green: 0.85, blue: 0.97),
+        Color(red: 0.33, green: 0.47, blue: 0.99),
+        Color(red: 0.90, green: 0.38, blue: 0.91)
+    ]
+
+    var body: some View {
+        ZStack {
+            if model.visible {
+                Color.black.opacity(0.23)
+                VStack(spacing: 19) {
+                    ZStack {
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                        Circle().fill(
+                            LinearGradient(colors: [
+                                .white.opacity(0.34), .white.opacity(0.06),
+                                Color(red: 0.06, green: 0.12, blue: 0.24).opacity(0.62)
+                            ], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+                            Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+                                let t = timeline.date.timeIntervalSinceReferenceDate
+                                // Sedimentos de carta de ajuste en la base de la esfera.
+                                for band in 0..<7 {
+                                    let width = size.width / 7.0
+                                    let x = CGFloat(band) * width
+                                    let rect = CGRect(x: x, y: size.height * 0.73,
+                                                      width: width + 0.7, height: size.height * 0.31)
+                                    context.fill(Path(rect), with: .color(sand[band].opacity(0.53)))
+                                }
+                                // 72 granos deterministas: sin timers ni estado aleatorio.
+                                for i in 0..<72 {
+                                    let a = Double((i * 73 + 19) % 97) / 97.0
+                                    let b = Double((i * 43 + 7) % 101) / 101.0
+                                    let progress = (b + t * (0.17 + Double(i % 5) * 0.019))
+                                        .truncatingRemainder(dividingBy: 1.0)
+                                    let drift = sin(t * 0.83 + Double(i)) * 0.027
+                                    let x = CGFloat(min(0.93, max(0.07, a + drift))) * size.width
+                                    let y = CGFloat(progress) * size.height
+                                    let diameter: CGFloat = 2.5 + CGFloat(i % 4) * 0.65
+                                    let particle = CGRect(x: x, y: y, width: diameter, height: diameter)
+                                    context.fill(Path(ellipseIn: particle),
+                                                 with: .color(sand[i % sand.count].opacity(0.92)))
+                                }
+                            }
+                        }
+                        .clipShape(Circle())
+                        Circle()
+                            .strokeBorder(LinearGradient(colors: [
+                                .white.opacity(0.86), .white.opacity(0.25),
+                                .white.opacity(0.62)
+                            ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.7)
+                        Ellipse()
+                            .fill(.white.opacity(0.20))
+                            .frame(width: 77, height: 21)
+                            .blur(radius: 9)
+                            .rotationEffect(.degrees(-24))
+                            .offset(x: -25, y: -43)
+                    }
+                    .frame(width: 150, height: 150)
+                    .shadow(color: .black.opacity(0.40), radius: 24, y: 12)
+                    VStack(spacing: 6) {
+                        Text(model.prolonged ? "Señal interrumpida" : "Reconectando señal…")
+                            .font(.system(size: 18, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        Text(model.prolonged ? "El canal todavía no envía vídeo" :
+                             "Esperando a que vuelva la imagen")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.78))
+                    }
+                    .shadow(color: .black.opacity(0.6), radius: 8, y: 2)
+                }
+                .padding(24)
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.23), value: model.visible)
+        .allowsHitTesting(false)
+        .accessibilityHidden(!model.visible)
+    }
+}
+
+// SYN_FULLSCREEN_RETURN_11231: el canvas VLCKit viaja al Space fullscreen.
+// El reproductor embebido NO crea otro vídeo: solo informa y ofrece regresar.
+private struct SYNFullscreenReturn1123: View {
+    let restore: () -> Void
+
+    private let sand: [Color] = [
+        Color(red: 0.98, green: 0.34, blue: 0.27),
+        Color(red: 0.18, green: 0.84, blue: 0.44),
+        Color(red: 0.24, green: 0.53, blue: 0.98),
+        Color(red: 0.27, green: 0.89, blue: 0.94),
+        Color(red: 0.96, green: 0.38, blue: 0.82),
+        Color(red: 0.98, green: 0.84, blue: 0.22),
+        Color.white.opacity(0.92)
+    ]
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.08, green: 0.11, blue: 0.15),
+                         Color(red: 0.025, green: 0.035, blue: 0.055)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            VStack(spacing: 12) {
+                TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { timeline in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    ZStack {
+                        Circle()
+                            .fill(
+                                RadialGradient(colors: [
+                                    .white.opacity(0.30),
+                                    .white.opacity(0.11),
+                                    Color.black.opacity(0.08)
+                                ], center: .topLeading, startRadius: 8, endRadius: 84)
+                            )
+                        Circle()
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                Canvas { context, size in
+                                    let liquidHeight = size.height * 0.34
+                                    let liquidRect = CGRect(x: 0, y: size.height - liquidHeight, width: size.width, height: liquidHeight)
+                                    context.fill(Path(ellipseIn: liquidRect.insetBy(dx: -6, dy: -4)),
+                                                 with: .linearGradient(Gradient(colors: sand.map { $0.opacity(0.18) }),
+                                                                       startPoint: CGPoint(x: 0, y: size.height - liquidHeight),
+                                                                       endPoint: CGPoint(x: size.width, y: size.height)))
+                                    for i in 0..<72 {
+                                        let a = Double((i * 73 + 19) % 97) / 97.0
+                                        let b = Double((i * 43 + 7) % 101) / 101.0
+                                        let progress = (b + t * (0.17 + Double(i % 5) * 0.019))
+                                            .truncatingRemainder(dividingBy: 1.0)
+                                        let drift = sin(t * 0.83 + Double(i)) * 0.027
+                                        let x = CGFloat(min(0.93, max(0.07, a + drift))) * size.width
+                                        let y = CGFloat(progress) * size.height
+                                        let diameter: CGFloat = 2.5 + CGFloat(i % 4) * 0.65
+                                        let particle = CGRect(x: x, y: y, width: diameter, height: diameter)
+                                        context.fill(Path(ellipseIn: particle),
+                                                     with: .color(sand[i % sand.count].opacity(0.92)))
+                                    }
+                                }
+                            }
+                            .clipShape(Circle())
+                        Circle()
+                            .strokeBorder(LinearGradient(colors: [
+                                .white.opacity(0.86), .white.opacity(0.25),
+                                .white.opacity(0.62)
+                            ], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.7)
+                        Ellipse()
+                            .fill(.white.opacity(0.20))
+                            .frame(width: 72, height: 20)
+                            .blur(radius: 9)
+                            .rotationEffect(.degrees(-24))
+                            .offset(x: -23, y: -39)
+                    }
+                    .frame(width: 120, height: 120)
+                    .shadow(color: .black.opacity(0.40), radius: 24, y: 12)
+                }
+                Text("La TV está en pantalla completa")
+                    .font(.system(size: 16, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                Button(action: restore) {
+                    Label("Volver a ventana", systemImage: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(.orange)
+                .padding(.top, 2)
+                .help("Salir de la pantalla completa y recuperar el vídeo en SYN")
+            }
+            .padding(.horizontal, 29)
+            .padding(.vertical, 25)
+            .frame(maxWidth: 410)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(.white.opacity(0.17), lineWidth: 1)
+            }
+            .padding(22)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 final class SYNVideoHost: NSView {
     private let canvas = NSView()
     private var canvasConstraints: [NSLayoutConstraint] = []
     private var currentURL: URL?
     private var fullWindow: SYNFullscreenWindow?
     private weak var originalWindow: NSWindow?
+    // SYN_FULLSCREEN_RETURN_1123: panel interactivo solo en la ventana original.
+    private var fullscreenReturn1123: NSHostingView<SYNFullscreenReturn1123>?
     private var topBar: NSView?
     private var bottomBar: NSView?
     private var localMouseMonitor: Any?
+    private var cursorMovementMonitor1124: Any?
+    private var cursorIdleJob1124: DispatchWorkItem?
+    private var fullscreenDidBecomeKey1124: NSObjectProtocol?
+    private var fullscreenDidResignKey1124: NSObjectProtocol?
+    private var appDidResignActive1124: NSObjectProtocol?
+    // SYN_FS_CLICK_1122: la TV fullscreen revela el HUD por clic, nunca por movimiento.
     private var hideJob: DispatchWorkItem?
     private var cursorHidden = false
     // SYN_FULLSCREEN_SAFE_DOCK_793
@@ -58,14 +304,28 @@ final class SYNVideoHost: NSView {
     private var nativeEntering794 = false
     private var nativeExitRequested794 = false
     private var nativeMinimizeRequested794 = false
+    // SYN_TV_FULLSCREEN_ZOOM_910: impedir la doble animacion y el HUD erratico.
+    private var liveTransitioning910 = false
+    private var liveHUDHoldUntil910: TimeInterval = 0
+    var liveMiniHUDLocked910: Bool {
+        liveTransitioning910 || fullWindow != nil || ProcessInfo.processInfo.systemUptime < liveHUDHoldUntil910
+    }
     private var fullscreenPauseButton: NSButton?
     private var embeddedPauseButton: NSButton?
     private var pausedByUser = false
     private var volumeValue: Double = 80
     private var muted = false
+    // SYN_RECORDING_IN_WINDOW_94: audio en directo silenciado en visor MKV.
+    private var recordingPlaybackMuted94 = false
+    func setRecordingPlaybackMuted94(_ active: Bool) {
+        recordingPlaybackMuted94 = active
+        #if canImport(VLCKit)
+        player.audio?.volume = Int32(active || muted ? 0 : volumeValue)
+        #endif
+    }
     private var slider: NSSlider?
     private var channelLabel: NSTextField?
-    // SYN_FS_CLICK_PURO_621: no gradients, no movement reveal, no timer.
+    // SYN_FS_CLICK_1122: clic para mostrar/ocultar, autoocultar tras 8 s sin interacción.
     private var synUniformDim621: SYNFullscreenUniformDim621?
     private var synHUDIsVisible621 = false
     private var progressTrack: NSView?
@@ -80,6 +340,7 @@ final class SYNVideoHost: NSView {
     var onGuideRefresh70: (() -> Void)?
     var onLoadGuideProgrammes74: ((String) async -> [SYNGuideProgramme74])?
     var onSelectChannel70: ((String) -> Void)?
+    var onScheduleGuide90: ((String, String, Date, Date) throws -> Void)?
     private var guidePanel70: NSView?
     // SYN_AIRPLAY_FULLSCREEN_797: AirPlay vive solo en el Space fullscreen.
     // El HLS local compartido sigue alimentando DVR; VLC deja de reproducir.
@@ -87,6 +348,22 @@ final class SYNVideoHost: NSView {
     private var airPlayPanel797: NSView?
     private var liveSession70: SYNSharedLive70.Stream?
     private var loadSerial70 = 0
+    // SYN_VLC_AUTONOMO_110: la URL del canal NO cambia al cerrar/abrir DVR.
+    // Vigilamos la propiedad del flujo, no el estado de "playing" de VLC.
+    private var routeWatch110: Timer?
+    private var usingSharedPool110: Bool? = nil
+    private var sharedPoolPort110: Int? = nil
+    private var poolJoinInFlight110 = false
+    private var lastPoolJoin110: TimeInterval = 0
+    private var missingPoolPolls110 = 0
+    // SYN_RECONNECT_112: únicamente monitoriza VLCKit; no hace reintentos ni retunes.
+    private let reconnectDisplay112 = SYNReconnectDisplay112()
+    private var reconnectHosting112: SYNReconnectHosting112?
+    private var reconnectTimer112: Timer?
+    private var reconnectSuspectedAt112: TimeInterval?
+    private var reconnectRecoveredAt112: TimeInterval?
+    private var reconnectShownAt112: TimeInterval?
+    private var reconnectRouteChangedAt112 = ProcessInfo.processInfo.systemUptime
     private var replaying70 = false
     private var recButton70: NSButton?
     private var nowLabel70: NSTextField?
@@ -127,6 +404,7 @@ final class SYNVideoHost: NSView {
         player.drawable = canvas
         player.audio?.volume = 80
         #endif
+        configureReconnect112()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) no implementado") }
 
@@ -141,11 +419,218 @@ final class SYNVideoHost: NSView {
         NSLayoutConstraint.activate(canvasConstraints)
     }
 
+    // SYN_RECONNECT_112: el overlay es hijo del canvas; sigue al mismo vídeo
+    // cuando el canvas se traslada a la ventana fullscreen de macOS.
+    private func configureReconnect112() {
+        let overlay = SYNReconnectHosting112(rootView: SYNReconnectVisual112(model: reconnectDisplay112))
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.wantsLayer = true
+        overlay.layer?.zPosition = 10_000
+        canvas.addSubview(overlay, positioned: .above, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
+            overlay.topAnchor.constraint(equalTo: canvas.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: canvas.bottomAnchor)
+        ])
+        reconnectHosting112 = overlay
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.inspectReconnect112()
+        }
+        reconnectTimer112 = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func resetReconnect112() {
+        reconnectRouteChangedAt112 = ProcessInfo.processInfo.systemUptime
+        reconnectSuspectedAt112 = nil
+        reconnectRecoveredAt112 = nil
+        reconnectShownAt112 = nil
+        reconnectDisplay112.visible = false
+        reconnectDisplay112.prolonged = false
+    }
+
+    // SYN_RECONNECT_1121: la esfera requiere indicios corroborados de corte.
+    // "buffering" en VLCKit NO equivale necesariamente a vídeo detenido.
+    // Se prioriza no dar falsos positivos, aunque se tarde en detectar cortes.
+    private func inspectReconnect112() {
+        #if canImport(VLCKit)
+        // Nunca bloquear imagen válida por cambios de fuente, pausa, AirPlay o VOD.
+        guard let url = currentURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              !["mp4", "mkv", "avi", "mov", "m4v"].contains(url.pathExtension.lowercased()),
+              !pausedByUser, airPlay797.player == nil, !replaying70,
+              !liveTransitioning910, !poolJoinInFlight110 else {
+            reconnectSuspectedAt112 = nil
+            reconnectRecoveredAt112 = nil
+            reconnectDisplay112.visible = false
+            reconnectDisplay112.prolonged = false
+            return
+        }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - reconnectRouteChangedAt112 >= 7.0 else { return }
+        let state = player.state
+
+        // Veto absoluto: si VLC dice que reproduce, NO tapar el vídeo.
+        // Incluso si state == .buffering en un instante transitorio.
+        if player.isPlaying || state == .playing {
+            reconnectSuspectedAt112 = nil
+            reconnectRecoveredAt112 = nil
+            reconnectShownAt112 = nil
+            reconnectDisplay112.visible = false
+            reconnectDisplay112.prolonged = false
+            return
+        }
+
+        let severe = state == .error || state == .ended || state == .stopped
+        let waiting = state == .buffering || state == .opening
+
+        // El HLS compartido dispone de una segunda prueba objetiva:
+        // una lista m3u8 realmente estancada, no solo el estado de VLC.
+        let confirmed: Bool
+        if usingSharedPool110 == true {
+            if let stream = liveSession70 {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: stream.playlist.path)
+                if let modified = attrs?[.modificationDate] as? Date {
+                    let age = Date().timeIntervalSince(modified)
+                    // Evita falsos positivos con segmentos largos o escritura lenta.
+                    confirmed = (severe || waiting) && age >= 18.0
+                } else {
+                    // La lista no existe pese a que el stream ya estaba preparado.
+                    confirmed = severe || waiting
+                }
+            } else {
+                // Aún se está preparando el pool: no mostrar aviso.
+                confirmed = false
+            }
+        } else {
+            // En IPTV directo no tenemos HLS local que corrobore el atasco.
+            // No utilizar .buffering/.opening solos: algunos streams muestran
+            // vídeo mientras VLCKit mantiene esos estados.
+            confirmed = severe
+        }
+
+        if confirmed {
+            reconnectRecoveredAt112 = nil
+            if reconnectSuspectedAt112 == nil { reconnectSuspectedAt112 = now }
+            // En directo, exigir un fallo duro prolongado. En HLS compartido,
+            // la antigüedad >=18 s del manifiesto aporta la segunda confirmación.
+            let threshold = usingSharedPool110 == true ? 5.0 : 12.0
+            if now - (reconnectSuspectedAt112 ?? now) >= threshold {
+                if !reconnectDisplay112.visible {
+                    reconnectDisplay112.visible = true
+                    reconnectShownAt112 = now
+                    if let overlay = reconnectHosting112 {
+                        canvas.addSubview(overlay, positioned: .above, relativeTo: nil)
+                    }
+                }
+                reconnectDisplay112.prolonged = now - (reconnectShownAt112 ?? now) >= 11
+            }
+        } else {
+            reconnectSuspectedAt112 = nil
+            // Desaparece inmediatamente cuando vuelve el estado válido: nunca
+            // mantener una pantalla de bloqueo sobre una imagen que funciona.
+            reconnectRecoveredAt112 = nil
+            reconnectShownAt112 = nil
+            reconnectDisplay112.visible = false
+            reconnectDisplay112.prolonged = false
+        }
+        #endif
+    }
+
+    // Un pool.port antiguo NO significa que el motor siga activo.
+    // SYN_POOL_SEGURO_103: NO abrir un stream directo si el motor está vivo.
+    // Un pool.status.json retrasado no implica que el motor haya terminado.
+    private static func synPoolDisponible101() -> Bool {
+        let base = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0", isDirectory: true)
+        let heartbeat = base.appendingPathComponent("worker.heartbeat.json")
+        if let data = try? Data(contentsOf: heartbeat),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let pidValue = object["pid"] as? NSNumber,
+           pidValue.int32Value > 1 {
+            // SYN_VLC_AUTONOMO_110: un heartbeat reciente en disco NO prueba
+            // que el proceso siga vivo. Si murió, no usar su pool.port antiguo.
+            return kill(pid_t(pidValue.int32Value), 0) == 0
+        }
+        // Durante el arranque también respetar el pool si su estado es reciente.
+        let statusPath = base.appendingPathComponent("pool.status.json")
+        guard let data = try? Data(contentsOf: statusPath),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let stamp = (object["timestamp"] as? NSNumber)?.doubleValue else { return false }
+        let age = Date().timeIntervalSince1970 - stamp
+        guard age >= -5 && age < 10,
+              let raw = try? String(contentsOf: base.appendingPathComponent("pool.port"), encoding: .utf8),
+              let port = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65535).contains(port) else { return false }
+        return true
+    }
+
+    // SYN_VLC_AUTONOMO_110: comprobar la ruta incluso cuando el mismo canal
+    // permanece seleccionado. Es independiente del redibujado de SwiftUI.
+    private static func poolPort110() -> Int? {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0/pool.port")
+        guard let value = try? String(contentsOf: path, encoding: .utf8),
+              let port = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (1...65535).contains(port) else { return nil }
+        return port
+    }
+
+    private func beginRouteWatch110() {
+        guard routeWatch110 == nil else { return }
+        let timer = Timer(timeInterval: 1.25, repeats: true) { [weak self] _ in
+            self?.checkRoute110()
+        }
+        routeWatch110 = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func checkRoute110() {
+        guard let url = currentURL, usingSharedPool110 != nil else { return }
+        let engineAvailable = Self.synPoolDisponible101()
+        if engineAvailable {
+            missingPoolPolls110 = 0
+            let newPort = Self.poolPort110()
+            if usingSharedPool110 != true {
+                // El DVR acaba de iniciarse: cerrar VLC directo antes de
+                // solicitar el flujo local. Nunca mantener dos upstream.
+                play(url, refreshRoute110: true)
+                return
+            }
+            if let newPort, let oldPort = sharedPoolPort110, newPort != oldPort {
+                // Reinicio del motor con otro puerto: descartar el HLS antiguo.
+                SYNSharedLive70.shared.shutdown()
+                play(url, refreshRoute110: true)
+                return
+            }
+            if sharedPoolPort110 == nil { sharedPoolPort110 = newPort }
+            // El motor puede tardar en crear pool.port o en servir el HLS.
+            // Esperar a que termine el intento anterior para no multiplicar timers.
+            if liveSession70 == nil && !poolJoinInFlight110 &&
+                Date().timeIntervalSince1970 - lastPoolJoin110 >= 4 {
+                play(url, refreshRoute110: true)
+            }
+        } else if usingSharedPool110 == true {
+            // Dos observaciones para no reabrir el proveedor por una lectura
+            // transitoria. El motor muerto no debe retener VLC en 127.0.0.1.
+            missingPoolPolls110 += 1
+            if missingPoolPolls110 >= 2 {
+                missingPoolPolls110 = 0
+                play(url, refreshRoute110: true)
+            }
+        } else {
+            missingPoolPolls110 = 0
+        }
+    }
+
     // Exactly ONE provider media stream: FFmpeg ingests it; VLC plays local HLS.
     // Changing channels while REC is active keeps the previous local feed recording,
     // opening a second provider stream only for the *different* channel.
-    func play(_ url: URL?) {
-        guard currentURL != url else { return }
+    func play(_ url: URL?, refreshRoute110: Bool = false) {
+        guard currentURL != url || refreshRoute110 else { return }
+        resetReconnect112()
         // Si cambiamos de canal durante AirPlay, limpiar la ruta externa antes
         // de sintonizar la siguiente fuente y sin reabrir el canal anterior.
         if airPlay797.player != nil { stopAirPlay797(restoreVLC: false) }
@@ -153,6 +638,7 @@ final class SYNVideoHost: NSView {
         loadSerial70 += 1
         let serial = loadSerial70
         liveSession70 = nil
+        poolJoinInFlight110 = false
         replaying70 = false
         pausedByUser = false
         refreshPauseButtons()
@@ -160,28 +646,52 @@ final class SYNVideoHost: NSView {
         player.stop()
         #endif
         SYNSharedLive70.shared.releaseUnrecorded(except: url)
-        guard let url else { return }
-        // SYN_POOL_31: no direct IPTV URL fallback (would exceed subscription limit).
+        guard let url else {
+            usingSharedPool110 = nil
+            sharedPoolPort110 = nil
+            routeWatch110?.invalidate(); routeWatch110 = nil
+            return
+        }
+        // SYN_VLC_AUTONOMO_110: directo con DVR cerrado, HLS compartido abierto.
         let isRemote = ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         let isVOD = ["mp4", "mkv", "avi", "mov", "m4v"].contains(url.pathExtension.lowercased())
         if isRemote && !isVOD {
+            beginRouteWatch110()
+            let usePool = Self.synPoolDisponible101()
+            usingSharedPool110 = usePool
+            sharedPoolPort110 = usePool ? Self.poolPort110() : nil
+            if !usePool {
+                // Descarta viewer.json y sesiones HLS sin detener el DVR.
+                SYNSharedLive70.shared.releaseUnrecorded(except: nil)
+                playMedia70(url)
+                return
+            }
+            poolJoinInFlight110 = true
+            lastPoolJoin110 = Date().timeIntervalSince1970
             SYNSharedLive70.shared.session(for: url) { [weak self] session in
                 guard let self, self.loadSerial70 == serial, self.currentURL == url else { return }
+                self.poolJoinInFlight110 = false
                 self.liveSession70 = session
                 if let session { self.playMedia70(session.local) }
-                else { NSSound.beep() /* Límite de sesiones o receptor no disponible. */ }
+                // Si no está preparado, el monitor reintentará SIN abrir una
+                // conexión directa mientras exista el motor compartido.
+                else if !refreshRoute110 { NSSound.beep() }
                 self.updateRecording70()
             }
         } else {
+            usingSharedPool110 = nil
+            sharedPoolPort110 = nil
+            routeWatch110?.invalidate(); routeWatch110 = nil
             SYNSharedLive70.shared.releaseUnrecorded(except: nil)
             playMedia70(url)
         }
     }
 
     private func playMedia70(_ url: URL) {
+        resetReconnect112()
         #if canImport(VLCKit)
         let media = VLCMedia(url: url)
-        media.addOption(":http-user-agent=VLC/3.0.21 LibVLC/3.0.21")
+        media.addOption(":http-user-agent=\(SYNPlaybackUserAgent911.current)")
         // Valores avanzados, conservadores por defecto; no tocan DVR ni la URL.
         let savedCache = UserDefaults.standard.integer(forKey: "syn.native.vlc.networkCaching799")
         let cacheMS = [500, 1000, 2000, 3000, 5000].contains(savedCache) ? savedCache : 1000
@@ -190,17 +700,21 @@ final class SYNVideoHost: NSView {
         if hardware == "none" { media.addOption(":avcodec-hw=none") }
         player.media = media
         player.play()
-        player.audio?.volume = Int32(muted ? 0 : volumeValue)
+        player.audio?.volume = Int32(recordingPlaybackMuted94 || muted ? 0 : volumeValue)
         #endif
     }
 
     func pauseOrResume() {
+        resetReconnect112()
         #if canImport(VLCKit)
         if player.isPlaying { player.pause(); pausedByUser = true }
         else { player.play(); pausedByUser = false }
         #endif
         refreshPauseButtons()
     }
+    // Sincronizar el estado del mini con las acciones realizadas en fullscreen.
+    func synMiniPlaybackPaused9101() -> Bool { pausedByUser }
+    func synMiniPlaybackMuted9101() -> Bool { muted }
     private func refreshPauseButtons() {
         let symbol = pausedByUser ? "play.fill" : "pause.fill"
         fullscreenPauseButton?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Reproducción o pausa")
@@ -208,7 +722,7 @@ final class SYNVideoHost: NSView {
     func setVolume(_ value: Double) {
         volumeValue = max(0, min(value, 100))
         #if canImport(VLCKit)
-        player.audio?.volume = Int32(muted ? 0 : volumeValue)
+        player.audio?.volume = Int32(recordingPlaybackMuted94 || muted ? 0 : volumeValue)
         #endif
         slider?.doubleValue = volumeValue
     }
@@ -262,6 +776,9 @@ final class SYNVideoHost: NSView {
     }
     @objc private func seekBackward() { seek(seconds: -30) }
     @objc private func seekForward() { seek(seconds: 30) }
+    // El minirreproductor usa saltos de 10 segundos: ofrecer los mismos en fullscreen.
+    @objc private func synFullscreenBack10_9101() { seek(seconds: -10) }
+    @objc private func synFullscreenForward10_9101() { seek(seconds: 10) }
     @objc private func returnToLive() {
         guard let stream = liveSession70 else { NSSound.beep(); return }
         replaying70 = false
@@ -453,10 +970,10 @@ final class SYNVideoHost: NSView {
         timeline.spacing = 16
         timeline.distribution = .fill
 
-        let back = button("gobackward.30", tip: "Retroceder 30 s (timeshift)", action: #selector(seekBackward))
+        let back = button("gobackward.10", tip: "Retroceder 10 s (igual que en mini)", action: #selector(synFullscreenBack10_9101))
         let pause = button("pause.fill", tip: "Pausar/reanudar", action: #selector(pauseClicked))
         fullscreenPauseButton = pause
-        let forward = button("goforward.30", tip: "Avanzar 30 s (timeshift)", action: #selector(seekForward))
+        let forward = button("goforward.10", tip: "Avanzar 10 s (igual que en mini)", action: #selector(synFullscreenForward10_9101))
         let live = button("dot.radiowaves.left.and.right", tip: "Volver al directo", action: #selector(returnToLive))
         let rec = NSButton(title: "● REC", target: self, action: #selector(toggleREC70))
         rec.isBordered = false
@@ -580,7 +1097,9 @@ final class SYNVideoHost: NSView {
     func configureGuide70(channels: [SYNGuideChannel70],
                           tune: @escaping (String) -> Void,
                           refresh: @escaping () -> Void,
-                          load: @escaping (String) async -> [SYNGuideProgramme74]) {
+                          load: @escaping (String) async -> [SYNGuideProgramme74],
+                          schedule: @escaping (String, String, Date, Date) throws -> Void) {
+        onScheduleGuide90 = schedule
         onLoadGuideProgrammes74 = load
         guideChannels70 = channels
         onSelectChannel70 = tune
@@ -592,6 +1111,9 @@ final class SYNVideoHost: NSView {
                 load: { [weak self] id in
                     guard let loader = self?.onLoadGuideProgrammes74 else { return [] }
                     return await loader(id)
+                }, schedule: { [weak self] id, title, start, end in
+                    guard let action = self?.onScheduleGuide90 else { return }
+                    try action(id, title, start, end)
                 })
         }
     }
@@ -609,6 +1131,9 @@ final class SYNVideoHost: NSView {
             load: { [weak self] id in
                 guard let loader = self?.onLoadGuideProgrammes74 else { return [] }
                 return await loader(id)
+            }, schedule: { [weak self] id, title, start, end in
+                guard let action = self?.onScheduleGuide90 else { return }
+                try action(id, title, start, end)
             }))
         panel.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(panel)
@@ -672,9 +1197,44 @@ final class SYNVideoHost: NSView {
         cursorHidden = hidden
         if hidden { NSCursor.hide() } else { NSCursor.unhide() }
     }
+
+    // SYN_FULLSCREEN_CURSOR_11241: ajuste persistente en Ajustes > Reproductor.
+    // Default ON si el usuario todavía no ha elegido una preferencia.
+    private var autoHideCursor11241: Bool {
+        (UserDefaults.standard.object(forKey: "syn.native.fullscreenHideCursor11241") as? Bool) ?? true
+    }
+
+    // SYN_FULLSCREEN_CURSOR_1124: el HUD y el cursor tienen dos relojes INDEPENDIENTES.
+    // Ratón en movimiento: solo recupera el cursor, NUNCA muestra/oscurece el HUD.
+    private func resetCursorIdle1124() {
+        cursorIdleJob1124?.cancel()
+        cursorIdleJob1124 = nil
+        setCursorHidden(false)
+        guard autoHideCursor11241,
+              let full = fullWindow, full.styleMask.contains(.fullScreen),
+              !liveTransitioning910, full.isKeyWindow, NSApp.isActive else { return }
+        let work = DispatchWorkItem { [weak self, weak full] in
+            guard let self, let full, self.fullWindow === full,
+                  self.autoHideCursor11241,
+                  !self.liveTransitioning910, full.styleMask.contains(.fullScreen),
+                  full.isKeyWindow, NSApp.isActive,
+                  full.frame.contains(NSEvent.mouseLocation) else { return }
+            self.cursorIdleJob1124 = nil
+            self.setCursorHidden(true)
+        }
+        cursorIdleJob1124 = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: work)
+    }
+
+    private func stopCursorIdle1124() {
+        cursorIdleJob1124?.cancel()
+        cursorIdleJob1124 = nil
+        setCursorHidden(false)
+    }
+
     // Both bars and the uniform black dim appear/disappear on video click ONLY.
     private func setFullscreenHUDVisible621(_ visible: Bool) {
-        guard fullWindow != nil else { return }
+        guard fullWindow != nil, !liveTransitioning910 else { return }
         synHUDIsVisible621 = visible
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.23
@@ -683,6 +1243,24 @@ final class SYNVideoHost: NSView {
             bottomBar?.animator().alphaValue = visible ? 1 : 0
             synUniformDim621?.animator().alphaValue = visible ? 1 : 0
         }
+    }
+
+    // SYN_FS_CLICK_1122: solo un clic sobre el video revela el HUD.
+    // Pulsar un control del HUD reinicia los 8 s; mover el cursor no lo modifica.
+    private func revealFullscreenControls9101() {
+        guard let full = fullWindow, full.styleMask.contains(.fullScreen),
+              !liveTransitioning910, guidePanel70 == nil, airPlayPanel797 == nil else { return }
+        hideJob?.cancel()
+        if !synHUDIsVisible621 { setFullscreenHUDVisible621(true) }
+        let hide = DispatchWorkItem { [weak self, weak full] in
+            guard let self, let full, self.fullWindow === full,
+                  !self.liveTransitioning910, self.synHUDIsVisible621,
+                  self.guidePanel70 == nil, self.airPlayPanel797 == nil else { return }
+            self.hideJob = nil
+            self.setFullscreenHUDVisible621(false)
+        }
+        hideJob = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: hide)
     }
 
     private func clickOnFullscreenControl621(_ point: NSPoint, in content: NSView) -> Bool {
@@ -695,20 +1273,54 @@ final class SYNVideoHost: NSView {
         return false
     }
 
+    // La vista original muestra una salida util, nunca una segunda instancia de VLC.
+    private func showFullscreenReturn1123() {
+        guard fullscreenReturn1123 == nil else { return }
+        let panel = NSHostingView(rootView: SYNFullscreenReturn1123(
+            restore: { [weak self] in self?.exitFullscreen() }
+        ))
+        panel.frame = bounds
+        panel.autoresizingMask = [.width, .height]
+        addSubview(panel, positioned: .above, relativeTo: nil)
+        fullscreenReturn1123 = panel
+    }
+
+    private func removeFullscreenReturn1123() {
+        fullscreenReturn1123?.removeFromSuperview()
+        fullscreenReturn1123 = nil
+    }
+
     func toggleFullscreen() {
+        guard !liveTransitioning910 else { return }
         if fullWindow != nil { exitFullscreen() } else { enterFullscreen() }
     }
     private func enterFullscreen() {
-        guard fullWindow == nil, let screen = window?.screen ?? NSScreen.main else { return }
-        originalWindow = window
+        guard fullWindow == nil,
+              let sourceWindow = window,
+              let screen = sourceWindow.screen ?? NSScreen.main else { return }
+        originalWindow = sourceWindow
+        liveTransitioning910 = true
+        // SYN_TV_FULLSCREEN_ZOOM_910: la ventana nace donde esta el minirreproductor,
+        // NO ocupando ya el monitor. macOS hace el unico zoom al crear el Space.
+        let videoRect = sourceWindow.convertToScreen(convert(bounds, to: nil))
+        let initialRect: NSRect
+        if videoRect.width > 80 && videoRect.height > 45 {
+            initialRect = videoRect
+        } else {
+            initialRect = NSRect(x: screen.visibleFrame.midX - 320,
+                                 y: screen.visibleFrame.midY - 180,
+                                 width: 640, height: 360)
+        }
         // La ventana con título (oculto) permite activar el fullscreen NATIVO.
         // Con .borderless macOS no crea un Space fullscreen ni oculta su propia barra.
-        let full = SYNFullscreenWindow(contentRect: screen.visibleFrame,
+        let full = SYNFullscreenWindow(contentRect: initialRect,
                                         styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                                         backing: .buffered, defer: false)
         full.backgroundColor = .black
         full.isOpaque = true
         full.title = "SYN"
+        // Se necesitan eventos de movimiento para despertar el cursor (no el HUD).
+        full.acceptsMouseMovedEvents = true // SYN_FULLSCREEN_CURSOR_1124
         full.titleVisibility = .hidden
         full.titlebarAppearsTransparent = true
         full.titlebarSeparatorStyle = .none
@@ -732,7 +1344,7 @@ final class SYNVideoHost: NSView {
         full.onSeekBack = { [weak self] in self?.seekBackward() }
         full.onSeekForward = { [weak self] in self?.seekForward() }
         full.onSnapshot = { [weak self] in self?.snapshot() }
-        let content = NSView(frame: NSRect(origin: .zero, size: screen.visibleFrame.size))
+        let content = NSView(frame: NSRect(origin: .zero, size: initialRect.size))
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.black.cgColor
         full.contentView = content
@@ -743,6 +1355,8 @@ final class SYNVideoHost: NSView {
         canvas.frame = content.bounds
         canvas.autoresizingMask = [.width, .height]
         content.addSubview(canvas)
+        // El hueco original ahora ofrece "Volver a ventana" sin otro drawable.
+        showFullscreenReturn1123()
         let dim = SYNFullscreenUniformDim621(frame: content.bounds)
         dim.autoresizingMask = [.width, .height]
         dim.wantsLayer = true
@@ -769,7 +1383,12 @@ final class SYNVideoHost: NSView {
         ) { [weak self, weak full] _ in
             guard let self, let full, self.fullWindow === full else { return }
             self.nativeEntering794 = false
-            if self.nativeExitRequested794 { full.toggleFullScreen(nil) }
+            self.liveTransitioning910 = false
+            self.resetCursorIdle1124() // comienza el plazo de 15 s al entrar al Space.
+            if self.nativeExitRequested794 {
+                self.liveTransitioning910 = true
+                full.toggleFullScreen(nil)
+            }
         }
         nativeExitObserver794 = NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: full, queue: .main
@@ -782,6 +1401,9 @@ final class SYNVideoHost: NSView {
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
             guard let self, event.window === self.fullWindow,
                   let content = self.fullWindow?.contentView else { return event }
+            // Ignorar pulsaciones mientras macOS anima el Space.
+            if self.liveTransitioning910 { return event }
+            self.resetCursorIdle1124() // el clic reinicia 15 s, aparte de los 8 s del HUD.
             let point = content.convert(event.locationInWindow, from: nil)
             // No interceptar botones SwiftUI del panel de AirPlay integrado.
             if self.airPlayPanel797 != nil { return event }
@@ -789,13 +1411,43 @@ final class SYNVideoHost: NSView {
                guidePanel.frame.contains(point) { return event }
             if self.synHUDIsVisible621,
                ((self.topBar?.frame.contains(point) ?? false) ||
-                (self.bottomBar?.frame.contains(point) ?? false)) { return event }
-            if self.clickOnFullscreenControl621(point, in: content) {
-                return event // Click on a button or slider retains its normal action.
+                (self.bottomBar?.frame.contains(point) ?? false)) {
+                self.revealFullscreenControls9101() // 8 s desde la última interacción.
+                return event // La pulsación sobre el HUD llega a sus controles.
             }
-            self.setFullscreenHUDVisible621(!self.synHUDIsVisible621)
+            if self.clickOnFullscreenControl621(point, in: content) {
+                self.revealFullscreenControls9101()
+                return event // Los botones y sliders conservan sus acciones.
+            }
+            if self.synHUDIsVisible621 {
+                self.hideJob?.cancel()
+                self.hideJob = nil
+                self.setFullscreenHUDVisible621(false)
+            } else {
+                self.revealFullscreenControls9101()
+            }
             return nil // The click acts on HUD only, not on VLC.
         }
+        // SYN_FULLSCREEN_CURSOR_1124: el movimiento solo reactiva el CURSOR.
+        // Nunca llama a revealFullscreenControls9101 ni cambia el atenuado.
+        cursorMovementMonitor1124 = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        ) { [weak self, weak full] event in
+            guard let self, let full, self.fullWindow === full,
+                  event.window === full, !self.liveTransitioning910 else { return event }
+            self.resetCursorIdle1124()
+            return event
+        }
+        // No ocultar globalmente el puntero al salir del Space o de la aplicación.
+        fullscreenDidResignKey1124 = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: full, queue: .main
+        ) { [weak self] _ in self?.stopCursorIdle1124() }
+        fullscreenDidBecomeKey1124 = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: full, queue: .main
+        ) { [weak self] _ in self?.resetCursorIdle1124() }
+        appDidResignActive1124 = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.stopCursorIdle1124() }
         tick70?.invalidate()
         tick70 = Timer.scheduledTimer(timeInterval: 1, target: self,
                                        selector: #selector(updateClock70), userInfo: nil, repeats: true)
@@ -811,6 +1463,7 @@ final class SYNVideoHost: NSView {
         if airPlayPanel797 != nil { stopAirPlay797(restoreVLC: true) }
         if full.styleMask.contains(.fullScreen) {
             guard !nativeExitRequested794 else { return }
+            liveTransitioning910 = true
             nativeExitRequested794 = true
             full.toggleFullScreen(nil)
             return // Restauramos el canvas cuando macOS termine la transición.
@@ -819,6 +1472,7 @@ final class SYNVideoHost: NSView {
             nativeExitRequested794 = true
             return
         }
+        liveTransitioning910 = true
         synCompleteNativeFullscreenExit794()
     }
 
@@ -835,7 +1489,16 @@ final class SYNVideoHost: NSView {
         }
         hideJob?.cancel(); hideJob = nil
         if let monitor = localMouseMonitor { NSEvent.removeMonitor(monitor); localMouseMonitor = nil }
-        setCursorHidden(false)
+        if let monitor = cursorMovementMonitor1124 { NSEvent.removeMonitor(monitor); cursorMovementMonitor1124 = nil }
+        for observer in [fullscreenDidBecomeKey1124, fullscreenDidResignKey1124, appDidResignActive1124] {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+        fullscreenDidBecomeKey1124 = nil
+        fullscreenDidResignKey1124 = nil
+        appDidResignActive1124 = nil
+        stopCursorIdle1124()
+        // Retirar el panel antes de devolver el ÚNICO canvas de VLC.
+        removeFullscreenReturn1123()
         // Remove canvas from fullscreen while it still exists, then restore it.
         canvas.removeFromSuperview()
         canvas.translatesAutoresizingMaskIntoConstraints = false
@@ -860,6 +1523,8 @@ final class SYNVideoHost: NSView {
         nativeMinimizeRequested794 = false
         nativeExitRequested794 = false
         nativeEntering794 = false
+        liveTransitioning910 = false
+        liveHUDHoldUntil910 = ProcessInfo.processInfo.systemUptime + 0.45
         originalWindow = nil
     }
     @objc private func fullscreenExit() { exitFullscreen() }
@@ -868,18 +1533,30 @@ final class SYNVideoHost: NSView {
         exitFullscreen()
     }
     func stop() {
+        resetReconnect112()
         stopAirPlay797(restoreVLC: false)
         exitFullscreen()
         #if canImport(VLCKit)
         player.stop()
         #endif
         currentURL = nil
+        usingSharedPool110 = nil
+        sharedPoolPort110 = nil
+        poolJoinInFlight110 = false
+        routeWatch110?.invalidate(); routeWatch110 = nil
         SYNSharedLive70.shared.releaseUnrecorded(except: nil)
     }
     deinit {
+        reconnectTimer112?.invalidate()
+        routeWatch110?.invalidate()
         if let observer = nativeEnterObserver794 { NotificationCenter.default.removeObserver(observer) }
         if let observer = nativeExitObserver794 { NotificationCenter.default.removeObserver(observer) }
         if let monitor = localMouseMonitor { NSEvent.removeMonitor(monitor) }
+        if let monitor = cursorMovementMonitor1124 { NSEvent.removeMonitor(monitor) }
+        for observer in [fullscreenDidBecomeKey1124, fullscreenDidResignKey1124, appDidResignActive1124] {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
+        cursorIdleJob1124?.cancel()
         hideJob?.cancel()
         if cursorHidden { NSCursor.unhide() }
         #if canImport(VLCKit)
@@ -898,11 +1575,13 @@ private struct SYNVideoSurface: NSViewRepresentable {
     let tune: (String) -> Void
     let refreshGuide: () -> Void
     let loadGuide: (String) async -> [SYNGuideProgramme74]
+    let scheduleGuide: (String, String, Date, Date) throws -> Void
     func makeNSView(context: Context) -> SYNVideoHost { host }
     func updateNSView(_ view: SYNVideoHost, context: Context) {
         view.configureTitle(title)
         view.configurePrograms70(now: now, next: next)
-        view.configureGuide70(channels: channels, tune: tune, refresh: refreshGuide, load: loadGuide)
+        view.configureGuide70(channels: channels, tune: tune, refresh: refreshGuide, load: loadGuide,
+            schedule: scheduleGuide)
         view.play(url)
     }
 }
@@ -922,6 +1601,7 @@ struct VLCPlayerView: View {
     var tune70: (String) -> Void = { _ in }
     var refreshGuide70: () -> Void = {}
     var loadGuide74: (String) async -> [SYNGuideProgramme74] = { _ in [] }
+    var scheduleGuide70: (String, String, Date, Date) throws -> Void = { _, _, _, _ in }
 
     init(url: URL?, channelTitle: String = "Televisión en directo",
          onPreviousChannel: (() -> Void)? = nil,
@@ -932,7 +1612,8 @@ struct VLCPlayerView: View {
          guideChannels70: [SYNGuideChannel70] = [],
          tune70: @escaping (String) -> Void = { _ in },
          refreshGuide70: @escaping () -> Void = {},
-         loadGuide74: @escaping (String) async -> [SYNGuideProgramme74] = { _ in [] }) {
+         loadGuide74: @escaping (String) async -> [SYNGuideProgramme74] = { _ in [] },
+         scheduleGuide70: @escaping (String, String, Date, Date) throws -> Void = { _, _, _, _ in }) {
         self.url = url
         self.channelTitle = channelTitle
         self.onPreviousChannel = onPreviousChannel
@@ -944,6 +1625,7 @@ struct VLCPlayerView: View {
         self.tune70 = tune70
         self.refreshGuide70 = refreshGuide70
         self.loadGuide74 = loadGuide74
+        self.scheduleGuide70 = scheduleGuide70
     }
 
     @State private var host = SYNVideoHost(frame: .zero)
@@ -960,12 +1642,14 @@ struct VLCPlayerView: View {
         miniRecording795 = host.synMiniIsRecording795()
         miniCanRecord795 = host.synMiniCanRecord795()
         miniResolution795 = host.synMiniActualResolution795()
+        paused = host.synMiniPlaybackPaused9101()
+        muted = host.synMiniPlaybackMuted9101()
     }
 
     private var isActive: Bool { url != nil }
 
     private func revealControls() {
-        guard isActive else { return }
+        guard isActive, !host.liveMiniHUDLocked910 else { return }
         hideTask?.cancel()
         withAnimation(.easeInOut(duration: 0.20)) { controlsVisible = true }
         hideTask = Task { @MainActor in
@@ -999,7 +1683,7 @@ struct VLCPlayerView: View {
             SYNVideoSurface(host: host, url: url, title: channelTitle,
                             now: nowProgram70, next: nextProgram70,
                             channels: guideChannels70, tune: tune70, refreshGuide: refreshGuide70,
-                            loadGuide: loadGuide74)
+                            loadGuide: loadGuide74, scheduleGuide: scheduleGuide70)
 
             if isActive {
                 VStack(spacing: 0) {
@@ -1072,6 +1756,7 @@ struct VLCPlayerView: View {
                                 .help("Volumen")
                             Spacer(minLength: 0)
                             tool("arrow.up.left.and.arrow.down.right", tip: "Pantalla completa") {
+                                concealControls()
                                 host.toggleFullscreen()
                             }
                         }
@@ -1120,5 +1805,9 @@ struct VLCPlayerView: View {
             updateMiniStatus795()
         }
         .clipped()
-    }
+            // SYN_RECORDING_IN_WINDOW_94: no alterar FFmpeg ni liberar conexiones.
+        .onReceive(NotificationCenter.default.publisher(for: .synRecordingPlayback94Changed)) { event in
+            host.setRecordingPlaybackMuted94(event.userInfo?["active"] as? Bool ?? false)
+        }
+}
 }

@@ -416,6 +416,7 @@ struct SYNM3UGuide79: View {
     let onTune: (SYNM3UChannel79) -> Void
     // nil: guía grande; valor: guía embebida, sin filas cortadas.
     var compactRows7106: Int? = nil
+    var onScheduleEPG90: (SYNM3UChannel79, SYNM3UProgramme79) -> Void = { _, _ in }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -454,6 +455,11 @@ struct SYNM3UGuide79: View {
                                                               saturation: 0.58, brightness: 0.62),
                                                         in: RoundedRectangle(cornerRadius: 8))
                                             .help(programme.detail)
+                                            .contextMenu {
+                                                Button("Programar grabación…") {
+                                                    onScheduleEPG90(channel, programme)
+                                                }
+                                            }
                                         }
                                     }
                                 }

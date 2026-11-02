@@ -24,6 +24,7 @@ struct Job: Codable {
     var url: String
     var channel: String
     var title: String
+    var namingVersion: Int?  // SYN_NAMES_92: optional for old job JSON
     var start: Double
     var end: Double
     var folder: String
@@ -100,6 +101,17 @@ func safeName(_ input: String) -> String {
     let candidate = String(input.replacingOccurrences(of: #"[^\p{L}\p{N} ._-]"#, with: "_", options: .regularExpression).prefix(60))
     let stripped = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
     return stripped.isEmpty ? "Grabación" : stripped
+}
+// SYN_NAMES_92 — file-safe form of user-visible title. No slashes (path separators)
+// or colons; pre-existing jobs always retain their original ID-based path.
+func recordingFileBase92(_ job: Job, id: String) -> String {
+    guard job.namingVersion == 2 else { return "\(safeName(job.title))_\(id.prefix(8))" }
+    let filesystemTitle = job.title.replacingOccurrences(of: "/", with: "-")
+        .replacingOccurrences(of: ":", with: "-")
+    let sanitized = String(filesystemTitle.replacingOccurrences(
+        of: #"[^\p{L}\p{N} ._-]"#, with: "_", options: .regularExpression).prefix(140))
+    let clean = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+    return clean.isEmpty ? "Grabación - \(id.prefix(8))" : clean
 }
 func isTerminal(_ state: String) -> Bool {
     ["finished", "failed", "cancelled", "partial", "expired"].contains(state)
@@ -225,7 +237,7 @@ func finalize(id: String, job: Job, previous: Status, at: Double, cancelled: Boo
         "file '" + part.file.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }.joined(separator: "\n") + "\n"
     try? listText.write(to: list, atomically: true, encoding: .utf8)
-    let final = jobFolder.appendingPathComponent("\(safeName(job.title))_\(id.prefix(8)).mkv")
+    let final = jobFolder.appendingPathComponent("\(recordingFileBase92(job, id: id)).mkv")
     if fm.isExecutableFile(atPath: remuxFFmpeg) &&
         exec(remuxFFmpeg, ["-nostdin", "-hide_banner", "-loglevel", "error", "-y",
                       "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", list.path,
@@ -332,6 +344,22 @@ final class TunerPool {
     var lastReleaseAt = -Double.infinity
 
     // SYN_POOL_31: capacity can change from MenuBar without restarting any recording.
+    // SYN_DVR_RECORDER_UA43_ENGINE: apply only when opening a new provider connection.
+    // Existing receiver processes keep the User-Agent with which they started.
+    func configuredUserAgent43() -> String {
+        let fallback = "VLC/3.0.21 LibVLC/3.0.21"
+        let path = root.appendingPathComponent("recorder-user-agent.json")
+        guard let data = try? Data(contentsOf: path),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let configured = value["userAgent"] as? String else { return fallback }
+        // Never allow HTTP header injection; invalid config falls back to known-safe VLC.
+        guard !configured.isEmpty && configured.utf8.count <= 512 &&
+              !configured.unicodeScalars.contains(where: {
+                let code = $0.value
+                return code < 32 || code == 127
+              }) else { return fallback }
+        return configured
+    }
     func configuredLimit() -> Int {
         let config = root.appendingPathComponent("config.json")
         if let content = try? Data(contentsOf: config),
@@ -416,7 +444,7 @@ final class TunerPool {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: ffmpeg)
         p.arguments = ["-nostdin","-hide_banner","-loglevel","error","-nostats",
-                       "-user_agent","VLC/3.0.21 LibVLC/3.0.21", "-i", remote,
+                       "-user_agent",configuredUserAgent43(), "-i", remote,
                        "-map","0:v?","-map","0:a?","-c","copy",
                        "-f","hls","-hls_time","2","-hls_list_size","180",
                        "-hls_start_number_source","epoch_us",
@@ -766,7 +794,7 @@ func main() {
                   !status.parts.isEmpty else { continue }
             let folder = URL(fileURLWithPath: job.folder, isDirectory: true)
                 .appendingPathComponent("SYN-DVR2_\(id)", isDirectory: true)
-            let expected = folder.appendingPathComponent("\(safeName(job.title))_\(id.prefix(8)).mkv")
+            let expected = folder.appendingPathComponent("\(recordingFileBase92(job, id: id)).mkv")
             guard URL(fileURLWithPath: output).standardizedFileURL == expected.standardizedFileURL else { continue }
             checked += 1
             cleanupVerifiedParts(status.parts,
