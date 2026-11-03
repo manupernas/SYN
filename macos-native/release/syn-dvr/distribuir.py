@@ -76,7 +76,13 @@ def selftest(stage: Path):
     for name in ('ffmpeg','ffprobe'):
         proc = subprocess.run([str(bindir/name),'-version'],capture_output=True,text=True,timeout=30)
         if proc.returncode or not proc.stdout.lower().startswith(name+' version'):
-            raise RuntimeError(f'{name} no funciona desde el paquete: {proc.stderr[-600:]}')
+            import signal
+            if proc.returncode < 0:
+                reason = f' (señal {-proc.returncode}: {signal.Signals(-proc.returncode).name})'
+            else:
+                reason = ''
+            raise RuntimeError(f'{name} no funciona desde el paquete; retorno={proc.returncode}{reason}; '
+                               f'stdout={proc.stdout[-800:]!r}; stderr={proc.stderr[-800:]!r}')
     p = subprocess.run([str(bindir/'comskip'),'--help'],capture_output=True,text=True,timeout=25)
     if p.returncode < 0 or 'library not loaded' in p.stderr.lower() or 'dyld:' in p.stderr.lower():
         raise RuntimeError('Comskip sigue dependiendo de una biblioteca externa: '+p.stderr[-600:])
@@ -151,7 +157,7 @@ def main():
     label=('PRUEBAS-NO-PUBLICAR' if args.development else
            ('WEB-SIN-NOTARIZAR' if not developer_signed else 'PUBLICACION-FIRMADA'))
     arches='-'.join(sorted(app_arch))
-    output=args.output/f'SYN-DVR-4.4.6-{arches}-{label}.zip'
+    output=args.output/f'SYN-DVR-4.5.6-{arches}-{label}.zip'
     if output.exists(): raise RuntimeError('Ya existe un archivo de salida: '+str(output)+'; no lo sobreescribo.')
     with tempfile.TemporaryDirectory(prefix='syn-dvr-release-') as temp:
         temp=Path(temp)
@@ -229,6 +235,11 @@ def main():
             if not app_arch.issubset(inspect_binary(binary)):
                 raise RuntimeError('Arquitectura faltante en '+binary.name+'; no publicaré un paquete incompleto.')
         check_external_paths(stage,bundled)
+        # SYN_DVR_453: install_name_tool invalidates the old Mach-O signatures.
+        # Re-sign BEFORE trying to execute ffmpeg/ffprobe/comskip. This is an
+        # intermediate ad-hoc signature; final signing below is unchanged.
+        for binary in bundled:
+            run(['/usr/bin/codesign','--force','--sign','-',str(binary)])
         selftest(stage)
         # Verificación de motor y scripts antes de firmar el paquete.
         probe=subprocess.run([str(stage/'Contents/MacOS/syn-dvr-python'),'--self-test'],
@@ -257,6 +268,41 @@ def main():
             'Antes de publicar: revisa licencias de TODAS las librerías empaquetadas y facilita las fuentes correspondientes.\n')
         sign(stage,bundled,args.identity,not developer_signed)
         selftest(stage)
+        # SYN_DVR_454: smoke test first-run setup under a disposable HOME.
+        # Never touches the developer's settings, recordings, app or keychain.
+        smoke_home = temp/'CLEAN-USER-SMOKE'
+        smoke_home.mkdir(mode=0o700)
+        smoke_env = os.environ.copy()
+        smoke_env['HOME'] = str(smoke_home)
+        smoke_env['SYN_DVR_ENGINE'] = str(stage/'Contents/MacOS/syn-dvr-worker')
+        smoke_env['SYN_DVR_REMOTE_SCRIPT'] = str(runtime/'syn_dvr_remote.py')
+        smoke_env['SYN_DVR_POOL_PYTHON'] = str(frozen)
+        smoke_env['SYN_DVR_POOL_SERVER'] = str(runtime/'hls_server.py')
+        smoke_env['SYN_DVR_V2_FFMPEG'] = str(stage/'Contents/MacOS/ffmpeg')
+        smoke_env['SYN_DVR_V2_FFPROBE'] = str(stage/'Contents/MacOS/ffprobe')
+        remote_script = runtime/'syn_dvr_remote.py'
+        supervisor_script = runtime/'standalone_supervisor.py'
+        def smoke(command, data=None):
+            result = subprocess.run(command, env=smoke_env, input=data,
+                                    capture_output=True, text=True, timeout=90)
+            if result.returncode:
+                raise RuntimeError('SYN DVR 454: falló prueba limpia '+command[-1]+
+                                   '; código='+str(result.returncode)+
+                                   '; stderr='+result.stderr[-700:]+
+                                   '; stdout='+result.stdout[-300:])
+            return result
+        smoke([str(frozen),str(remote_script),'prepare'])
+        import json as _json
+        payload = _json.dumps({'bind':'127.0.0.1','port':8091,
+                               'recordingsFolder':str(smoke_home/'Movies/SYN Grabaciones'),
+                               'authRequired':True,'password':'smoke-test-454-not-real'})
+        smoke([str(frozen),str(remote_script),'configure-stdin'], payload)
+        smoke([str(frozen),str(supervisor_script),'check'])
+        cfile = smoke_home/'Library/Application Support/SYN DVR Remote/server.json'
+        config = _json.loads(cfile.read_text(encoding='utf-8'))
+        if config.get('port') != 8091 or config.get('authRequired') is not True:
+            raise RuntimeError('SYN DVR 454: configuración limpia sin guardar puerto o contraseña.')
+        print('✅ 454: primer arranque sin datos, configuración y contraseña probados en HOME temporal.')
         run(['/usr/bin/ditto','-c','-k','--keepParent',str(stage),str(output)])
         if developer_signed:
             run(['xcrun','notarytool','submit',str(output),'--keychain-profile',args.notary_profile,'--wait'])

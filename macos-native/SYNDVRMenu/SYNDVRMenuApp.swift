@@ -216,7 +216,7 @@ private struct DVRDashboard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
                         Text("SYN DVR").font(.system(size: 19, weight: .bold))
-                        Text("4.4.6 beta").font(.system(size: 11, weight: .medium))
+                        Text("4.5.6 prueba").font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                     }
                     Text(dvr.workerOnline ? (dvr.isRecording ? "Grabando en directo" : "Preparado para grabar") : "Motor desconectado")
@@ -582,7 +582,7 @@ private struct SYNRemoteServerSettings40: View {
     @Environment(\.dismiss) private var dismiss
     @State private var port = "8090"
     @State private var lanEnabled = true
-    @State private var folder = ""
+    @State private var folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/SYN Grabaciones").path
     @State private var password = ""
     @State private var passwordEnabled = false
     @State private var alreadyHasPassword = false
@@ -691,11 +691,18 @@ private struct SYNRemoteServerSettings40: View {
 
     private func load() {
         let fm=FileManager.default
+        if SYNBundledRuntime446.available {
+            do { try SYNBundledRuntime446.prepare() }
+            catch {
+                message = "No puedo preparar tus datos: " + error.localizedDescription
+                return
+            }
+        }
         let cfg=support.appendingPathComponent("server.json")
         if let data=try? Data(contentsOf:cfg),
            let json=try? JSONSerialization.jsonObject(with:data) as? [String:Any] {
             port=String(json["port"] as? Int ?? 8090)
-            folder=json["recordingsFolder"] as? String ?? ""
+            folder=json["recordingsFolder"] as? String ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies/SYN Grabaciones").path
             lanEnabled=(json["bind"] as? String ?? "127.0.0.1") != "127.0.0.1"
             passwordEnabled=json["authRequired"] as? Bool ?? fm.fileExists(atPath:support.appendingPathComponent("auth.json").path)
             alreadyHasPassword=fm.fileExists(atPath:support.appendingPathComponent("auth.json").path)
@@ -737,6 +744,10 @@ private struct SYNRemoteServerSettings40: View {
     }
 
     private func save() {
+        if SYNBundledRuntime446.available {
+            do { try SYNBundledRuntime446.prepare() }
+            catch { message = "No puedo guardar en tu carpeta de usuario: " + error.localizedDescription; return }
+        }
         guard let n=Int(port), (1024...65535).contains(n), !folder.isEmpty else {
             message="Indica un puerto entre 1024 y 65535 y una carpeta válida.";return
         }
@@ -750,7 +761,6 @@ private struct SYNRemoteServerSettings40: View {
         let payload:[String:Any]=["bind":lanEnabled ? "0.0.0.0" : "127.0.0.1",
                                   "port":n,"recordingsFolder":folder,"password":passwordEnabled ? password : "",
                                   "authRequired":passwordEnabled]
-        password=""
         DispatchQueue.global(qos:.userInitiated).async {
             let p=Process();p.executableURL=URL(fileURLWithPath:SYNBundledRuntime446.python?.path ?? "/usr/bin/python3")
             p.arguments=[program.path,"configure-stdin"]
@@ -766,7 +776,10 @@ private struct SYNRemoteServerSettings40: View {
                 p.waitUntilExit()
                 outcome=String(data:data,encoding:.utf8) ?? ""
                 if p.terminationStatus==0 {
-                    DispatchQueue.main.async { SYNStandaloneController42.shared.reloadAPI() }
+                    DispatchQueue.main.async {
+                        password = ""
+                        SYNStandaloneController42.shared.reloadAPI()
+                    }
                 }
             } catch { outcome=error.localizedDescription }
             DispatchQueue.main.async { busy=false;message=outcome;load() }
@@ -816,14 +829,24 @@ private final class SYNStandaloneController42: ObservableObject {
         child.arguments = [script.path, "run"]
         if SYNBundledRuntime446.available { child.environment = SYNBundledRuntime446.environment() }
         child.standardInput = pipe
-        child.standardOutput = FileHandle.nullDevice
-        child.standardError = FileHandle.nullDevice
+        let bootLog = support.appendingPathComponent("autostart-gui.log")
+        if !fm.fileExists(atPath: bootLog.path) {
+            _ = fm.createFile(atPath: bootLog.path, contents: nil)
+        }
+        if let writer = try? FileHandle(forWritingTo: bootLog) {
+            writer.seekToEndOfFile()
+            child.standardOutput = writer
+            child.standardError = writer
+        } else {
+            child.standardOutput = FileHandle.nullDevice
+            child.standardError = FileHandle.nullDevice
+        }
         do {
             try child.run()
             process = child
             input = pipe
             startDate = Date()
-            detail = "Iniciando HTTPS y motor DVR…"
+            detail = "Iniciando motor DVR…"
         } catch {
             detail = "No se pudo iniciar: \(error.localizedDescription)"
             running = false
@@ -863,7 +886,12 @@ private final class SYNStandaloneController42: ObservableObject {
             return
         }
         running = state == "running"
-        detail = running ? "HTTPS y motor activos · sin launchd" : "Estado: \(state)"
+        let message = obj["detail"] as? String ?? ""
+        if running {
+            detail = message.isEmpty ? "Motor DVR activo" : message
+        } else {
+            detail = message.isEmpty ? "Estado: \(state)" : message
+        }
     }
 
     func reloadAPI() {

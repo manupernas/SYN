@@ -25,36 +25,39 @@ enum SYNBundledRuntime446 {
     static var available: Bool {
         guard python != nil, supervisor != nil, remote != nil, let macOS else { return false }
         let fm = FileManager.default
-        return ["syn-dvr-worker", "ffmpeg", "ffprobe", "comskip", "syn-dvr-ads"].allSatisfy {
+        return ["syn-dvr-worker", "ffmpeg", "ffprobe"].allSatisfy {
             fm.isExecutableFile(atPath: macOS.appendingPathComponent($0).path)
         }
     }
 
-    private static func deploy(_ source: URL, to destination: URL) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        // Preserve an existing installation rather than overwrite a running worker.
-        if fm.fileExists(atPath: destination.path) { return }
-        let staged = destination.deletingLastPathComponent().appendingPathComponent(".syn-dvr-446-\(UUID().uuidString)")
-        defer { try? fm.removeItem(at: staged) }
-        try fm.copyItem(at: source, to: staged)
-        try fm.moveItem(at: staged, to: destination)
-    }
-
+    // 454: solamente datos y configuracion en la cuenta actual. No instalar
+    // motores/binarios en Application Support, ni usar sudo ni tocar permisos ajenos.
     static func prepare() throws {
-        guard available, let macOS, let resources else {
-            throw NSError(domain: "SYN DVR", code: 446,
-                          userInfo: [NSLocalizedDescriptionKey: "El paquete autónomo está incompleto."])
+        guard available else {
+            throw NSError(domain: "SYN DVR", code: 454,
+                          userInfo: [NSLocalizedDescriptionKey: "Faltan componentes esenciales dentro de SYN DVR.app."])
         }
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
-        let bin = home.appendingPathComponent("Library/Application Support/SYN Native DVR/bin", isDirectory: true)
-        let remoteDir = home.appendingPathComponent("Library/Application Support/SYN DVR Remote", isDirectory: true)
-        let engineDir = home.appendingPathComponent("Library/Application Support/SYN DVR Engine 2.0", isDirectory: true)
-        try deploy(macOS.appendingPathComponent("syn-dvr-worker"), to: bin.appendingPathComponent("syn-dvr-worker"))
-        try deploy(resources.appendingPathComponent("standalone_supervisor.py"), to: remoteDir.appendingPathComponent("standalone_supervisor.py"))
-        try deploy(resources.appendingPathComponent("syn_dvr_remote.py"), to: remoteDir.appendingPathComponent("syn_dvr_remote.py"))
-        try deploy(resources.appendingPathComponent("hls_server.py"), to: engineDir.appendingPathComponent("hls_server.py"))
+        let base = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let engine = base.appendingPathComponent("SYN DVR Engine 2.0", isDirectory: true)
+        let remote = base.appendingPathComponent("SYN DVR Remote", isDirectory: true)
+        let recordings = home.appendingPathComponent("Movies/SYN Grabaciones", isDirectory: true)
+        // No cambiar propietario/permisos de ~/Library ni de Application Support.
+        for directory in [engine, engine.appendingPathComponent("jobs", isDirectory: true), remote, recordings] {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: NSNumber(value: 0o700)])
+        }
+        let config = remote.appendingPathComponent("server.json")
+        if !fm.fileExists(atPath: config.path) {
+            let values: [String: Any] = ["bind": "127.0.0.1", "port": 8090,
+                                          "recordingsFolder": recordings.path,
+                                          "authRequired": false,
+                                          "createdAt": Date().timeIntervalSince1970]
+            let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
+            try data.write(to: config, options: .atomic)
+            try fm.setAttributes([.posixPermissions: NSNumber(value: 0o600)], ofItemAtPath: config.path)
+        }
     }
 
     static func environment() -> [String: String] {

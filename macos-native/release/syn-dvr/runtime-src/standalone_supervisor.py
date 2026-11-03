@@ -22,14 +22,14 @@ import urllib.request
 HOME = Path.home()
 ENGINE_DIR = HOME / 'Library/Application Support/SYN DVR Engine 2.0'
 REMOTE_DIR = HOME / 'Library/Application Support/SYN DVR Remote'
-ENGINE_PROGRAM = ENGINE_DIR / 'bin/syn-dvr-engine'
-API_PROGRAM = REMOTE_DIR / 'syn_dvr_remote.py'
+ENGINE_PROGRAM = Path(os.environ.get('SYN_DVR_ENGINE', str(ENGINE_DIR / 'bin/syn-dvr-engine')))
+API_PROGRAM = Path(os.environ.get('SYN_DVR_REMOTE_SCRIPT', str(REMOTE_DIR / 'syn_dvr_remote.py')))
 API_CONFIG = REMOTE_DIR / 'server.json'
 AGENT = HOME / 'Library/LaunchAgents/com.mrseivane.syn.dvr2.plist'
 AGENT_SNAPSHOT = REMOTE_DIR / 'standalone.engine-agent.plist'
 STATUS = REMOTE_DIR / 'standalone.status.json'
 LOG = REMOTE_DIR / 'standalone.log'
-PYTHON = '/usr/bin/python3'
+PYTHON = os.environ.get('SYN_DVR_POOL_PYTHON', '/usr/bin/python3')
 children = []
 exit_requested = False
 
@@ -41,7 +41,7 @@ def log(msg):
 
 
 def status(state, api=None, engine=None, detail=''):
-    data = {'timestamp': time.time(), 'supervisorPID': os.getpid(),
+    data = {'timestamp': time.time(), 'supervisorPID': (os.getppid() if getattr(sys, 'frozen', False) else os.getpid()),
             'apiPID': api.pid if api else None, 'enginePID': engine.pid if engine else None,
             'state': state, 'detail': detail}
     tmp = STATUS.with_suffix('.json.tmp')
@@ -162,76 +162,91 @@ def on_signal(signum, frame):
 
 
 def run():
+    """Run the recorder first. HTTPS is an optional capability, not a prerequisite."""
     global children
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
     REMOTE_DIR.mkdir(parents=True, exist_ok=True)
-    os.chmod(REMOTE_DIR, 0o700)
+    # Only the app's own user data; no chmod of other people's folders.
     if not ENGINE_PROGRAM.is_file() or not os.access(ENGINE_PROGRAM, os.X_OK):
-        raise RuntimeError('No encuentro el motor DVR instalado')
-    if not API_PROGRAM.is_file() or not API_CONFIG.is_file():
-        raise RuntimeError('No está instalado o configurado SYN DVR Remote')
+        raise RuntimeError('No se encuentra el motor DVR incluido en la aplicación')
     env = engine_environment()
-    port = api_port()
     api = None
     engine = None
+    remote_detail = ''
     with (REMOTE_DIR / 'standalone.children.log').open('ab', buffering=0) as out:
+        def launch_optional_api():
+            nonlocal api, remote_detail
+            if api is not None:
+                safe_stop(api, 'Servidor HTTPS')
+                api = None
+            try:
+                if not API_PROGRAM.is_file():
+                    raise RuntimeError('Servidor remoto no incluido')
+                # Idempotent; preserves configured port, password, keys and recordings.
+                subprocess.run([PYTHON, str(API_PROGRAM), 'prepare'],
+                               stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                               env=env, timeout=45, check=True)
+                api = start_api(out)
+                children.append(api)
+                await_api(api, api_port())
+                remote_detail = ''
+                log('Servidor HTTPS disponible')
+            except Exception as exc:
+                if api is not None:
+                    safe_stop(api, 'Servidor HTTPS')
+                api = None
+                remote_detail = str(exc)[:180]
+                log('Servidor HTTPS no disponible (motor sigue activo): ' + remote_detail)
+
         try:
             status('starting')
-            api = start_api(out)
-            children.append(api)
-            await_api(api, port)
+            # Critical: launch the only recording engine before the optional API.
             engine = subprocess.Popen([str(ENGINE_PROGRAM), 'serve'], env=env,
                                       stdin=subprocess.DEVNULL, stdout=out,
                                       stderr=subprocess.STDOUT, start_new_session=True,
                                       close_fds=True)
             children.append(engine)
             await_engine(engine)
-            status('running', api, engine)
-            log('Servidor autónomo iniciado y verificado')
-            # stdin is a dedicated PIPE from the GUI. EOF means GUI closed,
-            # including crashes and Force Quit. No detach / daemonize.
+            status('running', None, engine, 'Motor DVR activo; configurando servidor remoto…')
+            log('Motor DVR activo')
+            launch_optional_api()
             while not exit_requested:
-                if api.poll() is not None:
-                    raise RuntimeError('La API HTTPS se ha cerrado: detengo también el motor')
                 if engine.poll() is not None:
-                    raise RuntimeError('El motor DVR se ha cerrado: detengo también la API')
+                    raise RuntimeError('El motor de grabación se cerró: consulta standalone.children.log')
+                if api is not None and api.poll() is not None:
+                    api = None
+                    remote_detail = 'El servidor HTTPS se ha cerrado'
+                    log('Servidor HTTPS cerrado; las grabaciones continúan')
                 r, _, _ = select.select([sys.stdin.buffer], [], [], 1)
                 if r:
                     msg = os.read(sys.stdin.fileno(), 128)
                     if not msg:
-                        log('La aplicación SYN DVR se ha cerrado')
+                        log('Se ha cerrado la aplicación SYN DVR')
                         break
                     if b'reload' in msg:
-                        # Only an API restart. Keep existing recording processes.
-                        safe_stop(api, 'API HTTPS')
-                        api = start_api(out)
-                        children[0] = api
-                        await_api(api, api_port())
-                        log('API HTTPS reiniciada después de cambiar la configuración')
-                # Authoritative liveness check: a dead/misconfigured API
-                # must not leave the engine recording on its own.
-                try:
-                    ok = health(api_port())
-                except (OSError, ValueError, ssl.SSLError, TimeoutError):
-                    ok = False
-                if not ok:
-                    raise RuntimeError('La API HTTPS dejó de responder: detengo también el motor')
-                status('running', api, engine)
+                        launch_optional_api()
+                detail = ('Motor DVR activo; servidor remoto no disponible: ' + remote_detail
+                          if remote_detail else 'Motor DVR y servidor remoto activos')
+                status('running', api, engine, detail)
         finally:
             status('stopping', api, engine)
-            # Engine first so recordings and provider connections get SIGTERM.
             safe_stop(engine, 'Motor DVR')
-            safe_stop(api, 'API HTTPS')
+            safe_stop(api, 'Servidor HTTPS')
             status('stopped')
-            log('Servidor autónomo detenido')
+            log('Motor DVR detenido')
 
 
 if __name__ == '__main__':
     try:
         if len(sys.argv) == 2 and sys.argv[1] == 'check':
             engine_environment()
-            assert ENGINE_PROGRAM.is_file() and API_PROGRAM.is_file() and API_CONFIG.is_file()
+            required = [('motor DVR', ENGINE_PROGRAM),
+                        ('servidor remoto', API_PROGRAM),
+                        ('configuración de servidor', API_CONFIG)]
+            missing = [f'{label}: {path}' for label, path in required if not path.is_file()]
+            if missing:
+                raise RuntimeError('Componentes ausentes: ' + ' | '.join(missing))
             print('OK: componentes autónomos disponibles')
         elif len(sys.argv) == 2 and sys.argv[1] == 'run':
             run()
