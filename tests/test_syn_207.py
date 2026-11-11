@@ -17,7 +17,7 @@ def popup_css():
 
 def test_version_and_approved_provider_is_dynamic_and_theme_safe():
     source=(ROOT/'syn.py').read_text('utf-8')
-    assert 'SYN_VERSION = "2.0.7"' in source
+    assert 'SYN_VERSION = "2.0.8"' in source
     assert 'SYN_207_LIGHT_POPOVER' in source
     assert 'Gtk.STYLE_PROVIDER_PRIORITY_USER + 6' in source
     assert "light_surface_css(theme, manager.get_dark()).encode('utf-8')" in source
