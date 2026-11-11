@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.0.8] — 2026-11-11
+
+### Improved
+- Single-click tuning in the main TV channel list; clicking a channel again requests a fresh playback session.
+- Right-click programme information in the EPG, including title, channel, time and synopsis, with the DVR scheduling action preserved.
+- Windowed mini-player retains a 16:9 canvas while resizing the main window.
+- Mini-player rounded corners (14 px), leaving fullscreen video unconstrained.
+
+### Notes
+- Reuses the existing GTK4/libmpv video renderer and DVR infrastructure.
+- Builds for RPM, DEB, Pacman and Flatpak on x86_64 and aarch64.
+
+
 ## [1.3.6] — 2026-10-23
 
 ### Added

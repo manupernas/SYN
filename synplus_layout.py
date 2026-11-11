@@ -385,9 +385,13 @@ def css(theme='system', accent_hex='', system_dark=False):
     window.iptv-tv.synplus-window .synplus-guide-full {
       margin:0; border:0; border-radius:0; background-color:@window_bg_color;
     }
+    /* SYN_LINUX_FIXED_16_9_MINIPLAYER: esquinas suaves en ventana. */
     window.iptv-tv.synplus-window .synplus-visual-player {
-      border-radius:6px; margin:2px 4px 0 4px;
+      border-radius:14px; margin:2px 4px 0 4px;
+      background-color:#03080b;
       border:0; box-shadow:none; }
+    window.iptv-tv.synplus-window .synplus-visual-player > overlay {
+      border-radius:14px; }
     window.iptv-tv.synplus-window .synplus-visual-player .iptv-video {
       border:0; box-shadow:none; }
     window.iptv-tv.synplus-window.synplus-pure-fullscreen .synplus-visual-player {
@@ -704,6 +708,7 @@ def install_synplus_layout(window, Gtk, GLib, video_column, base, brand, hidden_
     frame.set_valign(Gtk.Align.START)
     frame.set_size_request(-1, -1)
     frame.add_css_class('synplus-visual-player')
+    frame.set_overflow(Gtk.Overflow.HIDDEN)  # Recorta tambien el render GL y las capas OSD.
     frame.set_child(window.overlay)
     # The frame is an UNMEASURED OVERLAY. Its calculated (w,h) request will
     # not become the MINIMUM WINDOW SIZE, so the GTK window is freely resizable.
@@ -846,10 +851,10 @@ def player_geometry(region_width, region_height, guide_height, horizontal_margin
 
 def opening_player_geometry(region_width, region_height,
                             horizontal_margin=8, vertical_margin=4):
-    """Exactly 16:9, fitted INSIDE the available player area at startup only.
+    """Exactly 16:9, fitted INSIDE the available player area in windowed mode.
 
     Uses integer blocks of 16x9, so never distorts or requests outside its host.
-    After a window resize `player_geometry` takes over (arbitrary proportions).
+    It stays 16:9 when the application is resized.
     """
     available_w=max(0,int(region_width)-int(horizontal_margin))
     available_h=max(0,int(region_height)-int(vertical_margin))
@@ -860,7 +865,7 @@ def opening_player_geometry(region_width, region_height,
 
 
 def adapt(window, width):
-    """Fixed 150px navigation, freely sized video, 3–5 EPG rows."""
+    """Fixed 150px navigation, 16:9 mini-player, 3–5 EPG rows."""
     if not getattr(window, '_synplus_ui', False) or getattr(window, '_synplus_in_fullscreen', False):
         return
     window._synplus_nav.set_visible(True)
@@ -889,24 +894,11 @@ def adapt(window, width):
         if cw > 0 and ch > 0 and not full_guide:
             # Just four pixels of visual breathing room around the video,
             # instead of the thick insets introduced in the previous alpha.
-            if getattr(window,'_synplus_opening_ratio',False):
-                # Remember the first allocated window size, not GTK's
-                # preliminary zero-sized measurement. Only an actual change
-                # in outer dimensions releases the 16:9 startup condition.
-                outer=(window.get_width(),window.get_height())
-                original=getattr(window,'_synplus_opening_window_size',None)
-                if original is None and min(outer)>100:
-                    window._synplus_opening_window_size=outer
-                elif original is not None and (abs(outer[0]-original[0])>7 or
-                                               abs(outer[1]-original[1])>7):
-                    window._synplus_opening_ratio=False
-            if getattr(window,'_synplus_opening_ratio',False):
-                wanted=opening_player_geometry(cw,ch,8,4)
-            else:
-                wanted=player_geometry(cw, ch, 0, horizontal_margin=8, vertical_margin=4)
+            # SYN_LINUX_FIXED_16_9_MINIPLAYER: nunca se estira el lienzo.
+            # Ajustar dentro del espacio disponible; el área restante pertenece a la interfaz.
+            wanted=opening_player_geometry(cw,ch,8,4)
             if wanted and wanted != getattr(window,'_synplus_requested_video',None):
-                # Initial frame is 16:9; after manual resize any ratio works.
-                # The broadcast image itself keeps its native aspect ratio.
+                # 16:9 constante en modo ventana. MPV conserva el ratio de la señal.
                 frame.set_size_request(*wanted)
                 window._synplus_requested_video=wanted
         elif (full_guide or cw < 16 or ch < 16) and getattr(window,'_synplus_requested_video',None):

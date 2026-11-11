@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.7"
+SYN_VERSION = "2.0.8"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -2575,7 +2575,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             self.scroller.set_vexpand(True)
             self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             self.sidebar.append(self.scroller)
-            self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, activate_on_single_click=False)
+            self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, activate_on_single_click=True)
             self.listbox.add_css_class("iptv-list")
             self.listbox.connect("row-activated", lambda _lst, row: self.start_channel(row.channel))
             self.scroller.set_child(self.listbox)
@@ -3515,9 +3515,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             except (ValueError, OSError) as exc:
                 self.guide_count.set_text('DVR: ' + str(exc))
 
-        def dvr_epg_context_menu(self, target, channel, clipped_start, clipped_end, programme_title):
-            # A context popover is appropriate for right-click; DVR main view
-            # itself remains embedded, never in a separate window.
+        def dvr_epg_context_menu(self, target, channel, clipped_start, clipped_end,
+                                 programme_title, description=''):
+            """Show programme details on right-click, retaining the DVR action."""
             old = getattr(self, '_dvr_epg_popover', None)
             if old:
                 old.popdown()
@@ -3526,16 +3526,48 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             popover.set_parent(target)
             popover.set_has_arrow(True)
             popover.set_position(Gtk.PositionType.BOTTOM)
-            button = Gtk.Button(label=tr('● Programar grabación'))
-            button.add_css_class('syn-dvr-action-record')
-            button.set_margin_top(7)
-            button.set_margin_bottom(7)
-            button.set_margin_start(7)
-            button.set_margin_end(7)
-            button.connect('clicked', lambda *_: (
+
+            panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+            panel.set_size_request(310, -1)
+            panel.set_margin_top(14)
+            panel.set_margin_bottom(14)
+            panel.set_margin_start(15)
+            panel.set_margin_end(15)
+
+            heading = Gtk.Label(label=programme_title, xalign=0)
+            heading.add_css_class('title-3')
+            heading.set_wrap(True)
+            heading.set_selectable(True)
+            panel.append(heading)
+
+            channel_name = Gtk.Label(label=display_channel_name(channel.name), xalign=0)
+            channel_name.add_css_class('dim-label')
+            channel_name.set_wrap(True)
+            panel.append(channel_name)
+
+            hours = Gtk.Label(label=epg_time_label(clipped_start, clipped_end), xalign=0)
+            hours.add_css_class('dim-label')
+            panel.append(hours)
+
+            synopsis = Gtk.Label(label=(description or tr('Sin descripción disponible.')), xalign=0)
+            synopsis.set_wrap(True)
+            synopsis.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            synopsis.set_selectable(True)
+            synopsis.set_valign(Gtk.Align.START)
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroller.set_min_content_height(55)
+            scroller.set_max_content_height(185)
+            scroller.set_child(synopsis)
+            panel.append(scroller)
+
+            record = Gtk.Button(label=tr('● Programar grabación'))
+            record.add_css_class('syn-dvr-action-record')
+            record.connect('clicked', lambda *_: (
                 self.dvr_record_epg_program(channel, clipped_start, clipped_end, programme_title),
                 popover.popdown()))
-            popover.set_child(button)
+            panel.append(record)
+            popover.set_child(panel)
             self._dvr_epg_popover = popover
             popover.popup()
 
@@ -4613,9 +4645,9 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
             picture.set_hexpand(True)
             picture.set_vexpand(True)
             self._syn_idle_layer.set_child(picture)
-            hint = Gtk.Label(label=('Double-click a channel to play' if
+            hint = Gtk.Label(label=('Click a channel to play' if
                                     LANGUAGE.startswith('en') else
-                                    'Doble click en un canal para reproducir'))
+                                    'Clic en un canal para reproducir'))
             hint.set_justify(Gtk.Justification.CENTER)
             hint.set_wrap(True)
             hint.set_max_width_chars(42)
@@ -5176,8 +5208,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 self._syn_idle_hint.set_text('RETRANSMITIENDO A…\n' + dest)
             else:
                 self._syn_idle_hint.set_text(
-                    'Double-click a channel to play' if LANGUAGE.startswith('en')
-                    else 'Doble click en un canal para reproducir')
+                    'Click a channel to play' if LANGUAGE.startswith('en')
+                    else 'Clic en un canal para reproducir')
             if hasattr(self,'_syn_idle_sync'): self._syn_idle_sync()
 
         # SYN_CAST_SLIDER_720_1080_BETA6_5: GUI controls NEXT Cast session only.
@@ -7492,8 +7524,8 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         context = Gtk.GestureClick()
                         context.set_button(3)
                         context.connect('pressed', lambda _g, _n, _x, _y,
-                                        target=block, ch=channel, a0=a, b0=b, name=title:
-                                        self.dvr_epg_context_menu(target, ch, a0, b0, name))
+                                        target=block, ch=channel, a0=a, b0=b, name=title, desc=description:
+                                        self.dvr_epg_context_menu(target, ch, a0, b0, name, desc))
                         block.add_controller(context)
                     else:
                         block.add_css_class('syn-guide-gap')
