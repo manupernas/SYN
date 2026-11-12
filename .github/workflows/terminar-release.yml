@@ -130,3 +130,13 @@ jobs:
           fail_on_unmatched_files: true
           draft: false
           prerelease: false
+
+  publish_aur:
+    name: Actualizar SYN en AUR (tras recuperar GitHub Release)
+    needs: release
+    if: ${{ needs.release.result == 'success' && vars.AUR_AUTOPUBLISH_ENABLED == 'true' }}
+    uses: ./.github/workflows/aur-auto.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}

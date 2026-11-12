@@ -1,0 +1,166 @@
+name: SYN · Actualizar AUR
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Etiqueta estable publicada, por ejemplo v2.0.9
+        required: true
+        type: string
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Etiqueta estable publicada, por ejemplo v2.0.8
+        required: true
+        default: v2.0.8
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: syn-aur-syn-iptv
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Validar paquete y actualizar syn-iptv
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SYN_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Comprobar que la versión estable existe en GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$SYN_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'ERROR: etiqueta no válida (se espera vX.Y.Z).' >&2
+            exit 1
+          }
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${SYN_TAG}" \
+            --jq 'select(.draft == false and .prerelease == false) | .tag_name' \
+            | grep -Fx "$SYN_TAG"
+          echo "SYN_VERSION=${SYN_TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Configurar acceso SSH exclusivo a AUR
+        env:
+          AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$AUR_KEY" ]]; then
+            echo 'ERROR: falta el secreto AUR_SSH_PRIVATE_KEY en GitHub.' >&2
+            exit 1
+          fi
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$AUR_KEY" > "$HOME/.ssh/aur_ci"
+          chmod 600 "$HOME/.ssh/aur_ci"
+          ssh-keygen -y -P '' -f "$HOME/.ssh/aur_ci" > /dev/null
+          ssh-keyscan -t ed25519 aur.archlinux.org > "$HOME/.ssh/known_hosts" 2>/dev/null
+          chmod 600 "$HOME/.ssh/known_hosts"
+          # Huella ED25519 comprobada previamente al conectar el iMac con AUR.
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" | grep -F 'SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4'
+          cat > "$HOME/.ssh/config" <<'SSH'
+          Host aur.archlinux.org
+            User aur
+            IdentityFile ~/.ssh/aur_ci
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+          SSH
+          chmod 600 "$HOME/.ssh/config"
+          git clone ssh://aur@aur.archlinux.org/syn-iptv.git aur
+          test -s aur/PKGBUILD
+
+      - name: Calcular nuevo SHA-256 y conservar la receta existente de AUR
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/SYN-${SYN_VERSION}.tar.gz"
+          curl -fL --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://github.com/manupernas/SYN/archive/refs/tags/${SYN_TAG}.tar.gz" \
+            -o "$archive"
+          tar -tzf "$archive" > "$RUNNER_TEMP/source-files.txt"
+          grep -Fx "SYN-${SYN_VERSION}/packaging/stage-native.sh" "$RUNNER_TEMP/source-files.txt"
+          grep -Fx "SYN-${SYN_VERSION}/LICENSE" "$RUNNER_TEMP/source-files.txt"
+          export NEW_SHA256
+          NEW_SHA256="$(sha256sum "$archive" | cut -d' ' -f1)"
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          p = Path('aur/PKGBUILD')
+          content = p.read_text(encoding='utf-8')
+          old = re.search(r'^pkgver=(\d+\.\d+\.\d+)$', content, re.M)
+          sha = re.search(r"^sha256sums=\('([0-9a-f]{64})'\)$", content, re.M)
+          assert re.search(r'^pkgname=syn-iptv$', content, re.M), 'No es el paquete syn-iptv'
+          assert old and sha, 'El PKGBUILD de AUR cambió: revisar manualmente'
+          assert 'https://github.com/manupernas/SYN/archive/refs/tags/v${pkgver}.tar.gz' in content, 'URL de fuentes no reconocida'
+          old_v = tuple(map(int, old.group(1).split('.')))
+          new_v = tuple(map(int, os.environ['SYN_VERSION'].split('.')))
+          assert new_v >= old_v, 'No se permite degradar la versión de AUR'
+          if new_v == old_v:
+              assert sha.group(1) == os.environ['NEW_SHA256'], 'El tarball de una versión ya publicada ha cambiado: revisar manualmente'
+          content, n1 = re.subn(r'^pkgver=\d+\.\d+\.\d+$', 'pkgver=' + os.environ['SYN_VERSION'], content, count=1, flags=re.M)
+          content, n2 = re.subn(r'^pkgrel=\d+$', 'pkgrel=1', content, count=1, flags=re.M)
+          content, n3 = re.subn(r"^sha256sums=\('[0-9a-f]{64}'\)$", "sha256sums=('" + os.environ['NEW_SHA256'] + "')", content, count=1, flags=re.M)
+          assert (n1, n2, n3) == (1, 1, 1), 'No se pudo actualizar la receta de forma segura'
+          p.write_text(content, encoding='utf-8')
+          print('PKGBUILD:', old.group(1), '->', os.environ['SYN_VERSION'])
+          print('SHA256:', os.environ['NEW_SHA256'])
+          PY
+
+      - name: Generar SRCINFO, construir e instalar en un Arch Linux limpio
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/amd64 \
+            --volume "$PWD/aur:/aur" \
+            archlinux:base-devel /bin/bash -se <<'ARCH'
+          set -euo pipefail
+          pacman -Syu --noconfirm --needed \
+            namcap python python-gobject python-cairo gtk4 libadwaita mpv ffmpeg python-pychromecast
+          useradd --create-home --shell /bin/bash aurtester
+          mkdir -p /home/aurtester/build
+          cp /aur/PKGBUILD /home/aurtester/build/PKGBUILD
+          chown -R aurtester:aurtester /home/aurtester/build
+          runuser -u aurtester -- bash -euc '
+            cd /home/aurtester/build
+            makepkg --printsrcinfo > .SRCINFO
+            makepkg --verifysource
+            makepkg --cleanbuild --force
+            namcap PKGBUILD || true
+            for pkg in syn-iptv-*.pkg.tar.zst; do
+              test -f "$pkg" && namcap "$pkg" || true
+            done
+          '
+          cp /home/aurtester/build/.SRCINFO /aur/.SRCINFO
+          chmod 644 /aur/.SRCINFO
+          packages=(/home/aurtester/build/syn-iptv-*.pkg.tar.zst)
+          test -f "${packages[0]}"
+          pacman -U --noconfirm "${packages[0]}"
+          test -x /usr/bin/syn
+          test -f /usr/share/syn/syn.py
+          test -f /usr/share/applications/com.mrseivane.Syn.desktop
+          echo 'OK: paquete construido e instalado correctamente en Arch.'
+          ARCH
+
+      - name: Publicar únicamente los cambios necesarios en AUR
+        run: |
+          set -euo pipefail
+          git -C aur config user.name 'mrseivane'
+          git -C aur config user.email '120756979+manupernas@users.noreply.github.com'
+          git -C aur add PKGBUILD .SRCINFO
+          git -C aur diff --cached --check
+          if git -C aur diff --cached --quiet; then
+            echo 'AUR ya está actualizado; no hay cambios que publicar.'
+            exit 0
+          fi
+          git -C aur commit -m "Update SYN to ${SYN_VERSION}"
+          git -C aur push origin master
+          echo "AUR actualizado: syn-iptv ${SYN_VERSION}"
+
+      - name: Eliminar la clave temporal de este runner
+        if: always()
+        run: rm -f "$HOME/.ssh/aur_ci"

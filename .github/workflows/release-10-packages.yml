@@ -198,3 +198,13 @@ jobs:
           generate_release_notes: false
           prerelease: false
           draft: false
+
+  publish_aur:
+    name: Actualizar SYN en AUR (tras publicar GitHub Release)
+    needs: release
+    if: ${{ needs.release.result == 'success' && vars.AUR_AUTOPUBLISH_ENABLED == 'true' }}
+    uses: ./.github/workflows/aur-auto.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
