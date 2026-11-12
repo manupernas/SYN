@@ -1113,7 +1113,7 @@ def run_gui(playlist):
         print(f"Instala python3-gobject, gtk4 y libadwaita: {exc}", file=sys.stderr)
         return 1
 
-    from syn_epg_pop import epg_gradient_css
+    from syn_epg_pop import epg_gradient_css, epg_programme_color_indices
 
     TEAL_CSS = """
     /* TEAL: petróleo profundo / mandarina, heredando la identidad SYN. */
@@ -7487,9 +7487,13 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 track.set_valign(Gtk.Align.START)
                 track.set_overflow(Gtk.Overflow.HIDDEN)
                 track.add_css_class('syn-guide-track')
-                for x, width, a, b, title, description, available in epg_geometry(
-                        self._guide_programmes_for(channel),
-                        start, px_min, duration_minutes=720):
+                programmes = self._guide_programmes_for(channel)
+                guide_segments = epg_geometry(
+                    programmes, start, px_min, duration_minutes=720)
+                programme_colours = epg_programme_color_indices(
+                    channel.favorite_id, programmes, guide_segments)
+                for (x, width, a, b, title, description, available), colour_index in zip(
+                        guide_segments, programme_colours):
                     # Gtk.Box interactivo: Gtk.Button tiene ancho mínimo del
                     # tema (Adwaita/Colloid) y desalineaba los programas.
                     block = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -7499,7 +7503,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         block.add_css_class('syn-guide-program')
                         if self._guide_soft_arrival:
                             block.add_css_class('syn-guide-soft-arrival')
-                        block.add_css_class('syn-guide-program-' + str(sum(map(ord,channel.name)) % 6))
+                        block.add_css_class('syn-guide-program-' + str(colour_index))
                         if a <= now < b:
                             block.add_css_class('syn-guide-current')
                         block.set_tooltip_text(f'{epg_time_label(a,b)} · {title}' + (f'\n{description[:300]}' if description else ''))
