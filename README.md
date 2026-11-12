@@ -17,7 +17,7 @@
   <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
   <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
   <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
-  <a href="docs/RELEASE_2.0.8.md">What's new in SYN 2.0.7</a>
+  <a href="docs/RELEASE_2.0.8.md">What's new in SYN 2.0.8</a>
 </p>
 
 **SYN 2.0.8** is a desktop IPTV player for Linux, written in Python with **GTK4, libadwaita and libmpv**, with an independent FFmpeg DVR, an interactive XMLTV EPG and a **TV · SERIES · CINEMA** library. It plays content from your own authorised **M3U** playlists and **Xtream-compatible** accounts. It never supplies channels or subscriptions.
@@ -26,6 +26,13 @@ The new interface uses the approved **icono_3** colour-bars icon in every launch
 
 > [!IMPORTANT]
 > **Bring your own legal IPTV sources.** SYN does not include playlists, credentials, channels or media. Films, series, artwork and EPG depend on what **your provider actually supplies**. SYN is distributed through GitHub Releases and **is not currently listed on Flathub**.
+
+### Updated in SYN 2.0.8
+
+- **Single-click channel selection:** clicking a channel starts playback; activating the same channel again requests a stream restart.
+- **Programme details:** right-click an EPG entry to see its title, channel, original broadcast time and synopsis, with scheduling still available.
+- **16:9 mini-player:** the windowed player retains a 16:9 canvas when resizing, preserving the stream's native aspect ratio inside it.
+- **Refined player corners:** 14-pixel rounded corners in windowed mode; fullscreen remains edge-to-edge.
 
 ### Updated in SYN 2.0.7
 
@@ -159,7 +166,7 @@ Click **◎ PERFIL** to open the TV / SERIES / CINE selection. Normal startup st
 
 ## Download: choose the right package
 
-Get the **2.0.1** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases)**. The project builds eight packages: four formats × two CPU architectures.
+Get the **2.0.8** release assets from **[GitHub Releases](https://github.com/manupernas/SYN/releases/tag/v2.0.8)**. The project builds eight packages: four formats × two CPU architectures.
 
 | Your Linux system | File extension | Architecture label | Installer |
 | --- | --- | --- | --- |
@@ -172,10 +179,10 @@ Get the **2.0.1** release assets from **[GitHub Releases](https://github.com/man
 
 ### Fedora (RPM)
 
-Download the file matching your architecture, e.g. `syn-iptv-2.0.3-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
+Download the file matching your architecture, e.g. `syn-iptv-2.0.8-1.aarch64.rpm`, open a terminal in the Downloads directory and run:
 
 ```bash
-sudo dnf install ./syn-iptv-2.0.3-1.*.rpm
+sudo dnf install ./syn-iptv-2.0.8-1.*.rpm
 ```
 
 DNF resolves package dependencies. Start **SYN** from the app launcher or run `syn`.
@@ -185,7 +192,7 @@ DNF resolves package dependencies. Start **SYN** from the app launcher or run `s
 Download the matching `amd64` or `arm64` DEB, then:
 
 ```bash
-sudo apt install ./syn-iptv_2.0.3-1_*.deb
+sudo apt install ./syn-iptv_2.0.8-1_*.deb
 ```
 
 APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Required runtime libraries must be available in your distribution's repositories.
@@ -195,7 +202,7 @@ APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Req
 Download the matching `x86_64` or `aarch64` package, then:
 
 ```bash
-sudo pacman -U ./syn-iptv-2.0.3-1-*.pkg.tar.zst
+sudo pacman -U ./syn-iptv-2.0.8-1-*.pkg.tar.zst
 ```
 
 Pacman resolves packages available in your configured repositories. Start **SYN** from the app launcher or run `syn`. Some ARM-specific distributions may need equivalent dependencies in their own repositories.
@@ -203,11 +210,11 @@ Pacman resolves packages available in your configured repositories. Start **SYN*
 ### Flatpak (Fedora, Debian, Arch and others)
 
 1. Install **Flatpak** from your distribution's package manager if you don't already have it.
-2. Download `SYN-2.0.3-x86_64.flatpak` or `SYN-2.0.3-aarch64.flatpak`, matching `uname -m`.
+2. Download `SYN-2.0.8-x86_64.flatpak` or `SYN-2.0.8-aarch64.flatpak`, matching `uname -m`.
 3. Install the bundle and start SYN:
 
 ```bash
-flatpak install --user ./SYN-2.0.3-*.flatpak
+flatpak install --user ./SYN-2.0.8-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -216,7 +223,7 @@ If the GNOME runtime is missing, Flatpak can offer to install it (an internet co
 **Already installed system-wide?** To update that installation instead of creating a second user copy, use:
 
 ```bash
-sudo flatpak install --system --reinstall ./SYN-2.0.3-*.flatpak
+sudo flatpak install --system --reinstall ./SYN-2.0.8-*.flatpak
 flatpak run --system --branch=master com.mrseivane.Syn
 ```
 
@@ -225,20 +232,20 @@ flatpak run --system --branch=master com.mrseivane.Syn
 <details>
 <summary><strong>Instalación rápida en español</strong></summary>
 
-Descarga el archivo de **SYN 2.0.1** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
+Descarga el archivo de **SYN 2.0.8** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
 
 ```bash
 # Fedora
-sudo dnf install ./syn-iptv-2.0.3-1.*.rpm
+sudo dnf install ./syn-iptv-2.0.8-1.*.rpm
 
 # Debian / Ubuntu
-sudo apt install ./syn-iptv_2.0.3-1_*.deb
+sudo apt install ./syn-iptv_2.0.8-1_*.deb
 
 # Arch / EndeavourOS
-sudo pacman -U ./syn-iptv-2.0.3-1-*.pkg.tar.zst
+sudo pacman -U ./syn-iptv-2.0.8-1-*.pkg.tar.zst
 
 # Flatpak — instalación de usuario
-flatpak install --user ./SYN-2.0.3-*.flatpak
+flatpak install --user ./SYN-2.0.8-*.flatpak
 flatpak run com.mrseivane.Syn
 ```
 
@@ -248,7 +255,7 @@ flatpak run com.mrseivane.Syn
 
 ## Services, recording safety and limitations
 
-The independent background services are **`syn-dvr-worker.service`** (recordings) and **`syn-cast-bridge.service`** (Chromecast). There is **no `syn-dvr-tray.service`** in 1.3.5. SYN prepares/manages the needed services when it starts, without restarting an already active recording.
+The independent background services are **`syn-dvr-worker.service`** (recordings) and **`syn-cast-bridge.service`** (Chromecast). There has been **no `syn-dvr-tray.service`** since 1.3.5. SYN prepares/manages the needed services when it starts, without restarting an already active recording.
 
 ```bash
 systemctl --user status syn-dvr-worker.service syn-cast-bridge.service
@@ -268,7 +275,7 @@ flatpak run com.mrseivane.Syn
 
 The source build requires Git, `flatpak-builder`, the GNOME runtime/SDK and network access to dependencies. **You do not need to run the old `instalar-servicios-syn.sh` or `instalar-servicio-cast.sh` after installation.** These are not end-user installation steps.
 
-The GitHub Actions release workflow produces RPM, DEB, Pacman and Flatpak binaries independently for **x86_64** and **aarch64**. A GitHub Release is published only after all eight build jobs succeed. See [the release notes](docs/RELEASE_2.0.1.md).
+The GitHub Actions release workflow produces RPM, DEB, Pacman and Flatpak binaries independently for **x86_64** and **aarch64**. A GitHub Release is published only after all eight build jobs succeed. See [the release notes for 2.0.8](docs/RELEASE_2.0.8.md).
 
 ## Privacy, legal use and licence
 
