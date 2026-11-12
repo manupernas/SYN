@@ -115,7 +115,7 @@ jobs:
       - name: Generar SRCINFO, construir e instalar en un Arch Linux limpio
         run: |
           set -euo pipefail
-          docker run --rm --platform linux/amd64 \
+          docker run --rm --interactive --platform linux/amd64 \
             --volume "$PWD/aur:/aur" \
             archlinux:base-devel /bin/bash -se <<'ARCH'
           set -euo pipefail
