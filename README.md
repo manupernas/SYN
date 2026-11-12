@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/manupernas/SYN/releases">Download / Descargar</a> ·
+  <a href="https://aur.archlinux.org/packages/syn-iptv">AUR (Arch / EndeavourOS)</a> ·
   <a href="https://github.com/manupernas/SYN/actions">Builds</a> ·
   <a href="https://github.com/manupernas/SYN/issues">Issues</a> ·
   <a href="docs/RELEASE_2.0.8.md">What's new in SYN 2.0.8</a>
@@ -197,9 +198,23 @@ sudo apt install ./syn-iptv_2.0.8-1_*.deb
 
 APT resolves dependencies. Start **SYN** from the app launcher or run `syn`. Required runtime libraries must be available in your distribution's repositories.
 
-### Arch Linux / EndeavourOS (Pacman)
+### Arch Linux / EndeavourOS / Arch-based distributions (AUR)
 
-Download the matching `x86_64` or `aarch64` package, then:
+SYN is available in the **[Arch User Repository (AUR)](https://aur.archlinux.org/packages/syn-iptv)** as `syn-iptv`. If you already use an AUR helper, install it with your preferred one:
+
+```bash
+# yay
+yay -S syn-iptv
+
+# or paru
+paru -S syn-iptv
+```
+
+Other AUR helpers work too: use the package name `syn-iptv`. AUR packages are community-maintained, not part of Arch Linux’s official repositories; review the `PKGBUILD` before installing. The AUR recipe builds SYN from source and can be updated through your usual AUR helper.
+
+### Arch Linux / EndeavourOS (manual Pacman package)
+
+Alternatively, download the matching `x86_64` or `aarch64` package from [GitHub Releases](https://github.com/manupernas/SYN/releases), then:
 
 ```bash
 sudo pacman -U ./syn-iptv-2.0.8-1-*.pkg.tar.zst
@@ -232,7 +247,9 @@ flatpak run --system --branch=master com.mrseivane.Syn
 <details>
 <summary><strong>Instalación rápida en español</strong></summary>
 
-Descarga el archivo de **SYN 2.0.8** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
+**Arch, EndeavourOS y derivados:** también puedes instalar SYN directamente desde [AUR (`syn-iptv`)](https://aur.archlinux.org/packages/syn-iptv) con tu *helper* habitual, por ejemplo `yay -S syn-iptv` o `paru -S syn-iptv`. No necesitas descargar el paquete de GitHub para esta opción. AUR es un repositorio comunitario, no un repositorio oficial de Arch.
+
+**Instalación manual desde GitHub:** descarga el archivo de **SYN 2.0.8** para tu distribución y procesador desde [Releases](https://github.com/manupernas/SYN/releases). Comprueba `uname -m`: `x86_64` es Intel/AMD y `aarch64` es ARM64 (en DEB aparece como `arm64`). Ejecuta **solo uno** de estos comandos desde la carpeta donde esté el archivo descargado:
 
 ```bash
 # Fedora
