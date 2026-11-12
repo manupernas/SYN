@@ -47,6 +47,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="2.0.9" date="2026-11-12">
+      <description>
+        <p>Dracula and Alucard Classic themes with seven accents per variant, a colourful ten-shade EPG with per-programme gradients and consistent white labels, and matching GTK4 appearance throughout SYN.</p>
+        <p xml:lang="es">Temas Dracula y Alucard Classic con siete acentos por variante, EPG multicolor de diez tonos que alterna entre programas y mantiene el texto blanco legible, y apariencia GTK4 coherente en toda la aplicación.</p>
+      </description>
+    </release>
     <release version="2.0.7" date="2026-10-24">
       <description>
         <p>Fixed light-theme GTK4 popovers, dropdown menus and standalone Settings titlebar on Fedora Flatpak and other Linux desktops, preserving the existing Cast popup.</p>

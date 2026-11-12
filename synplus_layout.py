@@ -44,7 +44,7 @@ def native_system_css():
     """
 
 
-def cast_popover_css(theme='system'):
+def cast_popover_css(theme='system', accent_hex=''):
     """Strong scoped styling: readable Cast popup even with host GTK USER CSS.
 
     This CSS is installed separately at USER+4. GTK's popover remains a
@@ -58,9 +58,13 @@ def cast_popover_css(theme='system'):
         'nord-light': ('#ffffff', '#293b4c', '#5e81ac'),
         'gruvbox-dark': ('#37332c', '#f6ead6', '#d79921'),
         'gruvbox-light': ('#fffae6', '#3c3836', '#458588'),
+        'dracula': ('#343746', '#F8F8F2', '#FF5555'),
+        'alucard': ('#EFEDDC', '#1F1F1F', '#CB3A2A'),
     }
     cast_bg, cast_fg, cast_accent = schemes.get(
         theme, ('@window_bg_color', '@window_fg_color', '@accent_color'))
+    if isinstance(accent_hex, str) and re.fullmatch(r'#[0-9A-Fa-f]{6}', accent_hex):
+        cast_accent = accent_hex
     return f"""
     popover.syn-cast-popover > contents {{
         background-image:none; background-color:{cast_bg}; color:{cast_fg};
@@ -115,6 +119,7 @@ def welcome_light_css(theme='system', system_dark=False):
         'light':        ('#f1f8f6', '#17413b', '#43645e', '#ffffff', '#bfdcd1', '#ddf1eb', '#177e79', '#ffffff'),
         'nord-light':   ('#eceff4', '#293b4c', '#455c70', '#ffffff', '#c7d1dc', '#dae6f0', '#416a93', '#ffffff'),
         'gruvbox-light':('#fbf1c7', '#3c3836', '#625a4b', '#fff9e9', '#d5c8aa', '#f0e5cb', '#346a68', '#ffffff'),
+        'alucard': ('#FFFBEB', '#1F1F1F', '#6C664B', '#EFEDDC', '#CECCC0', '#DEDCCF', '#CB3A2A', '#FFFFFF'),
     }
     if theme == 'system' and system_dark:
         return ''
@@ -204,13 +209,15 @@ def css(theme='system', accent_hex='', system_dark=False):
         'nord-light': ('#eceff4', '#f5f7fa', '#ffffff', '#293b4c', '#e4e9f0', '#5e81ac'),
         'gruvbox-dark': ('#242321', '#302d28', '#37332c', '#f6ead6', '#484239', '#d79921'),
         'gruvbox-light': ('#fbf1c7', '#f8f2da', '#fffae6', '#3c3836', '#eee5c6', '#458588'),
+        'dracula': ('#282A36', '#21222C', '#343746', '#F8F8F2', '#424450', '#FF5555'),
+        'alucard': ('#FFFBEB', '#EFEDDC', '#FFFBEB', '#1F1F1F', '#DEDCCF', '#CB3A2A'),
     }
     if theme in values:
         bg, nav, surface, fg, hover, accent = values[theme]
         # Dark rail: blend its surface toward the surrounding background.
         # Keep the channel sidebar untouched (it uses the original nav tone).
         rail_nav = nav
-        if theme in ('teal', 'dark', 'nord-dark', 'gruvbox-dark'):
+        if theme in ('teal', 'dark', 'nord-dark', 'gruvbox-dark', 'dracula'):
             def mix(a, b, fraction=.43):
                 aa = (int(a[i:i+2], 16) for i in (1, 3, 5))
                 bb = (int(b[i:i+2], 16) for i in (1, 3, 5))
@@ -260,9 +267,9 @@ def css(theme='system', accent_hex='', system_dark=False):
            background-color:alpha(@accent_color,.13); border-color:alpha(@accent_color,.4); }
         '''
     # Dedicated high-priority Cast styling, unaffected by the video.
-    palette += cast_popover_css(theme)
+    palette += cast_popover_css(theme, accent_hex)
     # Pastillas cromáticas inspiradas por el boceto: estilo, no datos falsos.
-    if theme in ('light', 'nord-light', 'gruvbox-light'):
+    if theme in ('light', 'nord-light', 'gruvbox-light', 'alucard'):
         # Deep enough for white lettering even in the palest GTK palettes.
         epg_colors = ('#437e78', '#755b99', '#466f9e', '#9b7042', '#3b826f', '#936171')
         epg_text = '#ffffff'
@@ -272,7 +279,7 @@ def css(theme='system', accent_hex='', system_dark=False):
     # Always keep the left rail distinct: a soft accent wash in light themes,
     # and a much quieter one in dark themes. Follow both custom accent and
     # the selected theme; System mode follows Adwaita/GNOME's dark flag.
-    rail_is_light = theme in ('light', 'nord-light', 'gruvbox-light') or (theme == 'system' and not system_dark)
+    rail_is_light = theme in ('light', 'nord-light', 'gruvbox-light', 'alucard') or (theme == 'system' and not system_dark)
     if isinstance(accent_hex, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', accent_hex):
         tint_color = accent_hex
     elif theme in values:

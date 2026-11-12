@@ -48,7 +48,7 @@ def syn_capture_filename(value):
 
 APP_ID = "com.mrseivane.Syn"
 APP_TITLE = "SYN"
-SYN_VERSION = "2.0.8"
+SYN_VERSION = "2.0.9"
 SYN_PORTAL_BUILD = "1.3.6"
 CONFIG_DIR = sources.APP_CONFIG
 CONFIG_PATH = sources.CONFIG_FILE
@@ -131,7 +131,9 @@ def accent_css(hex_color):
     r,g,b = (int(color[i:i+2], 16) / 255 for i in (1,3,5))
     def linear(c): return c / 12.92 if c <= .04045 else ((c + .055)/1.055) ** 2.4
     luminosity = .2126*linear(r) + .7152*linear(g) + .0722*linear(b)
-    fg = '#101818' if luminosity > .34 else '#FFFFFF'
+    dark_luma = (.2126 * linear(16/255) + .7152 * linear(24/255) +
+                 .0722 * linear(24/255))
+    fg = '#101818' if (luminosity + .05)/(dark_luma + .05) >= 1.05/(luminosity + .05) else '#FFFFFF'
     return f"""
     :root {{ --accent-bg-color: {color}; --accent-fg-color: {fg}; --accent-color: {color}; }}
     window.iptv-tv button.iptv-accent,
@@ -906,7 +908,7 @@ def epg_geometry(programmes, start, pixels_per_minute, duration_minutes=300):
 
 
 # SYN_207_LIGHT_POPOVER: validated Fedora Flatpak light surfaces.
-def light_surface_css(theme, system_dark=False):
+def light_surface_css(theme, system_dark=False, accent_hex=''):
     """Keep the standalone settings window and detached popovers coherent.
 
     Dark themes (including dark System) are *intentionally* untouched.
@@ -919,6 +921,7 @@ def light_surface_css(theme, system_dark=False):
         'light': ('#f1f8f6', '#17413b', '#f8fffc', '#bfdcd1', '#ddf1eb', '#b8e7da', '#177e79'),
         'nord-light': ('#eceff4', '#293b4c', '#ffffff', '#c7d1dc', '#dae6f0', '#c6d9e8', '#416a93'),
         'gruvbox-light': ('#fbf1c7', '#3c3836', '#fff9e9', '#d5c8aa', '#f0e5cb', '#e5d5b5', '#346a68'),
+        'alucard': ('#FFFBEB', '#1F1F1F', '#EFEDDC', '#CECCC0', '#DEDCCF', '#CFCFDE', '#CB3A2A'),
     }
     if theme not in schemes or (theme == 'system' and system_dark):
         return ''
@@ -1016,7 +1019,7 @@ def light_surface_css(theme, system_dark=False):
     """
     # Keep Cast's separately approved styling; global popover selectors must
     # not override it after moving this patch to a higher GTK USER priority.
-    return css + synplus_layout.cast_popover_css(theme)
+    return css + synplus_layout.cast_popover_css(theme, accent_hex)
 
 
 def syn_popup_theme_css(theme):
@@ -1033,6 +1036,8 @@ def syn_popup_theme_css(theme):
         'nord-dark': ('#434C5E', '#ECEFF4', '#4C566A', '#5E81AC', '#4C566A', '#88C0D0'),
         'gruvbox-light': ('#fbf1c7', '#3c3836', '#d5c4a1', '#d5c4a1', '#bdae93', '#7c6f64'),
         'gruvbox-dark': ('#504945', '#ebdbb2', '#665c54', '#7c6f64', '#7c6f64', '#a89984'),
+        'dracula': ('#343746', '#F8F8F2', '#424450', '#44475A', '#6272A4', '#BD93F9'),
+        'alucard': ('#EFEDDC', '#1F1F1F', '#DEDCCF', '#CFCFDE', '#CECCC0', '#6C664B'),
     }
     if theme not in palettes:
         return ''
@@ -1081,6 +1086,10 @@ def epg_axis_ink(theme):
         return ((.30, .35, .43, .34), (.18, .20, .25, 1.0))
     if theme == 'gruvbox-light':
         return ((.48, .43, .32, .34), (.24, .22, .21, 1.0))
+    if theme == 'alucard':
+        return ((.42, .40, .29, .34), (.12, .12, .12, 1.0))
+    if theme == 'dracula':
+        return ((.74, .57, .98, .32), (.97, .97, .95, .98))
     return ((.58, .80, .75, .35), (.82, .94, .91, .98))
 
 
@@ -7775,7 +7784,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
         def theme_description(self):
             name = self._host_theme()[0] or 'Adwaita'
             if self._current_theme != 'system':
-                return tr('Sistema, Claro, Oscuro, Teal SYN, Nord claro/oscuro y Gruvbox claro/oscuro. Acentos Frost, Aurora y Gruvbox en Apariencia.')
+                return tr('Sistema, Claro, Oscuro, Teal SYN, Nord, Gruvbox, Dracula Classic y Alucard Classic. Acentos en Apariencia.')
             css = getattr(self, '_host_theme_css_path', None)
             accent = getattr(self, '_accent_hex','') or tr('del portal/libadwaita')
             if css:
@@ -7814,7 +7823,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 print(f'SYN: CSS GTK4 no aplicable ({path}): {exc}', file=sys.stderr)
 
         def apply_theme(self, theme, accent_hex=None):
-            if theme not in ('system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark'):
+            if theme not in ('system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark','dracula','alucard'):
                 theme = 'system'
             if accent_hex is not None:
                 try: self._accent_hex = normalize_accent_hex(accent_hex)
@@ -7852,7 +7861,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         'dark': Adw.ColorScheme.FORCE_DARK,
                         'light': Adw.ColorScheme.FORCE_LIGHT,
                     }[choice]
-                elif theme in ('light', 'nord-light', 'gruvbox-light'):
+                elif theme in ('light', 'nord-light', 'gruvbox-light', 'alucard'):
                     mode = Adw.ColorScheme.FORCE_LIGHT
                 else:
                     mode = Adw.ColorScheme.FORCE_DARK
@@ -7865,7 +7874,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                 if display and getattr(self, '_teal_provider_active', False):
                     Gtk.StyleContext.remove_provider_for_display(display, self.teal_theme_provider)
                     self._teal_provider_active = False
-                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light')), teal=(theme == 'teal')) + epg_gradient_css() + synplus_layout.css(theme, getattr(self, "_accent_hex", ""), manager.get_dark())
+                css = BASE_CSS + dvr_palette_css('system') + logo_pill_css(dark=manager.get_dark(), pastel=(theme in ('light','nord-light','gruvbox-light','alucard')), teal=(theme == 'teal')) + epg_gradient_css() + synplus_layout.css(theme, getattr(self, "_accent_hex", ""), manager.get_dark())
                 self.theme_provider.load_from_data(css.encode('utf-8'))
                 # The accent CSS is loaded separately at higher priority so
                 # Adwaita and all bundled color schemes cannot override it.
@@ -7879,7 +7888,7 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                             display, cast_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 4)
                         self._syn_cast_popover_provider = cast_provider
                     cast_provider.load_from_data(
-                        synplus_layout.cast_popover_css(theme).encode('utf-8'))
+                        synplus_layout.cast_popover_css(theme, getattr(self, '_accent_hex', '')).encode('utf-8'))
                     # SYN 2.0.4: the welcome is a separate window and needs
                     # LIGHT-theme ink at a priority above host GTK/Yaru CSS.
                     # Keep the provider even when the desktop changes to dark:
@@ -7902,14 +7911,14 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                             display, popup_fix, Gtk.STYLE_PROVIDER_PRIORITY_USER + 6)
                         self._syn_207_light_popup_fix = popup_fix
                     popup_fix.load_from_data(
-                        light_surface_css(theme, manager.get_dark()).encode('utf-8'))
+                        light_surface_css(theme, manager.get_dark(), getattr(self, '_accent_hex', '')).encode('utf-8'))
                 # Native GTK loads ~/.config/gtk-4.0/gtk.css at USER,
                 # above the APPLICATION-level SYN workbench. Protect only
                 # SYN's layout in native System mode at USER+1 while keeping
                 # generic host widget styling and the chosen accent intact.
                 native_system = (theme == 'system' and
                                  not os.path.exists('/.flatpak-info'))
-                if display and (native_system or theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark')):
+                if display and (native_system or theme in ('teal','light','dark','nord-light','nord-dark','gruvbox-light','gruvbox-dark','dracula','alucard')):
                     if native_system:
                         palette_css = (synplus_layout.css(
                             'system', getattr(self, '_accent_hex', ''), manager.get_dark()) +
@@ -7923,6 +7932,10 @@ window.iptv-tv .syn-portal-poster-name { font-weight: 770; }
                         from syn_gruvbox_palette import gruvbox_css
                         base = 'light' if theme == 'gruvbox-light' else 'dark'
                         palette_css = dvr_palette_css(base) + gruvbox_css(theme, getattr(self, '_accent_hex', ''))
+                    elif theme in ('dracula', 'alucard'):
+                        from syn_dracula_palette import dracula_css
+                        base = 'dark' if theme == 'dracula' else 'light'
+                        palette_css = dvr_palette_css(base) + dracula_css(theme, getattr(self, '_accent_hex', ''))
                     else:
                         palette_css = {'teal': TEAL_CSS, 'light': LIGHT_CSS, 'dark': DARK_CSS}[theme] + dvr_palette_css(theme)
                     effective_css = (palette_css if native_system else

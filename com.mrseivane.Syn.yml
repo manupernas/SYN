@@ -121,6 +121,7 @@ modules:
       - install -Dm644 syn_nord_palette.py /app/share/syn/syn_nord_palette.py
       - install -Dm644 syn_epg_pop.py /app/share/syn/syn_epg_pop.py
       - install -Dm644 syn_gruvbox_palette.py /app/share/syn/syn_gruvbox_palette.py
+      - install -Dm644 syn_dracula_palette.py /app/share/syn/syn_dracula_palette.py
       - install -Dm644 locale/en_US/LC_MESSAGES/syn.mo /app/share/locale/en_US/LC_MESSAGES/syn.mo
       - install -Dm644 locale/en_GB/LC_MESSAGES/syn.mo /app/share/locale/en_GB/LC_MESSAGES/syn.mo
       - install -Dm644 com.mrseivane.Syn.desktop /app/share/applications/com.mrseivane.Syn.desktop

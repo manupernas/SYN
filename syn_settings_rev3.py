@@ -99,6 +99,14 @@ EN.update({
  'Aurora · violeta': ('Aurora · purple', 'Aurora · purple'),
  'Gruvbox claro': ('Gruvbox Light', 'Gruvbox Light'),
  'Gruvbox oscuro': ('Gruvbox Dark', 'Gruvbox Dark'),
+ 'Dracula Classic': ('Dracula Classic', 'Dracula Classic'),
+ 'Alucard Classic': ('Alucard Classic', 'Alucard Classic'),
+ 'Oscuro · original': ('Dark · original', 'Dark · original'),
+ 'Claro · original': ('Light · original', 'Light · original'),
+ 'Dracula · acentos Classic': ('Dracula · Classic accents', 'Dracula · Classic accents'),
+ 'Alucard · acentos Classic': ('Alucard · Classic accents', 'Alucard · Classic accents'),
+ 'Rosa': ('Pink', 'Pink'),
+ 'Cian': ('Cyan', 'Cyan'),
  'Crema · retro': ('Cream · retro', 'Cream · retro'),
  'Café · retro': ('Coffee · retro', 'Coffee · retro'),
  'Gruvbox · colores de realce': ('Gruvbox · accent colors', 'Gruvbox · accent colours'),
@@ -166,6 +174,20 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
           window.syn-settings-window button.syn-pref-swatch-gruvbox-purple { background-color: #B16286; }
           window.syn-settings-window button.syn-pref-swatch-gruvbox-aqua { background-color: #689D6A; }
           window.syn-settings-window button.syn-pref-swatch-gruvbox-orange { background-color: #D65D0E; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-red { background-color: #FF5555; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-orange { background-color: #FFB86C; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-yellow { background-color: #F1FA8C; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-green { background-color: #50FA7B; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-cyan { background-color: #8BE9FD; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-purple { background-color: #BD93F9; }
+          window.syn-settings-window button.syn-pref-swatch-dracula-pink { background-color: #FF79C6; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-red { background-color: #CB3A2A; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-orange { background-color: #A34D14; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-yellow { background-color: #846E15; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-green { background-color: #14710A; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-cyan { background-color: #036A96; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-purple { background-color: #644AC9; }
+          window.syn-settings-window button.syn-pref-swatch-alucard-pink { background-color: #A3144D; }
         ''')
         Gtk.StyleContext.add_provider_for_display(win.get_display(), css,
                                                     Gtk.STYLE_PROVIDER_PRIORITY_USER + 5)
@@ -374,14 +396,16 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
           'Elige dónde guardar capturas PNG del vídeo.')
 
     gp = group(appearance_page, 'Tema de la aplicación')
-    theme_codes = ['system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark']
+    theme_codes = ['system','light','dark','teal','nord-light','nord-dark','gruvbox-light','gruvbox-dark','dracula','alucard']
     theme_labels = [('Sistema','Respetar los colores del escritorio'),
                     ('Claro','Aspecto pastel'),('Oscuro','Negro y gris'),
                     ('Teal SYN','Verde azulado petróleo'),
                     ('Nord claro','Snow Storm · hielo'),
                     ('Nord oscuro','Polar Night · ártico'),
                     ('Gruvbox claro','Crema · retro'),
-                    ('Gruvbox oscuro','Café · retro')]
+                    ('Gruvbox oscuro','Café · retro'),
+                    ('Dracula Classic','Oscuro · original'),
+                    ('Alucard Classic','Claro · original')]
     tile_row = Gtk.Grid(column_spacing=8, row_spacing=8)
     tile_row.set_column_homogeneous(True)
     tiles = []
@@ -464,6 +488,34 @@ def open_settings(app, Gtk, GLib, Pango, normalize_accent_hex):
             accent_switch.set_active(True), color_entry.set_text(color)))
         gruvbox_row.append(button)
     gp.append(gruvbox_row)
+
+    # SYN 2.0.9: the seven official Dracula/Alucard Classic accent tokens.
+    # The existing accent_hex config already stores the user's choice.
+    for variant, heading, colours in (
+        ('dracula', 'Dracula · acentos Classic', (
+            ('red', 'Rojo', '#FF5555'), ('orange', 'Naranja', '#FFB86C'),
+            ('yellow', 'Amarillo', '#F1FA8C'), ('green', 'Verde', '#50FA7B'),
+            ('cyan', 'Cian', '#8BE9FD'), ('purple', 'Morado', '#BD93F9'),
+            ('pink', 'Rosa', '#FF79C6'))),
+        ('alucard', 'Alucard · acentos Classic', (
+            ('red', 'Rojo', '#CB3A2A'), ('orange', 'Naranja', '#A34D14'),
+            ('yellow', 'Amarillo', '#846E15'), ('green', 'Verde', '#14710A'),
+            ('cyan', 'Cian', '#036A96'), ('purple', 'Morado', '#644AC9'),
+            ('pink', 'Rosa', '#A3144D'))),
+    ):
+        section_title = Gtk.Label(label=t(heading), xalign=0)
+        section_title.add_css_class('syn-pref-section-title')
+        gp.append(section_title)
+        colour_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        for slug, title, hex_value in colours:
+            button = Gtk.Button()
+            button.add_css_class('syn-pref-swatch')
+            button.add_css_class('syn-pref-swatch-' + variant + '-' + slug)
+            button.set_tooltip_text(heading + ' · ' + t(title) + ' · ' + hex_value)
+            button.connect('clicked', lambda _btn, color=hex_value: (
+                accent_switch.set_active(True), color_entry.set_text(color)))
+            colour_row.append(button)
+        gp.append(colour_row)
 
     gp = group(appearance_page, 'Logos de canales')
     ch = app._logo_selected_channel()

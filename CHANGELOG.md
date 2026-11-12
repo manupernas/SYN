@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.9] — 2026-11-12
+
+### Added
+- Dracula Classic (dark) and Alucard Classic (light), with seven official accent colours each (red, orange, yellow, green, cyan, purple and pink).
+- Ten colourful EPG gradients, rotating between individual programmes of each channel, with stable assignment on scroll and white readable text.
+
+### Improved
+- Classic theme integration across player chrome, library, Settings, detached GTK4 popovers, EPG containers and DVR interface.
+- Uniform native and Flatpak packaging of the new theme module for both x86_64 and aarch64.
+
+### Notes
+- No change to libmpv playback, stream handling, recording engine, Chromecast, M3U/Xtream profiles or saved user settings.
+- Official release packages are built and verified by GitHub Actions; the AUR recipe updates after a successful release if the automation remains enabled.
+
 ## [2.0.8] — 2026-11-11
 
 ### Improved
